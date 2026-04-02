@@ -8,6 +8,8 @@ from textual.containers import ScrollableContainer, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Label, Static
 
+from rich.syntax import Syntax
+
 from scripts.tui.keybindings import MODAL_BINDINGS
 
 
@@ -52,12 +54,12 @@ class FieldDetailModal(ModalScreen[None]):
         height: 1fr;
         padding: 1 2;
         background: $surface-darken-2;
+        overflow-y: auto;
     }
 
     FieldDetailModal .field-content {
         width: 100%;
         height: auto;
-        padding: 0;
     }
 
     FieldDetailModal .close-hint {
@@ -118,13 +120,29 @@ class FieldDetailModal(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         """Compose the modal content."""
         formatted_value = self._format_value(self.field_value)
+        syntax_theme = self.app._syntax_theme
+
+        syntax = Syntax(
+            formatted_value,
+            "json",
+            theme=syntax_theme,
+            line_numbers=False,
+            word_wrap=True,
+        )
 
         with Vertical():
             yield Label(self.panel_label, classes="modal-header")
             yield Label(f'Field: "{self.field_key}"', classes="field-key-label")
-            with ScrollableContainer(classes="content-container"):
-                yield Static(formatted_value, classes="field-content", markup=False)
-            yield Label("Press [ESC] or [ENTER] to close", classes="close-hint")
+            with ScrollableContainer(classes="content-container", id="modal-content"):
+                yield Static(syntax, classes="field-content")
+            yield Label(
+                "Press [ESC] to close | j/k/g/G/h/l scroll",
+                classes="close-hint",
+            )
+
+    def on_mount(self) -> None:
+        """Ensure the modal captures focus on mount."""
+        self.focus()
 
     def action_close(self) -> None:
         """Close the modal."""
@@ -133,3 +151,33 @@ class FieldDetailModal(ModalScreen[None]):
     def action_quit(self) -> None:
         """Quit the application."""
         self.app.exit()
+
+    def action_scroll_down(self) -> None:
+        """Scroll down in the content."""
+        container = self.query_one("#modal-content", ScrollableContainer)
+        container.scroll_down()
+
+    def action_scroll_up(self) -> None:
+        """Scroll up in the content."""
+        container = self.query_one("#modal-content", ScrollableContainer)
+        container.scroll_up()
+
+    def action_scroll_home(self) -> None:
+        """Scroll to the top."""
+        container = self.query_one("#modal-content", ScrollableContainer)
+        container.scroll_home()
+
+    def action_scroll_end(self) -> None:
+        """Scroll to the bottom."""
+        container = self.query_one("#modal-content", ScrollableContainer)
+        container.scroll_end()
+
+    def action_vim_left(self) -> None:
+        """Scroll left."""
+        container = self.query_one("#modal-content", ScrollableContainer)
+        container.scroll_left()
+
+    def action_vim_right(self) -> None:
+        """Scroll right."""
+        container = self.query_one("#modal-content", ScrollableContainer)
+        container.scroll_right()

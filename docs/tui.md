@@ -36,6 +36,65 @@ uv run python -m scripts.tui.app dataset_a/ --compare dataset_b/
 | `-x, --export` | Enable export mode (comparison view with parser_finale processing). Without this flag, the TUI shows a read-only detail view. |
 | `-O, --output-dir` | Output directory for export operations (default: `parsed_datasets`) |
 | `-c, --compare` | Path to second dataset for side-by-side comparison |
+| `--app-theme` | Set the app theme (CLI takes precedence over config) |
+| `--syntax-theme` | Set the syntax highlighting theme for JSON display |
+
+## Themes
+
+The TUI supports two separate theme systems:
+
+### App Theme
+
+Controls the overall look of the TUI (colors, backgrounds, borders). Available themes:
+
+| Theme | Type | Description |
+|-------|------|-------------|
+| `textual-dark` | Dark | Default Textual dark theme |
+| `nord` | Dark | Arctic, north-bluish color palette |
+| `gruvbox` | Dark | Retro groove color scheme |
+| `tokyo-night` | Dark | Tokyo night color scheme |
+| `atom-one-dark` | Dark | Atom One Dark theme |
+| `atom-one-light` | Light | Atom One Light theme |
+| `solarized-light` | Light | Solarized light theme |
+| `solarized-dark` | Dark | Solarized dark theme |
+
+### Syntax Theme
+
+Controls syntax highlighting for JSON display in the field detail modal. Available themes:
+
+| Theme | Description |
+|-------|-------------|
+| `monokai` | Default - Monokai color scheme |
+| `dracula` | Dracula color scheme |
+| `nord` | Nord color scheme |
+| `gruvbox-dark` | Gruvbox dark color scheme |
+| `solarized-dark` | Solarized dark |
+| `solarized-light` | Solarized light |
+
+### Configuration
+
+Theme preferences are stored in `config.json` in the project root:
+
+```json
+{
+  "app_theme": "textual-dark",
+  "syntax_theme": "monokai"
+}
+```
+
+### Keybindings
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+T` | Cycle through app themes |
+| `Ctrl+Y` | Cycle through syntax themes |
+
+### Priority
+
+Theme selection follows this priority order:
+1. CLI argument (`--app-theme` / `--syntax-theme`) - highest priority
+2. Config file (`config.json`)
+3. Default (textual-dark / monokai) - lowest priority
 
 ## View Modes
 
@@ -94,6 +153,8 @@ All keybindings are defined in a single module (`scripts/tui/keybindings.py`) an
 |-----|--------|
 | `q` | Quit |
 | `m` | Show field detail modal (when a JSON tree is visible) |
+| `Ctrl+T` | Cycle app theme |
+| `Ctrl+Y` | Cycle syntax theme |
 
 ### Navigation
 

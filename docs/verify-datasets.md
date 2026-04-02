@@ -118,11 +118,17 @@ uv run python -m scripts.tui.app output-datasets/nemotron_agentic_v2_sample_40.p
 The test suite verifies conversation integrity automatically:
 
 ```bash
-# Run all dataset mixer tests (60 tests)
+# Run all dataset mixer tests (98 tests)
 uv run python -m pytest tests/test_dataset_mixer.py -v
 
 # Run only the source filtering tests (15 tests)
 uv run python -m pytest tests/test_dataset_mixer.py::TestSourceFiltering -v
+
+# Run Hunter-Alpha adapter tests (38 tests) - tests the new/enhanced adapters
+uv run python -m pytest tests/test_dataset_mixer.py -v -k "HunterAlpha or HighCode or DetectAdapter or MessagesJSONLAdapterEnhanced"
+
+# Run adapter routing tests
+uv run python -m pytest tests/test_dataset_mixer.py::TestDetectAdapterRouting -v
 ```
 
 Key test classes:
@@ -130,6 +136,10 @@ Key test classes:
 - `TestNemotronAgenticV2AdapterIntegrity` — messages transformed to conversations
 - `TestMixOutputIntegrity` — end-to-end mix verification (schema, counts, round-trip)
 - `TestSourceFiltering` — include/exclude filtering produces correct subsets
+- `TestMessagesJSONLAdapterEnhanced` — metadata extraction, tools JSON serialization
+- `TestHighCodeSFTAdapter` — provenance/content field mapping
+- `TestHighCodeReasoningAdapter` — conversation singular→plural, transform_type→episode
+- `TestDetectAdapterRouting` — correct adapter selected per dataset
 
 ## Dry-Run Verification
 

@@ -49,6 +49,7 @@ dataset-parser/
 │   │   ├── mixer.py           # Core mixing logic
 │   │   ├── adapters.py        # Per-source adapters
 │   │   └── schema.py          # PyArrow output schema
+│   ├── config.json            # TUI theme configuration
 │   └── tui/                   # Terminal UI application
 │       ├── app.py             # Main Textual app
 │       ├── data_loader.py     # Data loading with schema detection
@@ -84,6 +85,86 @@ dataset-parser/
 
 ## Component Architecture
 
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                    dataset-parser Application                     │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  ┌──────────┬──────────────┬─────────┬──────────────┬────────────┐ │
+│  │CLI Tool  │Parser Finale │  TUI    │Data Splitter │Dataset     │ │
+│  │(main.py) │(AI-specific) │(app.py) │(data_splitter)│Mixer      │ │
+│  └────┬─────┴──────┬───────┴────┬────┴──────────────┴─────┬──────┘ │
+│         │             │              │                            │
+│         └─────────────┼──────────────┘                            │
+│                       │                                           │
+│            ┌──────────▼──────────┐                                │
+│            │     Data Loader     │   ← Schema Detection           │
+│            │   (data_loader.py)  │   ← Field Mapping              │
+│            │                     │   ← Record Caching             │
+│            └──────────┬──────────┘                                │
+│                       │                                           │
+│            ┌──────────▼──────────┐                                │
+│            │   Format Loaders    │   ← Pluggable Architecture     │
+│            │  (data_formats/)    │   ← JSONL, JSON, Parquet, CSV  │
+│            └─────────────────────┘                                │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+## Entry Points
+
+All commands are run from the project root using `uv run`:
+
+| Command | Description |
+|---------|-------------|
+| `uv run python -m scripts.main <cmd>` | CLI tool (list, show, search, stats) |
+| `uv run python -m scripts.tui.app <path>` | Interactive TUI |
+| `uv run python -m scripts.parser_finale <path>` | Transform records |
+| `uv run python -m scripts.data_splitter <file> -n N` | Split dataset |
+| `uv run python -m scripts.dataset_mixer <dir>` | Mix HuggingFace datasets |
+| `uv run python -m scripts.dataset_mixer` | (alias via __main__.py) |
+
+### CLI Tool (`scripts.main`)
+
+```bash
+uv run python -m scripts.main list <file>
+uv run python -m scripts.main show <file> <index>
+uv run python -m scripts.main search <file> <query>
+uv run python -m scripts.main stats <file>
+```
+
+### TUI Application (`scripts.tui.app`)
+
+```bash
+uv run python -m scripts.tui.app dataset/file.jsonl
+uv run python -m scripts.tui.app dataset/                  # directory mode
+uv run python -m scripts.tui.app dataset/ --compare other/  # comparison mode
+```
+
+TUI Options:
+- `-x, --export` - Enable export/comparison mode
+- `-O, --output-dir` - Output directory
+- `-c, --compare` - Compare two directories
+- `--app-theme TEXTUAL_THEME` - Set app theme
+- `--syntax-theme PYGMENTS_THEME` - Set syntax theme
+
+### Parser Finale (`scripts.parser_finale`)
+
+```bash
+uv run python -m scripts.parser_finale dataset/file.jsonl
+uv run python -m scripts.parser_finale dataset/ -O output/  # batch mode
+```
+
+### Data Splitter (`scripts.data_splitter`)
+
+```bash
+uv run python -m scripts.data_splitter dataset/file.jsonl -n 4
+```
+
+### Dataset Mixer (`scripts.dataset_mixer`)
+
+```bash
+uv run python -m scripts.dataset_mixer datasets/ -o output.parquet
+uv run python -m scripts.dataset_mixer datasets/ --dry-run
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                    dataset-parser Application                     │
@@ -185,8 +266,10 @@ An opinionated pipeline that combines specific HuggingFace datasets into a singl
 |---------|---------|--------|-----------|
 | `NemotronAdapter` | `nvidia/Nemotron-Terminal-Corpus` | Parquet | Drop `trial_name`/`source`, add `source_dataset` |
 | `NemotronAgenticV2Adapter` | `nvidia/Nemotron-SFT-Agentic-v2` | JSONL | Transform `messages` → `conversations` (handles search + tool_calling subsets) |
-| `MessagesJSONLAdapter` | `TeichAI/deepseek-v3.2-speciale-openr1-math-3k` | JSONL | Rename `messages` → `conversations`, fill metadata |
+| `MessagesJSONLAdapter` | `TeichAI/deepseek-v3.2-speciale-openr1-math-3k` | JSONL | Rename `messages` → `conversations`, extract metadata (`model`, `date`, `run_id`), JSON-serialize `tools` |
 | `PromptCompletionCSVAdapter` | `sequelbox/Raiden-Mini-DeepSeek-V3.2-Speciale` | CSV | Construct `conversations` from prompt/completion pairs |
+| `HighCodeSFTAdapter` | `High-Coder-SFT-Medium` | JSONL | Map `provenance.prompt` → user message, `content.text` → assistant message |
+| `HighCodeReasoningAdapter` | `High-Coder-Reasoning-Multi-Turn` | JSONL | Map `conversation` (singular) → `conversations`, `transform_type` → `episode` |
 
 Key design decisions:
 - **Adapter auto-detection**: File format + column inspection determines adapter
@@ -216,6 +299,25 @@ Shared utilities for loading and processing data with dynamic schema detection:
 | `load_record_pair_comparison()` | Load matching records from two files |
 
 **Schema Detection**: The loader automatically detects field mappings on first record load, caching the schema per-file. This enables dynamic column generation based on actual data structure.
+
+### Theme System (`config.json` + `utils/config.py`)
+
+The TUI supports dual-theme configuration for personalized appearance:
+
+| Component | Description |
+|-----------|-------------|
+| `config.json` | Theme preferences in project root |
+| `utils/config.py` | Load/save functions for app and syntax themes |
+| `--app-theme` | CLI flag for app theme (Textual built-in) |
+| `--syntax-theme` | CLI flag for syntax theme (Pygments) |
+| `Ctrl+T` | Keybinding to cycle app theme |
+| `Ctrl+Y` | Keybinding to cycle syntax theme |
+
+**App Themes** (Textual built-in): textual-dark, nord, gruvbox, tokyo-night, atom-one-dark, atom-one-light, solarized-light, solarized-dark
+
+**Syntax Themes** (Pygments): monokai, dracula, nord, gruvbox-dark, solarized-dark, solarized-light
+
+See [TUI Guide](tui.md) for detailed theme documentation.
 
 ## Design Principles
 

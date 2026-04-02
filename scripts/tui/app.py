@@ -19,7 +19,12 @@ from typing import Any
 from textual.app import App
 
 from scripts.data_formats import detect_format, discover_data_files
-from scripts.tui.data_loader import get_record_count, load_all_records, load_records, set_cached_records
+from scripts.tui.data_loader import (
+    get_record_count,
+    load_all_records,
+    load_records,
+    set_cached_records,
+)
 from scripts.tui.keybindings import GLOBAL_BINDINGS
 from scripts.tui.mixins import BackgroundTaskMixin
 from scripts.tui.screens import ExportingScreen, LoadingScreen
@@ -29,6 +34,9 @@ from scripts.tui.views.record_detail import RecordDetailScreen
 from scripts.tui.views.record_list import RecordListScreen
 from scripts.tui.widgets import FieldDetailModal
 from scripts.tui.widgets.json_tree_panel import JsonTreePanel
+
+# Import config module for theme management
+from utils.config import get_app_theme, get_syntax_theme
 
 
 class AppMode(Enum):
@@ -159,6 +167,8 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
         compare_path: str | None = None,
         is_compare_directory: bool = False,
         export_mode: bool = False,
+        app_theme: str | None = None,
+        syntax_theme: str | None = None,
     ):
         """Initialize the app with a data file or directory.
 
@@ -170,6 +180,8 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
             compare_path: Path to second dataset for comparison mode.
             is_compare_directory: Whether compare_path is a directory.
             export_mode: If True, use comparison/export screen. If False, read-only view.
+            app_theme: App theme name to override config (CLI argument takes precedence).
+            syntax_theme: Syntax theme name to override config (CLI argument takes precedence).
         """
         super().__init__()
         self._path = path
@@ -183,6 +195,12 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
         self._loading = False
         self._file_format: str = "unknown"
 
+        # App theme: CLI argument > config file > default
+        self._app_theme = app_theme or get_app_theme()
+
+        # Syntax theme: CLI argument > config file > default
+        self._syntax_theme = syntax_theme or get_syntax_theme()
+
         # Comparison mode fields
         self._compare_path = compare_path
         self._is_compare_directory = is_compare_directory
@@ -193,6 +211,9 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
 
     def on_mount(self) -> None:
         """Load data and push the appropriate screen based on mode."""
+        # Apply app theme on startup
+        self.theme = self._app_theme
+
         if self._compare_path:
             self.mode = AppMode.COMPARISON
             self._setup_comparison_mode()
@@ -264,6 +285,74 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
                     return
         except Exception:
             pass
+
+    def action_change_app_theme(self, theme_name: str | None = None) -> None:
+        """Change the app theme.
+
+        Args:
+            theme_name: Theme name (textual-dark, nord, gruvbox, tokyo-night,
+                       atom-one-dark, atom-one-light, solarized-light, solarized-dark).
+                       If None, cycles through available themes.
+        """
+        from utils.config import set_app_theme
+
+        # Available Textual app themes
+        available_themes = [
+            "textual-dark",
+            "nord",
+            "gruvbox",
+            "tokyo-night",
+            "atom-one-dark",
+            "atom-one-light",
+            "solarized-light",
+            "solarized-dark",
+        ]
+
+        if theme_name is None:
+            current_index = (
+                available_themes.index(self.theme)
+                if self.theme in available_themes
+                else 0
+            )
+            next_index = (current_index + 1) % len(available_themes)
+            theme_name = available_themes[next_index]
+
+        self.theme = theme_name
+        set_app_theme(theme_name)
+        self.notify(f"App theme changed to: {theme_name}")
+
+    def action_change_syntax_theme(self, theme_name: str | None = None) -> None:
+        """Change the syntax highlighting theme for JSON display.
+
+        Args:
+            theme_name: Pygments theme name (monokai, dracula, nord, gruvbox-dark,
+                       solarized-dark, solarized-light).
+                       If None, cycles through available themes.
+        """
+        from utils.config import set_syntax_theme
+
+        # Available Pygments themes for syntax highlighting
+        available_themes = [
+            "monokai",
+            "dracula",
+            "nord",
+            "gruvbox-dark",
+            "solarized-dark",
+            "solarized-light",
+        ]
+
+        if theme_name is None:
+            current_index = (
+                available_themes.index(self._syntax_theme)
+                if self._syntax_theme in available_themes
+                else 0
+            )
+            next_index = (current_index + 1) % len(available_themes)
+            theme_name = available_themes[next_index]
+
+        self._syntax_theme = theme_name
+        set_syntax_theme(theme_name)
+        self.notify(f"Syntax theme changed to: {theme_name}")
 
     def on_json_tree_panel_node_selected(
         self, message: JsonTreePanel.NodeSelected
@@ -409,6 +498,16 @@ def main() -> None:
         default=False,
         help="Enable export mode (comparison view with parser_finale processing)",
     )
+    parser.add_argument(
+        "--app-theme",
+        default=None,
+        help="App theme name (e.g., nord, atom-one-dark)",
+    )
+    parser.add_argument(
+        "--syntax-theme",
+        default=None,
+        help="Syntax highlighting theme (e.g., monokai, dracula)",
+    )
     args = parser.parse_args()
 
     # Verify the path exists
@@ -449,6 +548,8 @@ def main() -> None:
         compare_path=args.compare_path,
         is_compare_directory=is_compare_directory,
         export_mode=args.export,
+        app_theme=args.app_theme,
+        syntax_theme=args.syntax_theme,
     )
     app.run()
 

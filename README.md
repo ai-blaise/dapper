@@ -174,6 +174,8 @@ uv run python -m scripts.data_splitter dataset/conversations.jsonl -n 10 --dry-r
 |-----|--------|
 | `q` | Quit |
 | `m` | Show field detail modal (global — works on any tree view) |
+| `Ctrl+T` | Cycle app theme (textual-dark, nord, gruvbox, tokyo-night, atom-one-dark, etc.) |
+| `Ctrl+Y` | Cycle syntax theme (monokai, dracula, nord, gruvbox-dark, etc.) |
 | `j/k` or `↑/↓` | Move up/down |
 | `g/G` | Jump to top/bottom |
 | `Enter` | Select item / Expand node |

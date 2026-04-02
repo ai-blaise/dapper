@@ -29,6 +29,22 @@ _NEMOTRON_DROP_COLUMNS = {"trial_name", "source"}
 class BaseAdapter(ABC):
     """Abstract base for source adapters."""
 
+    def stream(self, filename: str, source_dataset: str) -> Iterator[dict[str, Any]]:
+        """Load records from filename and transform them.
+
+        Uses format detection to find the appropriate loader, then applies
+        transform_records() to each record.
+
+        Args:
+            filename: Path to the source file.
+            source_dataset: Value for the source_dataset column.
+
+        Yields:
+            Transformed records conforming to OUTPUT_SCHEMA.
+        """
+        loader = get_loader(filename)
+        yield from self.transform_records(loader.load(filename), source_dataset)
+
     @abstractmethod
     def transform_records(
         self, records: Iterator[dict[str, Any]], source_dataset: str
@@ -74,7 +90,8 @@ class NemotronAdapter(BaseAdapter):
 class MessagesJSONLAdapter(BaseAdapter):
     """Adapter for JSONL files with a 'messages' key (Source C: TeichAI).
 
-    Renames 'messages' to 'conversations' and fills metadata with defaults.
+    Renames 'messages' to 'conversations' and extracts metadata from the
+    metadata object when present.
     """
 
     def transform_records(
@@ -82,17 +99,26 @@ class MessagesJSONLAdapter(BaseAdapter):
     ) -> Iterator[dict[str, Any]]:
         """Transform JSONL records, renaming messages to conversations."""
         for record in records:
+            metadata = record.get("metadata", {})
+            model = metadata.get("model")
+            model_provider = None
+            if model and "/" in model:
+                model_provider = model.split("/")[0]
+
+            tools = record.get("tools")
+            tools = json.dumps(tools) if tools is not None else None
+
             yield {
                 "conversations": record.get("messages", []),
                 "agent": None,
-                "model": "deepseek-ai/DeepSeek-V3.2",
-                "model_provider": None,
-                "date": None,
+                "model": model,
+                "model_provider": model_provider,
+                "date": metadata.get("created_at"),
                 "task": None,
                 "episode": None,
-                "run_id": None,
+                "run_id": metadata.get("run_id") or metadata.get("prompt_id"),
                 "enable_thinking": True,
-                "tools": None,
+                "tools": tools,
                 "source_dataset": source_dataset,
             }
 
@@ -121,6 +147,74 @@ class PromptCompletionCSVAdapter(BaseAdapter):
                 "task": None,
                 "episode": None,
                 "run_id": None,
+                "enable_thinking": True,
+                "tools": None,
+                "source_dataset": source_dataset,
+            }
+
+
+class HighCodeSFTAdapter(BaseAdapter):
+    """Adapter for High-Coder-SFT-Medium JSONL files.
+
+    Single code sample format: provenance.prompt → user message,
+    content.text → assistant message.
+    """
+
+    def transform_records(
+        self, records: Iterator[dict[str, Any]], source_dataset: str
+    ) -> Iterator[dict[str, Any]]:
+        for record in records:
+            provenance = record.get("provenance", {})
+            content = record.get("content", {})
+            model = provenance.get("model")
+            model_provider = None
+            if model and "/" in model:
+                model_provider = model.split("/")[0]
+
+            yield {
+                "conversations": [
+                    {"role": "user", "content": provenance.get("prompt")},
+                    {"role": "assistant", "content": content.get("text")},
+                ],
+                "agent": None,
+                "model": model,
+                "model_provider": model_provider,
+                "date": provenance.get("generated_at"),
+                "task": record.get("language"),
+                "episode": None,
+                "run_id": record.get("sample_id"),
+                "enable_thinking": True,
+                "tools": None,
+                "source_dataset": source_dataset,
+            }
+
+
+class HighCodeReasoningAdapter(BaseAdapter):
+    """Adapter for High-Coder-Reasoning-Multi-Turn JSONL files.
+
+    Multi-turn format: conversation array with 3 turns
+    (critique, transform, analysis).
+    """
+
+    def transform_records(
+        self, records: Iterator[dict[str, Any]], source_dataset: str
+    ) -> Iterator[dict[str, Any]]:
+        for record in records:
+            provenance = record.get("provenance", {})
+            model = provenance.get("model")
+            model_provider = None
+            if model and "/" in model:
+                model_provider = model.split("/")[0]
+
+            yield {
+                "conversations": record.get("conversation", []),
+                "agent": None,
+                "model": model,
+                "model_provider": model_provider,
+                "date": provenance.get("generated_at"),
+                "task": record.get("language"),
+                "episode": record.get("transform_type"),
+                "run_id": record.get("sample_id"),
                 "enable_thinking": True,
                 "tools": None,
                 "source_dataset": source_dataset,
@@ -221,7 +315,11 @@ def detect_adapter(filename: str) -> BaseAdapter:
                 if "Nemotron-SFT-Agentic-v2" in filename:
                     return NemotronAgenticV2Adapter()
                 return MessagesJSONLAdapter()
+            if "conversation" in record:
+                return HighCodeReasoningAdapter()
+            if "provenance" in record and "content" in record:
+                return HighCodeSFTAdapter()
             break
-        raise ValueError(f"JSONL/JSON file '{filename}' has no 'messages' key")
+        raise ValueError(f"JSONL/JSON file '{filename}' has no recognized adapter")
 
     raise ValueError(f"No adapter available for format '{fmt}'")

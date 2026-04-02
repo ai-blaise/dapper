@@ -25,6 +25,8 @@ from textual.binding import Binding
 GLOBAL_BINDINGS = [
     Binding("q", "quit", "Quit", show=False),
     Binding("m", "show_detail", "Detail", show=True),
+    Binding("ctrl+t", "change_app_theme", "App Theme", show=True),
+    Binding("ctrl+y", "change_syntax_theme", "Syntax", show=True),
 ]
 
 # ── Non-root screens ────────────────────────────────────────────────
@@ -67,6 +69,16 @@ MODAL_BINDINGS = [
     Binding("escape", "close", "Close"),
     Binding("enter", "close", "Close"),
     Binding("q", "quit", "Quit App"),
+    Binding("j", "scroll_down", "Down", show=True),
+    Binding("k", "scroll_up", "Up", show=True),
+    Binding("g", "scroll_home", "Top", show=True),
+    Binding("G", "scroll_end", "Bottom", show=True),
+    Binding("h", "vim_left", "Left", show=True),
+    Binding("l", "vim_right", "Right", show=True),
+    Binding("down", "scroll_down", "Down", show=False),
+    Binding("up", "scroll_up", "Up", show=False),
+    Binding("left", "vim_left", "Left", show=False),
+    Binding("right", "vim_right", "Right", show=False),
 ]
 
 
