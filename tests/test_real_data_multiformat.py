@@ -9,15 +9,11 @@ from __future__ import annotations
 import pytest
 from pathlib import Path
 
-from scripts.data_formats import (
-    detect_format,
-    get_loader,
-    normalize_record,
-    ParquetLoader,
-    JSONLLoader,
-)
+from utils.detect import detect_format
+from utils.loader import load_records, get_record_count, get_record_at_index
+from utils.normalize import normalize_record
 from scripts.tui.data_loader import (
-    load_records,
+    load_records as tui_load_records,
     load_all_records,
     load_record_at_index,
     get_record_summary,
@@ -44,18 +40,16 @@ def clear_cache_before_each():
 
 # Skip conditions
 requires_parquet = pytest.mark.skipif(
-    not PARQUET_FILE.exists(),
-    reason=f"Parquet file not found: {PARQUET_FILE}"
+    not PARQUET_FILE.exists(), reason=f"Parquet file not found: {PARQUET_FILE}"
 )
 
 requires_jsonl = pytest.mark.skipif(
-    not JSONL_FILE.exists(),
-    reason=f"JSONL file not found: {JSONL_FILE}"
+    not JSONL_FILE.exists(), reason=f"JSONL file not found: {JSONL_FILE}"
 )
 
 requires_large_jsonl = pytest.mark.skipif(
     not LARGE_JSONL_FILE.exists(),
-    reason=f"Large JSONL file not found: {LARGE_JSONL_FILE}"
+    reason=f"Large JSONL file not found: {LARGE_JSONL_FILE}",
 )
 
 
@@ -69,16 +63,9 @@ class TestRealParquetFile:
         assert format_name == "parquet"
 
     @requires_parquet
-    def test_get_parquet_loader(self):
-        """get_loader should return ParquetLoader for .parquet file."""
-        loader = get_loader(str(PARQUET_FILE))
-        assert isinstance(loader, ParquetLoader)
-
-    @requires_parquet
     def test_get_record_count(self):
-        """ParquetLoader should return record count from metadata."""
-        loader = ParquetLoader()
-        count = loader.get_record_count(str(PARQUET_FILE))
+        """get_record_count should return record count from metadata."""
+        count = get_record_count(str(PARQUET_FILE))
         assert count > 0
         print(f"Parquet file has {count} records")
 
@@ -90,18 +77,20 @@ class TestRealParquetFile:
 
         for record in loaded:
             # Normalized records should have 'messages' not 'conversations'
-            assert "messages" in record
+            normalized = normalize_record(record, "parquet")
+            assert "messages" in normalized
             # Should have a uuid (from trial_name fallback)
-            assert record.get("uuid") is not None
+            assert normalized.get("uuid") is not None
 
     @requires_parquet
     def test_parquet_record_structure(self):
         """Verify structure of loaded Parquet records."""
-        record = load_record_at_index(str(PARQUET_FILE), 0)
+        record = get_record_at_index(str(PARQUET_FILE), 0)
+        normalized = normalize_record(record, "parquet")
 
         # Should have normalized messages
-        assert "messages" in record
-        messages = record["messages"]
+        assert "messages" in normalized
+        messages = normalized["messages"]
         assert isinstance(messages, list)
 
         # Each message should have role and content
@@ -113,27 +102,27 @@ class TestRealParquetFile:
     @requires_parquet
     def test_parquet_random_access(self):
         """Test random access to Parquet records."""
-        loader = ParquetLoader()
-        count = loader.get_record_count(str(PARQUET_FILE))
+        count = get_record_count(str(PARQUET_FILE))
 
         # Access first record
-        first = load_record_at_index(str(PARQUET_FILE), 0)
+        first = get_record_at_index(str(PARQUET_FILE), 0)
         assert first is not None
 
         # Access middle record
         mid_idx = count // 2
-        middle = load_record_at_index(str(PARQUET_FILE), mid_idx)
+        middle = get_record_at_index(str(PARQUET_FILE), mid_idx)
         assert middle is not None
 
         # Access last record
-        last = load_record_at_index(str(PARQUET_FILE), count - 1)
+        last = get_record_at_index(str(PARQUET_FILE), count - 1)
         assert last is not None
 
     @requires_parquet
     def test_parquet_record_summary(self):
         """Test record summary generation for Parquet records."""
-        record = load_record_at_index(str(PARQUET_FILE), 0)
-        summary = get_record_summary(record, 0)
+        record = get_record_at_index(str(PARQUET_FILE), 0)
+        normalized = normalize_record(record, "parquet")
+        summary = get_record_summary(normalized, 0)
 
         assert summary["index"] == 0
         assert "msg_count" in summary
@@ -151,12 +140,6 @@ class TestRealJSONLFile:
         assert format_name == "jsonl"
 
     @requires_jsonl
-    def test_get_jsonl_loader(self):
-        """get_loader should return JSONLLoader for .jsonl file."""
-        loader = get_loader(str(JSONL_FILE))
-        assert isinstance(loader, JSONLLoader)
-
-    @requires_jsonl
     def test_load_first_records(self):
         """Should load first few records from JSONL file."""
         loaded = list(load_records(str(JSONL_FILE)))[:5]
@@ -170,7 +153,7 @@ class TestRealJSONLFile:
     @requires_jsonl
     def test_jsonl_record_structure(self):
         """Verify structure of loaded JSONL records."""
-        record = load_record_at_index(str(JSONL_FILE), 0)
+        record = get_record_at_index(str(JSONL_FILE), 0)
 
         # Standard JSONL fields
         assert "uuid" in record
@@ -192,9 +175,9 @@ class TestRealJSONLFile:
         records = load_all_records(str(JSONL_FILE), max_records=100)
 
         # Access specific indices
-        r0 = load_record_at_index(str(JSONL_FILE), 0)
-        r50 = load_record_at_index(str(JSONL_FILE), 50)
-        r99 = load_record_at_index(str(JSONL_FILE), 99)
+        r0 = get_record_at_index(str(JSONL_FILE), 0)
+        r50 = get_record_at_index(str(JSONL_FILE), 50)
+        r99 = get_record_at_index(str(JSONL_FILE), 99)
 
         assert r0["uuid"] == records[0]["uuid"]
         assert r50["uuid"] == records[50]["uuid"]
@@ -203,7 +186,7 @@ class TestRealJSONLFile:
     @requires_jsonl
     def test_jsonl_record_summary(self):
         """Test record summary generation for JSONL records."""
-        record = load_record_at_index(str(JSONL_FILE), 0)
+        record = get_record_at_index(str(JSONL_FILE), 0)
         summary = get_record_summary(record, 0)
 
         assert summary["index"] == 0
@@ -221,26 +204,29 @@ class TestCrossFormatConsistency:
     def test_normalized_records_have_same_structure(self):
         """Records from different formats should have same normalized structure."""
         # Load one record from each format
-        parquet_record = load_record_at_index(str(PARQUET_FILE), 0)
-        jsonl_record = load_record_at_index(str(JSONL_FILE), 0)
+        parquet_record = get_record_at_index(str(PARQUET_FILE), 0)
+        parquet_normalized = normalize_record(parquet_record, "parquet")
+        jsonl_record = get_record_at_index(str(JSONL_FILE), 0)
+        jsonl_normalized = normalize_record(jsonl_record, "jsonl")
 
         # Both should have messages (not conversations)
-        assert "messages" in parquet_record
-        assert "messages" in jsonl_record
+        assert "messages" in parquet_normalized
+        assert "messages" in jsonl_normalized
 
         # Both should have standard fields (with defaults if missing)
         for field in ["uuid", "messages", "tools", "license", "used_in"]:
-            assert field in parquet_record, f"Parquet record missing {field}"
-            assert field in jsonl_record, f"JSONL record missing {field}"
+            assert field in parquet_normalized, f"Parquet record missing {field}"
+            assert field in jsonl_normalized, f"JSONL record missing {field}"
 
     @requires_parquet
     @requires_jsonl
     def test_record_summaries_have_same_keys(self):
         """Record summaries should have same keys regardless of source format."""
-        parquet_record = load_record_at_index(str(PARQUET_FILE), 0)
-        jsonl_record = load_record_at_index(str(JSONL_FILE), 0)
+        parquet_record = get_record_at_index(str(PARQUET_FILE), 0)
+        parquet_normalized = normalize_record(parquet_record, "parquet")
+        jsonl_record = get_record_at_index(str(JSONL_FILE), 0)
 
-        parquet_summary = get_record_summary(parquet_record, 0)
+        parquet_summary = get_record_summary(parquet_normalized, 0)
         jsonl_summary = get_record_summary(jsonl_record, 0)
 
         # Same keys
@@ -265,9 +251,8 @@ class TestLargeFileHandling:
     @requires_parquet
     def test_parquet_record_count_without_full_load(self):
         """Parquet record count should be fast (uses metadata)."""
-        loader = ParquetLoader()
         # This should be very fast - just reads metadata
-        count = loader.get_record_count(str(PARQUET_FILE))
+        count = get_record_count(str(PARQUET_FILE))
         assert count > 0
 
 
@@ -277,8 +262,9 @@ class TestMessageContent:
     @requires_parquet
     def test_parquet_message_content_preserved(self):
         """Message content should be fully preserved from Parquet."""
-        record = load_record_at_index(str(PARQUET_FILE), 0)
-        messages = record["messages"]
+        record = get_record_at_index(str(PARQUET_FILE), 0)
+        normalized = normalize_record(record, "parquet")
+        messages = normalized["messages"]
 
         # Find an assistant message with content
         for msg in messages:
@@ -291,7 +277,7 @@ class TestMessageContent:
     @requires_jsonl
     def test_jsonl_message_content_preserved(self):
         """Message content should be fully preserved from JSONL."""
-        record = load_record_at_index(str(JSONL_FILE), 0)
+        record = get_record_at_index(str(JSONL_FILE), 0)
         messages = record["messages"]
 
         # Find an assistant message with content

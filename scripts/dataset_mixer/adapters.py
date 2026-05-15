@@ -13,10 +13,8 @@ import json
 from abc import ABC, abstractmethod
 from typing import Any, Iterator
 
-from scripts.data_formats.csv_loader import CSVLoader
-from scripts.data_formats.format_detector import detect_format, get_loader
-from scripts.data_formats.jsonl_loader import JSONLLoader
-from scripts.data_formats.parquet_loader import ParquetLoader
+from utils.detect import detect_format
+from utils.loader import load_records
 from scripts.dataset_mixer.schema import OUTPUT_SCHEMA
 
 # Column names from the output schema (used to fill defaults)
@@ -42,8 +40,7 @@ class BaseAdapter(ABC):
         Yields:
             Transformed records conforming to OUTPUT_SCHEMA.
         """
-        loader = get_loader(filename)
-        yield from self.transform_records(loader.load(filename), source_dataset)
+        yield from self.transform_records(load_records(filename), source_dataset)
 
     @abstractmethod
     def transform_records(
@@ -289,8 +286,7 @@ def detect_adapter(filename: str) -> BaseAdapter:
     fmt = detect_format(filename)
 
     if fmt == "csv":
-        loader = CSVLoader()
-        for record in loader.load(filename):
+        for record in load_records(filename):
             if "prompt" in record and "completion" in record:
                 return PromptCompletionCSVAdapter()
             raise ValueError(
@@ -308,8 +304,7 @@ def detect_adapter(filename: str) -> BaseAdapter:
         raise ValueError(f"Parquet file '{filename}' has no 'conversations' column")
 
     if fmt in ("jsonl", "json"):
-        loader = get_loader(filename)
-        for record in loader.load(filename):
+        for record in load_records(filename):
             if "messages" in record:
                 # Check for Nemotron-SFT-Agentic-v2 specific files
                 if "Nemotron-SFT-Agentic-v2" in filename:

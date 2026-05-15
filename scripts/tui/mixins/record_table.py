@@ -2,10 +2,11 @@
 RecordTable Mixin for dynamic field-driven record display.
 
 Columns are derived from the actual top-level field names of the records,
-so the table is a true preview of the record structure.
+so the table is a true preview of the record structure. ALL first-level
+fields are displayed, similar to how JSON viewers show top-level keys.
 
 Provides reusable methods for:
-- Dynamic column generation from record field names
+- Dynamic column generation from ALL record field names
 - Single-record detection for skip-to-detail behavior
 - Consistent record table population
 """
@@ -22,11 +23,8 @@ from scripts.tui.mixins.data_table import DataTableMixin
 if TYPE_CHECKING:
     from scripts.tui.data_loader import FieldMapping
 
-# Maximum number of field columns (besides IDX) to display
-MAX_FIELD_COLUMNS = 8
-
-# Maximum width of a field value preview cell
-MAX_CELL_WIDTH = 30
+# Maximum width of a field value preview cell (narrower to fit more columns)
+MAX_CELL_WIDTH = 20
 
 
 def _preview_value(value: Any, max_len: int = MAX_CELL_WIDTH) -> str:
@@ -74,21 +72,21 @@ class RecordTableMixin(DataTableMixin):
     _field_columns: list[str] = []
 
     def _detect_field_columns(self, records: list[dict[str, Any]]) -> list[str]:
-        """Detect field names from the records to use as table columns.
+        """Detect ALL field names from records for table columns.
 
-        Scans the first record to get field names. Limits to
-        MAX_FIELD_COLUMNS to keep the table readable.
+        Returns all top-level keys from the first record in order,
+        allowing the table to show all fields in the data.
 
         Args:
             records: List of records to scan.
 
         Returns:
-            List of field name strings to use as columns.
+            List of field name strings to use as columns (all fields).
         """
         if not records:
             return []
         sample = records[0]
-        return list(sample.keys())[:MAX_FIELD_COLUMNS]
+        return list(sample.keys())
 
     def _get_record_columns(
         self, mapping: "FieldMapping", records: list[dict[str, Any]] | None = None
@@ -126,7 +124,9 @@ class RecordTableMixin(DataTableMixin):
         return cols
 
     def _build_record_row(
-        self, summary: dict[str, Any], mapping: "FieldMapping",
+        self,
+        summary: dict[str, Any],
+        mapping: "FieldMapping",
         record: dict[str, Any] | None = None,
     ) -> list[str]:
         """Build a table row from record field values.
@@ -205,4 +205,3 @@ class RecordTableMixin(DataTableMixin):
             summary = get_summary_fn(record, idx, mapping)
             row = self._build_record_row(summary, mapping, record=record)
             table.add_row(*row, key=str(idx))
-

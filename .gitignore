@@ -10,6 +10,9 @@ dataset-analysis/
 output-datasets/
 nemotron/
 parsed_datasets/
+test-datasets/
+sft-mix/
+distillation-mix/
 
 # Python bytecode
 __pycache__/

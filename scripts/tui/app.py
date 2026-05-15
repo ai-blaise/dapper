@@ -18,7 +18,7 @@ from typing import Any
 
 from textual.app import App
 
-from scripts.data_formats import detect_format, discover_data_files
+from utils.detect import detect_format, discover_data_files
 from scripts.tui.data_loader import (
     get_record_count,
     load_all_records,

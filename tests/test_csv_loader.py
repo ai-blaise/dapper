@@ -1,262 +1,190 @@
-"""Tests for CSVLoader in scripts/data_formats/csv_loader.py."""
+"""Tests for CSV loading in utils/loader.py."""
 
 from __future__ import annotations
 
 import csv
 import pytest
 
-from scripts.data_formats import CSVLoader
-from scripts.data_formats.format_detector import detect_format, get_loader, get_loader_for_format
-
-
-class TestCSVLoaderProperties:
-  """Tests for CSVLoader properties."""
-
-  def test_format_name(self):
-    loader = CSVLoader()
-    assert loader.format_name == "csv"
-
-  def test_supported_extensions(self):
-    loader = CSVLoader()
-    assert ".csv" in loader.supported_extensions
+from utils.loader import load_records, get_record_count, get_record_at_index
 
 
 class TestCSVLoaderLoad:
-  """Tests for CSVLoader.load() streaming."""
+    """Tests for CSV loading via load_records()."""
 
-  def test_load_basic(self, tmp_path):
-    filepath = tmp_path / "basic.csv"
-    filepath.write_text("prompt,completion\nHello,World\nFoo,Bar\n")
+    def test_load_basic(self, tmp_path):
+        """Should load basic CSV correctly."""
+        filepath = tmp_path / "basic.csv"
+        filepath.write_text("prompt,completion\nHello,World\nFoo,Bar\n")
 
-    loader = CSVLoader()
-    records = list(loader.load(str(filepath)))
-    assert len(records) == 2
-    assert records[0] == {"prompt": "Hello", "completion": "World"}
-    assert records[1] == {"prompt": "Foo", "completion": "Bar"}
+        records = list(load_records(str(filepath)))
+        assert len(records) == 2
+        assert records[0] == {"prompt": "Hello", "completion": "World"}
+        assert records[1] == {"prompt": "Foo", "completion": "Bar"}
 
-  def test_load_returns_generator(self, tmp_path):
-    filepath = tmp_path / "gen.csv"
-    filepath.write_text("a,b\n1,2\n")
+    def test_load_returns_iterator(self, tmp_path):
+        """load_records should return an iterator."""
+        filepath = tmp_path / "gen.csv"
+        filepath.write_text("a,b\n1,2\n")
 
-    loader = CSVLoader()
-    result = loader.load(str(filepath))
-    assert hasattr(result, "__iter__")
-    assert hasattr(result, "__next__")
+        result = load_records(str(filepath))
+        assert hasattr(result, "__iter__")
+        assert hasattr(result, "__next__")
 
-  def test_load_preserves_order(self, tmp_path):
-    filepath = tmp_path / "ordered.csv"
-    filepath.write_text("value\nfirst\nsecond\nthird\n")
+    def test_load_preserves_order(self, tmp_path):
+        """Load should preserve record order."""
+        filepath = tmp_path / "ordered.csv"
+        filepath.write_text("value\nfirst\nsecond\nthird\n")
 
-    loader = CSVLoader()
-    records = list(loader.load(str(filepath)))
-    assert records[0]["value"] == "first"
-    assert records[1]["value"] == "second"
-    assert records[2]["value"] == "third"
+        records = list(load_records(str(filepath)))
+        assert records[0]["value"] == "first"
+        assert records[1]["value"] == "second"
+        assert records[2]["value"] == "third"
 
-  def test_load_quoted_fields(self, tmp_path):
-    filepath = tmp_path / "quoted.csv"
-    filepath.write_text('name,desc\n"Alice","Has a, comma"\n"Bob","Has ""quotes"""\n')
+    def test_load_quoted_fields(self, tmp_path):
+        """Should handle quoted CSV fields correctly."""
+        filepath = tmp_path / "quoted.csv"
+        filepath.write_text(
+            'name,desc\n"Alice","Has a, comma"\n"Bob","Has ""quotes"""\n'
+        )
 
-    loader = CSVLoader()
-    records = list(loader.load(str(filepath)))
-    assert records[0]["desc"] == "Has a, comma"
-    assert records[1]["desc"] == 'Has "quotes"'
+        records = list(load_records(str(filepath)))
+        assert records[0]["desc"] == "Has a, comma"
+        assert records[1]["desc"] == 'Has "quotes"'
 
-  def test_load_multiline_fields(self, tmp_path):
-    filepath = tmp_path / "multiline.csv"
-    filepath.write_text('prompt,completion\n"line1\nline2","response"\n')
+    def test_load_multiline_fields(self, tmp_path):
+        """Should handle multiline fields."""
+        filepath = tmp_path / "multiline.csv"
+        filepath.write_text('prompt,completion\n"line1\nline2","response"\n')
 
-    loader = CSVLoader()
-    records = list(loader.load(str(filepath)))
-    assert records[0]["prompt"] == "line1\nline2"
+        records = list(load_records(str(filepath)))
+        assert records[0]["prompt"] == "line1\nline2"
 
-  def test_load_file_not_found(self):
-    loader = CSVLoader()
-    with pytest.raises(FileNotFoundError):
-      list(loader.load("/nonexistent/path/data.csv"))
+    def test_load_file_not_found(self):
+        """Should raise FileNotFoundError for missing file."""
+        with pytest.raises(FileNotFoundError):
+            list(load_records("/nonexistent/path/data.csv"))
 
-  def test_load_can_iterate_multiple_times(self, tmp_path):
-    filepath = tmp_path / "multi.csv"
-    filepath.write_text("id\n1\n2\n3\n")
+    def test_load_can_iterate_multiple_times(self, tmp_path):
+        """Should allow creating new iterators."""
+        filepath = tmp_path / "multi.csv"
+        filepath.write_text("id\n1\n2\n3\n")
 
-    loader = CSVLoader()
-    first = list(loader.load(str(filepath)))
-    second = list(loader.load(str(filepath)))
-    assert first == second
-
-
-class TestCSVLoaderLoadAll:
-  """Tests for CSVLoader.load_all()."""
-
-  def test_load_all_records(self, tmp_path):
-    filepath = tmp_path / "all.csv"
-    lines = ["id"] + [str(i) for i in range(10)]
-    filepath.write_text("\n".join(lines) + "\n")
-
-    loader = CSVLoader()
-    records = loader.load_all(str(filepath))
-    assert len(records) == 10
-
-  def test_load_all_with_max_records(self, tmp_path):
-    filepath = tmp_path / "limited.csv"
-    lines = ["id"] + [str(i) for i in range(100)]
-    filepath.write_text("\n".join(lines) + "\n")
-
-    loader = CSVLoader()
-    records = loader.load_all(str(filepath), max_records=5)
-    assert len(records) == 5
-    assert records[0]["id"] == "0"
-
-  def test_load_all_max_records_exceeds_total(self, tmp_path):
-    filepath = tmp_path / "small.csv"
-    filepath.write_text("id\n1\n2\n3\n")
-
-    loader = CSVLoader()
-    records = loader.load_all(str(filepath), max_records=100)
-    assert len(records) == 3
-
-  def test_load_all_with_progress_callback(self, tmp_path):
-    filepath = tmp_path / "progress.csv"
-    lines = ["id"] + [str(i) for i in range(5)]
-    filepath.write_text("\n".join(lines) + "\n")
-
-    callback_calls = []
-    def progress_callback(loaded: int, total: int | None) -> None:
-      callback_calls.append((loaded, total))
-
-    loader = CSVLoader()
-    loader.load_all(str(filepath), progress_callback=progress_callback)
-
-    assert len(callback_calls) >= 1
-    assert callback_calls[-1][0] == 5
+        first = list(load_records(str(filepath)))
+        second = list(load_records(str(filepath)))
+        assert first == second
 
 
-class TestCSVLoaderGetRecordCount:
-  """Tests for CSVLoader.get_record_count()."""
+class TestCSVGetRecordCount:
+    """Tests for get_record_count() with CSV."""
 
-  def test_count_basic(self, tmp_path):
-    filepath = tmp_path / "count.csv"
-    filepath.write_text("a,b\n1,2\n3,4\n5,6\n")
+    def test_count_basic(self, tmp_path):
+        """Should count CSV records correctly."""
+        filepath = tmp_path / "count.csv"
+        filepath.write_text("a,b\n1,2\n3,4\n5,6\n")
 
-    loader = CSVLoader()
-    assert loader.get_record_count(str(filepath)) == 3
+        count = get_record_count(str(filepath))
+        assert count == 3
 
-  def test_count_header_only(self, tmp_path):
-    filepath = tmp_path / "header_only.csv"
-    filepath.write_text("prompt,completion\n")
+    def test_count_header_only(self, tmp_path):
+        """Should return 0 for header-only CSV."""
+        filepath = tmp_path / "header_only.csv"
+        filepath.write_text("prompt,completion\n")
 
-    loader = CSVLoader()
-    assert loader.get_record_count(str(filepath)) == 0
+        count = get_record_count(str(filepath))
+        assert count == 0
 
-  def test_count_skips_empty_lines(self, tmp_path):
-    filepath = tmp_path / "empties.csv"
-    filepath.write_text("id\n1\n\n2\n\n3\n")
+    def test_count_skips_empty_lines(self, tmp_path):
+        """Should skip empty lines."""
+        filepath = tmp_path / "empties.csv"
+        filepath.write_text("id\n1\n\n2\n\n3\n")
 
-    loader = CSVLoader()
-    assert loader.get_record_count(str(filepath)) == 3
-
-
-class TestCSVLoaderGetRecordAtIndex:
-  """Tests for CSVLoader.get_record_at_index()."""
-
-  def test_get_first_record(self, tmp_path):
-    filepath = tmp_path / "first.csv"
-    filepath.write_text("id,name\n0,Alice\n1,Bob\n2,Charlie\n")
-
-    loader = CSVLoader()
-    record = loader.get_record_at_index(str(filepath), 0)
-    assert record["name"] == "Alice"
-
-  def test_get_last_record(self, tmp_path):
-    filepath = tmp_path / "last.csv"
-    filepath.write_text("id,name\n0,Alice\n1,Bob\n2,Charlie\n")
-
-    loader = CSVLoader()
-    record = loader.get_record_at_index(str(filepath), 2)
-    assert record["name"] == "Charlie"
-
-  def test_negative_index_raises(self, tmp_path):
-    filepath = tmp_path / "neg.csv"
-    filepath.write_text("id\n1\n")
-
-    loader = CSVLoader()
-    with pytest.raises(IndexError):
-      loader.get_record_at_index(str(filepath), -1)
-
-  def test_out_of_range_raises(self, tmp_path):
-    filepath = tmp_path / "oor.csv"
-    filepath.write_text("id\n1\n2\n")
-
-    loader = CSVLoader()
-    with pytest.raises(IndexError):
-      loader.get_record_at_index(str(filepath), 10)
+        count = get_record_count(str(filepath))
+        assert count == 3
 
 
-class TestCSVLoaderLargeFields:
-  """Tests for handling large fields (up to 124K chars)."""
+class TestCSVGetRecordAtIndex:
+    """Tests for get_record_at_index() with CSV."""
 
-  def test_large_completion_field(self, tmp_path):
-    filepath = tmp_path / "large.csv"
-    large_text = "x" * 130_000  # 130K chars, exceeds 124K requirement
-    with open(str(filepath), "w", newline="") as f:
-      writer = csv.writer(f)
-      writer.writerow(["prompt", "completion"])
-      writer.writerow(["test prompt", large_text])
+    def test_get_first_record(self, tmp_path):
+        """Should get first record correctly."""
+        filepath = tmp_path / "first.csv"
+        filepath.write_text("id,name\n0,Alice\n1,Bob\n2,Charlie\n")
 
-    loader = CSVLoader()
-    records = list(loader.load(str(filepath)))
-    assert len(records) == 1
-    assert len(records[0]["completion"]) == 130_000
+        record = get_record_at_index(str(filepath), 0)
+        assert record["name"] == "Alice"
 
+    def test_get_last_record(self, tmp_path):
+        """Should get last record correctly."""
+        filepath = tmp_path / "last.csv"
+        filepath.write_text("id,name\n0,Alice\n1,Bob\n2,Charlie\n")
 
-class TestCSVLoaderEdgeCases:
-  """Tests for edge cases."""
+        record = get_record_at_index(str(filepath), 2)
+        assert record["name"] == "Charlie"
 
-  def test_unicode_content(self, tmp_path):
-    filepath = tmp_path / "unicode.csv"
-    filepath.write_text("text\n世界\n🎉\nhéllo\n", encoding="utf-8")
+    def test_negative_index_raises(self, tmp_path):
+        """Should raise IndexError for negative index."""
+        filepath = tmp_path / "neg.csv"
+        filepath.write_text("id\n1\n")
 
-    loader = CSVLoader()
-    records = list(loader.load(str(filepath)))
-    assert records[0]["text"] == "世界"
-    assert records[1]["text"] == "🎉"
-    assert records[2]["text"] == "héllo"
+        with pytest.raises(IndexError):
+            get_record_at_index(str(filepath), -1)
 
-  def test_single_column(self, tmp_path):
-    filepath = tmp_path / "single_col.csv"
-    filepath.write_text("value\none\ntwo\n")
+    def test_out_of_range_raises(self, tmp_path):
+        """Should raise IndexError for out of range index."""
+        filepath = tmp_path / "oor.csv"
+        filepath.write_text("id\n1\n2\n")
 
-    loader = CSVLoader()
-    records = list(loader.load(str(filepath)))
-    assert len(records) == 2
-    assert records[0] == {"value": "one"}
-
-  def test_many_columns(self, tmp_path):
-    filepath = tmp_path / "wide.csv"
-    headers = ",".join([f"col{i}" for i in range(20)])
-    values = ",".join([str(i) for i in range(20)])
-    filepath.write_text(f"{headers}\n{values}\n")
-
-    loader = CSVLoader()
-    records = list(loader.load(str(filepath)))
-    assert len(records) == 1
-    assert records[0]["col0"] == "0"
-    assert records[0]["col19"] == "19"
+        with pytest.raises(IndexError):
+            get_record_at_index(str(filepath), 10)
 
 
-class TestCSVFormatDetection:
-  """Tests for CSV in the format detection system."""
+class TestCSVLargeFields:
+    """Tests for handling large CSV fields."""
 
-  def test_detect_csv_extension(self):
-    assert detect_format("data.csv") == "csv"
+    def test_large_completion_field(self, tmp_path):
+        """Should handle large fields (up to 124K chars)."""
+        filepath = tmp_path / "large.csv"
+        large_text = "x" * 130_000  # 130K chars
+        with open(str(filepath), "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["prompt", "completion"])
+            writer.writerow(["test prompt", large_text])
 
-  def test_get_loader_returns_csv_loader(self, tmp_path):
-    filepath = tmp_path / "test.csv"
-    filepath.write_text("a\n1\n")
+        records = list(load_records(str(filepath)))
+        assert len(records) == 1
+        assert len(records[0]["completion"]) == 130_000
 
-    loader = get_loader(str(filepath))
-    assert loader.format_name == "csv"
 
-  def test_get_loader_for_format_csv(self):
-    loader = get_loader_for_format("csv")
-    assert loader.format_name == "csv"
+class TestCSVEdgeCases:
+    """Tests for edge cases in CSV loading."""
+
+    def test_unicode_content(self, tmp_path):
+        """Should handle unicode content."""
+        filepath = tmp_path / "unicode.csv"
+        filepath.write_text("text\n世界\n🎉\nhéllo\n", encoding="utf-8")
+
+        records = list(load_records(str(filepath)))
+        assert records[0]["text"] == "世界"
+        assert records[1]["text"] == "🎉"
+        assert records[2]["text"] == "héllo"
+
+    def test_single_column(self, tmp_path):
+        """Should handle single column CSV."""
+        filepath = tmp_path / "single_col.csv"
+        filepath.write_text("value\none\ntwo\n")
+
+        records = list(load_records(str(filepath)))
+        assert len(records) == 2
+        assert records[0] == {"value": "one"}
+
+    def test_many_columns(self, tmp_path):
+        """Should handle CSV with many columns."""
+        filepath = tmp_path / "wide.csv"
+        headers = ",".join([f"col{i}" for i in range(20)])
+        values = ",".join([str(i) for i in range(20)])
+        filepath.write_text(f"{headers}\n{values}\n")
+
+        records = list(load_records(str(filepath)))
+        assert len(records) == 1
+        assert records[0]["col0"] == "0"
+        assert records[0]["col19"] == "19"

@@ -14,7 +14,7 @@ from textual.message import Message
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
-from scripts.data_formats import format_file_size
+from utils.detect import format_file_size
 from scripts.parser_finale import process_record
 from scripts.tui.data_loader import export_records, load_all_records
 from scripts.tui.keybindings import SINGLE_PANE_BINDINGS

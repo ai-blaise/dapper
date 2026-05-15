@@ -31,7 +31,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from scripts.data_formats import get_loader, normalize_record
+from utils.detect import detect_format
+from utils.loader import get_record_count as _get_record_count
+from utils.loader import (
+    get_record_at_index,
+    get_records_range,
+    load_records as _load_records,
+)
+from utils.normalize import normalize_record
 
 
 # Constants for field detection
@@ -238,8 +245,7 @@ def get_record_count(filename: str) -> int:
     Returns:
         Total number of records in the file.
     """
-    loader = get_loader(filename)
-    return loader.get_record_count(filename)
+    return _get_record_count(filename)
 
 
 # Global cache for loaded records to prevent multiple file reads
@@ -397,10 +403,10 @@ def load_records(filename: str, normalize: bool = False) -> Iterator[dict[str, A
         >>> for record in load_records("data.parquet"):
         ...     print(record["messages"])  # Works even if source has 'conversations'
     """
-    loader = get_loader(filename)
-    for record in loader.load(filename):
+    fmt = detect_format(filename)
+    for record in _load_records(filename):
         if normalize:
-            yield normalize_record(record, loader.format_name)
+            yield normalize_record(record, fmt)
         else:
             yield record
 
@@ -490,32 +496,13 @@ def load_records_range(
     Returns:
         A list of records in the requested range.
     """
-    loader = get_loader(filename)
-
-    # Fast path for Parquet: use row-group-aware range read
-    from scripts.data_formats.parquet_loader import ParquetLoader
-
-    if isinstance(loader, ParquetLoader):
-        records = loader.get_records_range(filename, start, count)
-        if normalize:
-            from scripts.data_formats import normalize_record
-
-            records = [normalize_record(r, loader.format_name) for r in records]
-        # Detect schema from first record if not cached
-        if records and filename not in _schema_cache:
-            set_schema_cache(filename, detect_schema(records[0]))
-        return records
-
-    # Fallback for other formats: stream and skip
-    records: list[dict[str, Any]] = []
-    for i, record in enumerate(load_records(filename, normalize=normalize)):
-        if i < start:
-            continue
-        if i >= start + count:
-            break
-        records.append(record)
-        if not records or (len(records) == 1 and filename not in _schema_cache):
-            set_schema_cache(filename, detect_schema(record))
+    fmt = detect_format(filename)
+    records = get_records_range(filename, start, count)
+    if normalize:
+        records = [normalize_record(r, fmt) for r in records]
+    # Detect schema from first record if not cached
+    if records and filename not in _schema_cache:
+        set_schema_cache(filename, detect_schema(records[0]))
     return records
 
 
@@ -547,24 +534,12 @@ def load_record_at_index(
             raise IndexError(f"Record index {index} out of range (0-{len(cached) - 1})")
         return cached[index]
 
-    # Fast path for Parquet: use row-group-aware random access
-    loader = get_loader(filename)
-    from scripts.data_formats.parquet_loader import ParquetLoader
-
-    if isinstance(loader, ParquetLoader):
-        record = loader.get_record_at_index(filename, index)
-        if normalize:
-            from scripts.data_formats import normalize_record
-
-            record = normalize_record(record, loader.format_name)
-        return record
-
-    # Fall back to streaming read for other formats
-    for i, record in enumerate(load_records(filename, normalize=normalize)):
-        if i == index:
-            return record
-
-    raise IndexError(f"Record index {index} out of range")
+    # Fast path: use row-group-aware random access via utils.loader
+    fmt = detect_format(filename)
+    record = get_record_at_index(filename, index)
+    if normalize:
+        record = normalize_record(record, fmt)
+    return record
 
 
 def get_record_summary(

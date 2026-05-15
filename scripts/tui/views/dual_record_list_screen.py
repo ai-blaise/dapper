@@ -15,7 +15,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
-from scripts.data_formats import discover_data_files, format_file_size
+from utils.detect import discover_data_files, format_file_size
 from scripts.tui.data_loader import (
     FieldMapping,
     get_field_mapping,
@@ -251,7 +251,8 @@ class DualRecordListScreen(
             file_basename = os.path.basename(selected_file) if selected_file else "?"
             if self._is_pane_lazy(side):
                 total = (
-                    self._left_total_count if side == "left"
+                    self._left_total_count
+                    if side == "left"
                     else self._right_total_count
                 )
                 page = self._get_pane_page(side) + 1
@@ -526,8 +527,7 @@ class DualRecordListScreen(
         # Get the record — from page records (lazy) or full records (eager)
         if self._is_pane_lazy(side):
             page_records = (
-                self._left_page_records if side == "left"
-                else self._right_page_records
+                self._left_page_records if side == "left" else self._right_page_records
             )
             page = self._get_pane_page(side)
             page_start = page * PAGE_SIZE
@@ -536,7 +536,8 @@ class DualRecordListScreen(
                 record = page_records[local_idx]
             else:
                 selected_file = (
-                    self._left_selected_file if side == "left"
+                    self._left_selected_file
+                    if side == "left"
                     else self._right_selected_file
                 )
                 record = load_record_at_index(selected_file, global_idx)

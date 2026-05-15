@@ -1,6 +1,6 @@
 # Data Splitter
 
-The Data Splitter (`scripts/data_splitter.py`) is a command-line tool for splitting JSONL datasets into N equal (or near-equal) parts. It handles both even and odd record counts, ensuring that recombination recreates the original dataset exactly.
+The Data Splitter (`scripts/data_splitter.py`) is a command-line tool for splitting datasets (JSONL or Parquet) into N equal (or near-equal) parts. It handles both even and odd record counts, ensuring that recombination recreates the original dataset exactly.
 
 ## Running the Tool
 
@@ -12,20 +12,24 @@ uv run python -m scripts.data_splitter <input_file> --parts N [options]
 
 | Argument | Type | Required | Description |
 |----------|------|----------|-------------|
-| `input_file` | positional | Yes | Path to input JSONL file |
+| `input_file` | positional | Yes | Path to input JSONL or Parquet file |
 | `-n, --parts` | int | Yes | Number of parts to split into |
 | `-o, --output-dir` | path | No | Output directory (default: same as input) |
 | `--prefix` | str | No | Output filename prefix (default: input filename) |
 | `--dry-run` | flag | No | Show split plan without writing files |
 | `--verify` | flag | No | Verify split can be recombined correctly |
+| `--shuffle` | flag | No | Randomly shuffle records before splitting |
+| `--shuffle-seed` | int | No | Random seed for reproducible shuffling |
 
 ## Output Naming Convention
 
 Files are named using the pattern:
 
 ```
-{prefix}_part_{i}_of_{n}.jsonl
+{prefix}_part_{i}_of_{n}.{ext}
 ```
+
+Where `ext` is `jsonl` or `parquet` based on input format.
 
 Example: `tool_calling.jsonl` split into 5 parts:
 ```
@@ -109,6 +113,32 @@ Split and verify that parts recombine correctly:
 uv run python -m scripts.data_splitter dataset/interactive_agent.jsonl -n 4 --verify
 ```
 
+### Shuffle Before Split
+
+Randomly shuffle records before splitting (for creating train/test splits):
+
+```bash
+# Shuffle with random seed (reproducible)
+uv run python -m scripts.data_splitter dataset/tool_calling.jsonl -n 4 --shuffle --shuffle-seed 42
+
+# Shuffle with random seed
+uv run python -m scripts.data_splitter dataset/tool_calling.jsonl -n 4 --shuffle
+```
+
+### Parquet Support
+
+Split Parquet files (sequential):
+
+```bash
+uv run python -m scripts.data_splitter mixed.parquet -n 4
+```
+
+Split Parquet with shuffling:
+
+```bash
+uv run python -m scripts.data_splitter mixed.parquet -n 8 --shuffle --shuffle-seed 42
+```
+
 ## Recombination
 
 ### Manual Recombination (Shell) (and annoying will add this to cli commands later)
@@ -146,11 +176,13 @@ print(f"Recombined {total} records")
 The implementation uses streaming to handle large files:
 
 - **Counting**: Single pass, O(1) memory
-- **Splitting**: Streams line-by-line, never loads full file
+- **Sequential Splitting**: Streams line-by-line, never loads full file
+- **Shuffle Operations**: Requires loading all records into memory (needed for randomization)
 - **Verification**: Compares line-by-line
 
 For the 5GB `tool_calling.jsonl`:
-- Memory usage: ~O(1) constant (only current line in memory)
+- Memory usage: ~O(1) constant (only current line in memory) for sequential splits
+- Memory usage: O(n) for shuffle operations (all records loaded)
 - Disk I/O: Single read pass + N write streams
 
 ## Edge Cases
@@ -173,6 +205,11 @@ The module exports these functions for programmatic use:
 | `count_records(filepath)` | Count records in JSONL file |
 | `get_part_bounds(total, num_parts, part_idx)` | Calculate indices for a part |
 | `iter_records(filepath)` | Generator yielding raw lines |
-| `split_file(input_path, num_parts, output_dir, prefix, dry_run)` | Split a file |
+| `shuffle_records(records, seed)` | Shuffle records with optional seed |
+| `chunk_records(records, num_chunks)` | Split records into N roughly-equal chunks |
+| `split_file(input_path, num_parts, output_dir, prefix, dry_run, shuffle, shuffle_seed)` | Split a file (format-agnostic) |
+| `split_jsonl(...)` | Split JSONL file into N parts |
+| `split_parquet(...)` | Split Parquet file into N parts |
+| `_records_to_batch(records)` | Convert records list to PyArrow RecordBatch |
 | `verify_split(input_path, parts_info)` | Verify recombination matches |
 | `recombine_parts(parts_paths, output_path)` | Recombine parts into one file |

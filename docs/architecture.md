@@ -30,19 +30,26 @@ dataset-parser/
 ├── LICENSE                    # MIT License
 ├── AGENTS.md                  # Development workflow instructions
 │
+├── utils/                     # Core utilities (functional, memory-efficient)
+│   ├── loader.py              # Multi-format data loading
+│   │                         #   - load_records(), get_record_count()
+│   │                         #   - get_record_at_index(), get_records_range()
+│   ├── detect.py              # Format detection
+│   │                         #   - detect_format(), discover_data_files()
+│   ├── normalize.py           # Schema normalization
+│   │                         #   - normalize_record(), denormalize_record()
+│   ├── sampling.py            # Memory-efficient operations
+│   │                         #   - reservoir_sample(), shuffle_file_streaming()
+│   │                         #   - chunk_file_streaming()
+│   ├── streaming.py           # PyArrow RecordBatch transformation
+│   │                         #   - records_to_batch(), stream_file()
+│   ├── config.py             # Theme configuration
+│   └── data.py                # Data transformation utilities
+│
 ├── scripts/                   # Main application code
 │   ├── main.py                # CLI tool implementation
 │   ├── parser_finale.py       # Core record processor (AI-specific)
 │   ├── data_splitter.py       # Dataset splitting utility
-│   ├── data_formats/          # Multi-format data loaders
-│   │   ├── base.py            # Abstract DataLoader class
-│   │   ├── csv_loader.py      # CSV format
-│   │   ├── jsonl_loader.py    # JSONL format
-│   │   ├── json_loader.py     # JSON format
-│   │   ├── parquet_loader.py  # Parquet format
-│   │   ├── format_detector.py # Auto-detection
-│   │   ├── schema_normalizer.py
-│   │   └── directory_loader.py
 │   ├── dataset_mixer/         # Opinionated dataset mixing pipeline
 │   │   ├── __main__.py        # Entry point
 │   │   ├── cli.py             # CLI definition
@@ -104,8 +111,10 @@ dataset-parser/
 │            └──────────┬──────────┘                                │
 │                       │                                           │
 │            ┌──────────▼──────────┐                                │
-│            │   Format Loaders    │   ← Pluggable Architecture     │
-│            │  (data_formats/)    │   ← JSONL, JSON, Parquet, CSV  │
+│            │   utils/ Module     │   ← Functional API            │
+│            │  (loader, detect,   │   ← JSONL, JSON, Parquet, CSV │
+│            │   normalize,         │                                │
+│            │   sampling)         │                                │
 │            └─────────────────────┘                                │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -184,17 +193,12 @@ uv run python -m scripts.dataset_mixer datasets/ --dry-run
 │            └──────────┬──────────┘                                │
 │                       │                                           │
 │            ┌──────────▼──────────┐                                │
-│            │   Format Loaders    │   ← Pluggable Architecture     │
-│            │  (data_formats/)    │                                │
-│            │  ├── CSV            │                                │
-│            │  ├── JSONL          │                                │
-│            │  ├── JSON           │                                │
-│            │  └── Parquet        │                                │
-│            └──────────┬──────────┘                                │
-│                       │                                           │
-│            ┌──────────▼──────────┐                                │
-│            │   Dataset Files     │                                │
-│            └────────────────────┘                                │
+│            │   utils/ Module     │   ← Functional API             │
+│            │  ├── loader.py       │   ← Multi-format loading      │
+│            │  ├── detect.py       │   ← Format detection          │
+│            │  ├── normalize.py    │   ← Schema normalization       │
+│            │  └── sampling.py     │   ← Memory-efficient ops      │
+│            └─────────────────────┘                                │
 │                                                                   │
 ├──────────────────────────────────────────────────────────────────┤
 │ TUI Component Hierarchy (Textual Framework)                       │
@@ -206,7 +210,7 @@ uv run python -m scripts.dataset_mixer datasets/ --dry-run
 │ ├── ComparisonScreen            (original vs processed)           │
 │ │   ├── JsonTreePanel           (generic JSON display)            │
 │ │   └── DiffIndicator           (generic JSON diff)               │
-│ └── DualRecordListScreen        (dataset vs dataset)              │
+│ └── DualRecordListScreen        (dataset vs dataset)               │
 │     └── Independent pane navigation                               │
 └──────────────────────────────────────────────────────────────────┘
 ```

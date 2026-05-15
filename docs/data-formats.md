@@ -1,6 +1,6 @@
-# Data Formats Module
+# Data Loading Module
 
-The `scripts/data_formats/` module provides a unified interface for loading datasets from multiple file formats. It supports automatic format detection, lazy loading for memory efficiency, and schema normalization across formats.
+The `utils/` module provides a unified, functional interface for loading datasets from multiple file formats. It supports automatic format detection, lazy loading for memory efficiency, and schema normalization across formats.
 
 ## Supported Formats
 
@@ -14,20 +14,22 @@ The `scripts/data_formats/` module provides a unified interface for loading data
 ## Quick Start
 
 ```python
-from scripts.data_formats import get_loader, detect_format
+from utils.loader import load_records, get_record_count, get_record_at_index
+from utils.detect import detect_format
 
-# Auto-detect format and get appropriate loader
-loader = get_loader("dataset/conversations.jsonl")
-
-# Stream records one at a time (memory efficient)
-for record in loader.load("dataset/conversations.jsonl"):
+# Auto-detect format and stream records (memory efficient)
+for record in load_records("dataset/conversations.jsonl"):
     print(record["uuid"])
 
-# Load all records with progress callback
-def on_progress(count):
-    print(f"Loaded {count} records...")
+# Count records without loading all data
+count = get_record_count("dataset/conversations.jsonl")
 
-records = loader.load_all("dataset/conversations.jsonl", progress_callback=on_progress)
+# Random access to specific record
+record = get_record_at_index("dataset/conversations.jsonl", 42)
+
+# Get range of records (efficient for Parquet)
+from utils.loader import get_records_range
+records = get_records_range("data.parquet", start=10, count=100)
 ```
 
 ## Format Detection
@@ -35,7 +37,7 @@ records = loader.load_all("dataset/conversations.jsonl", progress_callback=on_pr
 The module automatically detects file formats based on extension or content:
 
 ```python
-from scripts.data_formats import detect_format, get_loader
+from utils.detect import detect_format
 
 # By extension
 format_name = detect_format("data.jsonl")  # Returns 'jsonl'
@@ -52,101 +54,58 @@ format_name = detect_format("data.dat")  # Checks file contents
    - Check for Parquet magic bytes (`PAR1` at start)
    - Check first non-whitespace character for JSON (`[` or `{`)
 
-## Loaders
+## Loading Functions
 
-### Base Interface
-
-All loaders implement the `DataLoader` abstract base class:
+### Core Loading
 
 ```python
-from scripts.data_formats import DataLoader
+from utils.loader import load_records
 
-class DataLoader(ABC):
-    @property
-    def format_name(self) -> str: ...
-    @property
-    def supported_extensions(self) -> list[str]: ...
-
-    def load(self, filename) -> Iterator[dict]: ...
-    def load_all(self, filename, max_records=None, progress_callback=None) -> list[dict]: ...
-    def get_record_count(self, filename) -> int: ...
-    def get_record_at_index(self, filename, index) -> dict: ...
-```
-
-### JSONL Loader
-
-Best for large files due to streaming capability.
-
-```python
-from scripts.data_formats import JSONLLoader
-
-loader = JSONLLoader()
-
-# Stream records (O(1) memory)
-for record in loader.load("data.jsonl"):
+# Stream records one at a time (memory efficient for JSONL, CSV)
+for record in load_records("dataset/conversations.jsonl"):
     process(record)
 
-# Get record count (single pass)
-count = loader.get_record_count("data.jsonl")
-
-# Random access (streams to index)
-record = loader.get_record_at_index("data.jsonl", 42)
+# Works with all formats - auto-detects
+for record in load_records("dataset/data.parquet"):
+    process(record)
 ```
 
-### JSON Loader
-
-Supports both arrays `[{...}, {...}]` and single objects `{...}`.
+### Record Counting
 
 ```python
-from scripts.data_formats import JSONLoader
+from utils.loader import get_record_count
 
-loader = JSONLoader()
-
-# Single objects are wrapped as single-element lists
-records = loader.load_all("single_record.json")  # Returns [record]
-
-# Arrays work as expected
-records = loader.load_all("array.json")  # Returns [record1, record2, ...]
+# Count without loading - uses metadata when available
+count = get_record_count("data.parquet")  # Fast - from metadata
+count = get_record_count("data.jsonl")    # Single pass
 ```
 
-### Parquet Loader
-
-Uses PyArrow for efficient columnar access.
+### Random Access
 
 ```python
-from scripts.data_formats import ParquetLoader
+from utils.loader import get_record_at_index
 
-loader = ParquetLoader()
-
-# Record count from metadata (instant, no parsing)
-count = loader.get_record_count("data.parquet")
-
-# Efficient random access via row groups
-record = loader.get_record_at_index("data.parquet", 1000)
-
-# Nested structures (conversations) are fully converted
-for record in loader.load("data.parquet"):
-    messages = record["conversations"]  # Properly converted to Python list
+# Get specific record by index
+record = get_record_at_index("data.jsonl", 42)  # Streams to index
+record = get_record_at_index("data.parquet", 42)  # O(1) via row groups
 ```
 
-### CSV Loader
-
-Streams rows via `csv.DictReader`. The field size limit is raised at module load to handle very large fields (e.g. completions up to 124K characters from the Raiden Speciale dataset).
+### Range Access
 
 ```python
-from scripts.data_formats import CSVLoader
+from utils.loader import get_records_range
 
-loader = CSVLoader()
+# Get range of records - efficient for Parquet
+records = get_records_range("data.parquet", start=100, count=50)
+```
 
-# Stream records (O(1) memory)
-for record in loader.load("data.csv"):
-    print(record["prompt"], record["completion"])
+### Load All
 
-# Get record count (line count minus header)
-count = loader.get_record_count("data.csv")
+```python
+from utils.loader import load_records
 
-# Random access (streams to index)
-record = loader.get_record_at_index("data.csv", 42)
+# Load all into memory (use sparingly for large files)
+all_records = list(load_records("small.jsonl"))
 ```
 
 ## Schema Normalization
@@ -166,7 +125,7 @@ Different formats use different field names. The normalizer provides a consisten
 ### Usage
 
 ```python
-from scripts.data_formats import normalize_record, denormalize_record, is_normalized
+from utils.normalize import normalize_record, denormalize_record, is_normalized
 
 # Normalize a parquet record to standard schema
 parquet_record = {"conversations": [...], "trial_name": "abc123"}
@@ -181,20 +140,26 @@ if not is_normalized(record):
 parquet_record = denormalize_record(normalized, target_format="parquet")
 ```
 
-### Parquet-Only Metadata Fields
+### Standard Fields
 
-These fields are preserved but only exist in Parquet files:
+```python
+from utils.normalize import get_standard_fields, get_parquet_only_fields
 
-- `agent`, `model`, `model_provider`
-- `date`, `task`, `episode`
-- `run_id`, `trial_name`
+# Get list of standard schema fields
+fields = get_standard_fields()
+# ["uuid", "messages", "tools", "license", "used_in"]
+
+# Get parquet-only metadata fields
+parquet_fields = get_parquet_only_fields()
+# ["agent", "model", "model_provider", "date", "task", "episode", "run_id", "trial_name"]
+```
 
 ## Directory Discovery
 
 Find all supported data files in a directory:
 
 ```python
-from scripts.data_formats import discover_data_files, format_file_size
+from utils.detect import discover_data_files, format_file_size
 
 # Get all data files with metadata
 files = discover_data_files("/path/to/data/")
@@ -207,51 +172,16 @@ for f in files:
 # export.json (json) - 12 KB
 ```
 
-## Public API
-
-### Imports
-
-```python
-from scripts.data_formats import (
-    # Base class
-    DataLoader,
-
-    # Format detection
-    detect_format,
-    get_loader,
-    get_loader_for_format,
-    EXTENSION_MAP,
-    SUPPORTED_FORMATS,
-
-    # Loaders
-    CSVLoader,
-    JSONLLoader,
-    JSONLoader,
-    ParquetLoader,
-
-    # Schema normalization
-    normalize_record,
-    denormalize_record,
-    get_standard_fields,
-    get_parquet_only_fields,
-    is_normalized,
-
-    # Directory utilities
-    SUPPORTED_EXTENSIONS,
-    discover_data_files,
-    format_file_size,
-)
-```
-
 ## Memory Efficiency
 
 ### Streaming vs Full Load
 
 | Method | Memory | Use Case |
 |--------|--------|----------|
-| `load()` | O(1) | Processing large files |
-| `load_all()` | O(n) | Need random access |
+| `load_records()` | O(1) | Processing large files |
+| `load_all_records()` | O(n) | Need random access |
 | `get_record_at_index()` | O(1) | Single record lookup |
+| `get_records_range()` | O(count) | Range of records |
 
 ### Format-Specific Characteristics
 
@@ -276,9 +206,67 @@ from scripts.data_formats import (
 - Nested structures fully supported
 - Uses PyArrow for efficient handling
 
+## Sampling Functions
+
+Memory-efficient sampling and file operations:
+
+```python
+from utils.sampling import reservoir_sample, shuffle_file_streaming, chunk_file_streaming
+
+# Reservoir sampling - O(k) memory for k samples
+records = reservoir_sample(load_records("large.jsonl"), k=1000, seed=42)
+
+# Shuffle large files with O(buffer_size) memory
+shuffle_file_streaming("input.jsonl", "output.jsonl", seed=42, buffer_size=10000)
+
+# Split into chunks with O(buffer_size) memory
+chunk_file_streaming("input.jsonl", "output_dir/", num_chunks=4)
+```
+
+## Public API
+
+### Imports
+
+```python
+# Format detection
+from utils.detect import (
+    detect_format,
+    EXTENSION_MAP,
+    SUPPORTED_FORMATS,
+    SUPPORTED_EXTENSIONS,
+    discover_data_files,
+    format_file_size,
+)
+
+# Data loading
+from utils.loader import (
+    load_records,
+    load_all_records,
+    get_record_count,
+    get_record_at_index,
+    get_records_range,
+)
+
+# Schema normalization
+from utils.normalize import (
+    normalize_record,
+    denormalize_record,
+    is_normalized,
+    get_standard_fields,
+    get_parquet_only_fields,
+)
+
+# Memory-efficient operations
+from utils.sampling import (
+    reservoir_sample,
+    shuffle_file_streaming,
+    chunk_file_streaming,
+)
+```
+
 ## Error Handling
 
-All loaders raise standard exceptions:
+All functions raise standard exceptions:
 
 | Exception | Cause |
 |-----------|-------|
@@ -294,11 +282,12 @@ The TUI application uses this module for all data loading:
 
 ```python
 # In scripts/tui/data_loader.py
-from scripts.data_formats import get_loader, normalize_record
+from utils.detect import detect_format
+from utils.loader import load_records
+from utils.normalize import normalize_record
 
-loader = get_loader(filename)
-for record in loader.load(filename):
-    normalized = normalize_record(record, loader.format_name)
+for record in load_records(filename):
+    normalized = normalize_record(record, detect_format(filename))
     # Display in UI...
 ```
 

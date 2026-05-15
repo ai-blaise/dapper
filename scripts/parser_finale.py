@@ -36,7 +36,9 @@ from typing import Any, Iterator
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from scripts.data_formats import get_loader, get_loader_for_format, normalize_record
+from utils.detect import detect_format
+from utils.loader import load_records as _load_records
+from utils.normalize import normalize_record
 
 
 def process_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -116,15 +118,15 @@ def format_markdown(record: dict[str, Any]) -> str:
     lines.append("## Metadata")
     lines.append(f"- **License:** {record['license']}")
     lines.append(f"- **Used In:** {', '.join(record['used_in'])}")
-    if record.get('reasoning'):
+    if record.get("reasoning"):
         lines.append(f"- **Reasoning:** {record['reasoning']}")
     lines.append("")
 
     # Messages
     lines.append("## Messages")
-    for i, msg in enumerate(record['messages']):
-        role = msg.get('role', 'unknown')
-        content = msg.get('content', '')
+    for i, msg in enumerate(record["messages"]):
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
         lines.append(f"### [{i}] {role.upper()}")
         if isinstance(content, dict):
             lines.append("```json")
@@ -136,10 +138,10 @@ def format_markdown(record: dict[str, Any]) -> str:
 
     # Tools
     lines.append("## Tools")
-    for tool in record['tools']:
-        func = tool.get('function', tool)
-        name = func.get('name', 'unknown')
-        desc = func.get('description', 'No description')
+    for tool in record["tools"]:
+        func = tool.get("function", tool)
+        name = func.get("name", "unknown")
+        desc = func.get("description", "No description")
         lines.append(f"### {name}")
         lines.append(f"{desc}")
         lines.append("")
@@ -158,9 +160,9 @@ def format_text(record: dict[str, Any]) -> str:
     lines.append("")
 
     lines.append("--- Messages ---")
-    for i, msg in enumerate(record['messages']):
-        role = msg.get('role', 'unknown').upper()
-        content = msg.get('content', '')
+    for i, msg in enumerate(record["messages"]):
+        role = msg.get("role", "unknown").upper()
+        content = msg.get("content", "")
         if isinstance(content, dict):
             content = json.dumps(content)
         content_str = str(content) if content else ""
@@ -169,9 +171,9 @@ def format_text(record: dict[str, Any]) -> str:
     lines.append("")
 
     lines.append("--- Tools ---")
-    for tool in record['tools']:
-        func = tool.get('function', tool)
-        name = func.get('name', 'unknown')
+    for tool in record["tools"]:
+        func = tool.get("function", tool)
+        name = func.get("name", "unknown")
         lines.append(f"  - {name}")
 
     return "\n".join(lines)
@@ -183,7 +185,7 @@ def load_jsonl(filename: str) -> Iterator[dict[str, Any]]:
     Note: This function is kept for backward compatibility.
     For multi-format support, use load_records() instead.
     """
-    with open(filename, 'r', encoding='utf-8') as f:
+    with open(filename, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -205,14 +207,11 @@ def load_records(
     Yields:
         Each record as a dictionary.
     """
-    if input_format == "auto":
-        loader = get_loader(filename)
-    else:
-        loader = get_loader_for_format(input_format)
-
-    for record in loader.load(filename):
+    fmt = None if input_format == "auto" else input_format
+    detected_fmt = fmt or detect_format(filename)
+    for record in _load_records(filename, fmt):
         if normalize:
-            yield normalize_record(record, loader.format_name)
+            yield normalize_record(record, detected_fmt)
         else:
             yield record
 
@@ -247,7 +246,7 @@ def write_json_array(
         pretty: Whether to use pretty printing with indentation.
     """
     indent = 2 if pretty else None
-    with open(output_file, 'w', encoding='utf-8') as f:
+    with open(output_file, "w", encoding="utf-8") as f:
         json.dump(records, f, indent=indent, ensure_ascii=False)
 
 
@@ -258,54 +257,44 @@ def main() -> None:
         description="Parse datasets and output content with emptied assistant responses. "
         "Supports JSONL, JSON, and Parquet input/output formats."
     )
-    parser.add_argument("path", help="Path to data file or directory of data files (JSONL, JSON, or Parquet)")
+    parser.add_argument(
+        "path",
+        help="Path to data file or directory of data files (JSONL, JSON, or Parquet)",
+    )
     parser.add_argument(
         "--input-format",
         choices=["auto", "jsonl", "json", "parquet"],
         default="auto",
-        help="Input file format (default: auto-detect from extension)"
+        help="Input file format (default: auto-detect from extension)",
     )
     parser.add_argument(
-        "-f", "--format", "--output-format",
+        "-f",
+        "--format",
+        "--output-format",
         dest="output_format",
         choices=["json", "jsonl", "parquet", "markdown", "text"],
         default="json",
-        help="Output format (default: json)"
+        help="Output format (default: json)",
     )
+    parser.add_argument("-o", "--output", help="Output file (default: stdout)")
     parser.add_argument(
-        "-o", "--output",
-        help="Output file (default: stdout)"
-    )
-    parser.add_argument(
-        "-O", "--output-dir",
+        "-O",
+        "--output-dir",
         default="parsed_datasets",
-        help="Output directory for batch processing (default: parsed_datasets)"
+        help="Output directory for batch processing (default: parsed_datasets)",
     )
     parser.add_argument(
-        "-i", "--index",
-        type=int,
-        help="Process only record at this index"
+        "-i", "--index", type=int, help="Process only record at this index"
     )
     parser.add_argument(
-        "--start",
-        type=int,
-        default=0,
-        help="Start index for range processing"
+        "--start", type=int, default=0, help="Start index for range processing"
+    )
+    parser.add_argument("--end", type=int, help="End index for range processing")
+    parser.add_argument(
+        "--has-tools", action="store_true", help="Only include records with tools"
     )
     parser.add_argument(
-        "--end",
-        type=int,
-        help="End index for range processing"
-    )
-    parser.add_argument(
-        "--has-tools",
-        action="store_true",
-        help="Only include records with tools"
-    )
-    parser.add_argument(
-        "--compact",
-        action="store_true",
-        help="Compact JSON output (no indentation)"
+        "--compact", action="store_true", help="Compact JSON output (no indentation)"
     )
 
     args = parser.parse_args()
@@ -318,7 +307,8 @@ def main() -> None:
     # Determine if path is file or directory
     if os.path.isdir(args.path):
         # Directory mode - launch TUI with file picker
-        from scripts.tui.app import JsonComparisonApp # weird way to do it but sure
+        from scripts.tui.app import JsonComparisonApp  # weird way to do it but sure
+
         app = JsonComparisonApp(
             path=args.path,
             input_format=args.input_format,
@@ -341,14 +331,17 @@ def main() -> None:
 
     # Parquet output requires an output file
     if args.output_format == "parquet" and not effective_output:
-        print("Error: Parquet output requires -o/--output file or --output-dir", file=sys.stderr)
+        print(
+            "Error: Parquet output requires -o/--output file or --output-dir",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # Determine output destination (not used for parquet)
     output_file = None
     output = sys.stdout
     if effective_output and args.output_format != "parquet":
-        output_file = open(effective_output, 'w', encoding='utf-8')
+        output_file = open(effective_output, "w", encoding="utf-8")
         output = output_file
 
     try:
@@ -375,7 +368,7 @@ def main() -> None:
                 break
 
             # Apply has-tools filter
-            if args.has_tools and not record.get('tools'):
+            if args.has_tools and not record.get("tools"):
                 continue
 
             processed = process_record(record)
@@ -391,7 +384,9 @@ def main() -> None:
         if args.output_format == "parquet":
             # Write to parquet file
             write_parquet(results, effective_output)
-            print(f"Wrote {len(results)} records to {effective_output}", file=sys.stderr)
+            print(
+                f"Wrote {len(results)} records to {effective_output}", file=sys.stderr
+            )
 
         elif args.output_format == "json" and results:
             if len(results) == 1:
@@ -399,7 +394,9 @@ def main() -> None:
                 print(formatter(results[0]), file=output)
             else:
                 indent = 2 if not args.compact else None
-                print(json.dumps(results, indent=indent, ensure_ascii=False), file=output)
+                print(
+                    json.dumps(results, indent=indent, ensure_ascii=False), file=output
+                )
 
         elif args.output_format in ("markdown", "text") and results:
             formatter = formatters[args.output_format]

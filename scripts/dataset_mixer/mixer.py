@@ -13,7 +13,9 @@ from typing import Any, Iterator
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from scripts.data_formats.format_detector import EXTENSION_MAP
+from utils.detect import EXTENSION_MAP
+from utils.loader import load_records
+from utils.streaming import records_to_batch
 from scripts.dataset_mixer.adapters import detect_adapter
 from scripts.dataset_mixer.schema import OUTPUT_SCHEMA
 from utils import get_existing_record_count, stream_file
@@ -176,6 +178,9 @@ def mix(
     tooling_sample_rate: float | None = None,
     sample_seed: int | None = None,
     resume: bool = False,
+    shuffle: bool = False,
+    shuffle_seed: int | None = None,
+    num_chunks: int | None = None,
 ) -> dict[str, Any]:
     """Run the full mixing pipeline with streaming for memory efficiency.
 
@@ -189,6 +194,9 @@ def mix(
         tooling_sample_rate: If set, apply random sampling to Nemotron-SFT-Agentic-v2 tool_calling subset.
         sample_seed: Random seed for reproducible sampling.
         resume: If True, resume from existing output file (skip already-written records).
+        shuffle: If True, randomly shuffle records before writing (requires loading all records).
+        shuffle_seed: Random seed for reproducible shuffling.
+        num_chunks: If set, split output into N chunks after mixing.
 
     Returns:
         Summary dict with keys: total_records, sources (dict of source -> count),
@@ -344,6 +352,58 @@ def mix(
         except Exception as e:
             print(f"Warning: Could not verify output file: {e}")
             print(f"Output written to: {output_path}")
+
+    # Post-processing: shuffle and/or chunk if requested
+    if num_chunks and total > 0:
+        from scripts.data_splitter import (
+            chunk_records,
+            shuffle_records,
+        )
+
+        output_path_obj = Path(output_path)
+        output_dir = output_path_obj.parent
+        prefix = output_path_obj.stem
+
+        # Load all records from mixed output for shuffling/chunking
+        all_records = list(load_records(output_path))
+
+        # Shuffle if requested (seed or no-seed)
+        if shuffle or shuffle_seed is not None:
+            shuffle_records(all_records, shuffle_seed)
+
+        # Chunk records
+        if num_chunks:
+            chunks = chunk_records(all_records, num_chunks)
+
+            # Write each chunk as Parquet
+            chunk_paths = []
+            for i, chunk in enumerate(chunks):
+                chunk_path = (
+                    output_dir / f"{prefix}_part_{i + 1}_of_{num_chunks}.parquet"
+                )
+                writer = pq.ParquetWriter(chunk_path, OUTPUT_SCHEMA)
+                writer.write_batch(records_to_batch(chunk))
+                writer.close()
+                chunk_paths.append(str(chunk_path))
+
+            return {
+                "total_records": total,
+                "sources": sources,
+                "tasks": tasks,
+                "output_path": chunk_paths,  # List of chunk paths
+                "num_chunks": num_chunks,
+            }
+        elif shuffle or shuffle_seed is not None:
+            # Shuffle-only (no chunking), overwrite single file
+            writer = pq.ParquetWriter(output_path, OUTPUT_SCHEMA)
+            writer.write_batch(records_to_batch(all_records))
+            writer.close()
+            return {
+                "total_records": total,
+                "sources": sources,
+                "tasks": tasks,
+                "output_path": output_path,
+            }
 
     return {
         "total_records": total,

@@ -1,10 +1,10 @@
-"""Tests for schema normalization in scripts/data_formats/schema_normalizer.py."""
+"""Tests for schema normalization in utils/normalize.py."""
 
 from __future__ import annotations
 
 import pytest
 
-from scripts.data_formats import (
+from utils.normalize import (
     normalize_record,
     denormalize_record,
     get_standard_fields,
@@ -56,9 +56,7 @@ class TestNormalizeRecordConversations:
 
     def test_does_not_modify_original(self):
         """normalize_record should not modify the original record."""
-        record = {
-            "conversations": [{"role": "user", "content": "Test"}]
-        }
+        record = {"conversations": [{"role": "user", "content": "Test"}]}
         original_copy = record.copy()
 
         normalize_record(record)
@@ -278,9 +276,7 @@ class TestDenormalizeRecord:
 
     def test_does_not_modify_original(self):
         """denormalize_record should not modify the original record."""
-        record = {
-            "messages": [{"role": "user", "content": "Test"}]
-        }
+        record = {"messages": [{"role": "user", "content": "Test"}]}
         original_copy = record.copy()
 
         denormalize_record(record, "parquet")

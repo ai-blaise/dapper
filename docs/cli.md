@@ -287,6 +287,10 @@ uv run python -m scripts.dataset_mixer <input_dir> [options]
 | `--batch-size N` | Records per write batch for memory control (default: 2000) |
 | `--tooling-sample-rate RATE` | Random sample rate (0.0-1.0) for Nemotron-SFT-Agentic-v2 tool_calling subset only (search is always 100%) |
 | `--sample-seed SEED` | Random seed for reproducible sampling |
+| `--resume` | Resume from existing output file if present |
+| `--shuffle` | Randomly shuffle records before writing (requires loading all records) |
+| `--shuffle-seed SEED` | Random seed for --shuffle reproducibility |
+| `--num-chunks N` | Split output into N chunks after mixing |
 
 ### Source Filtering
 
@@ -389,6 +393,25 @@ uv run python -m scripts.dataset_mixer datasets/ -o nemotron_mixed.parquet \
 ```bash
 # Smaller batch size for large datasets
 uv run python -m scripts.dataset_mixer datasets/ -o output.parquet --batch-size 500
+```
+
+#### Shuffle and Chunk
+
+```bash
+# Mix + shuffle + single output (reproducible)
+uv run python -m scripts.dataset_mixer datasets/ -o shuffled.parquet \
+  --include Nemotron-SFT-Agentic-v2 \
+  --shuffle --shuffle-seed 42
+
+# Mix + shuffle + split into 8 chunks (for distillation)
+uv run python -m scripts.dataset_mixer datasets/ -o chunks/distill \
+  --include Nemotron-SFT-Agentic-v2 \
+  --shuffle --shuffle-seed 42 --num-chunks 8
+# Creates: chunks/distill_part_1_of_8.parquet, ..., chunks/distill_part_8_of_8.parquet
+
+# Mix + chunk only (sequential, no shuffle)
+uv run python -m scripts.dataset_mixer datasets/ -o chunks/distill \
+  --num-chunks 4
 ```
 
 ### Output Schema

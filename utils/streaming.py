@@ -13,7 +13,8 @@ from typing import Any, Iterator
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from scripts.data_formats import detect_format, get_loader
+from utils.detect import detect_format
+from utils.loader import load_records
 from scripts.dataset_mixer.adapters import BaseAdapter, detect_adapter
 from scripts.dataset_mixer.schema import OUTPUT_SCHEMA, TURN_TYPE
 
@@ -77,11 +78,10 @@ def stream_file(
         yield from stream_parquet_file(filepath, source_dataset, batch_size)
     elif fmt in ("jsonl", "json"):
         adapter: BaseAdapter = detect_adapter(filepath)
-        loader = get_loader(filepath)
 
         if do_sample:
             all_records: list[dict[str, Any]] = []
-            for raw_record in loader.load(filepath):
+            for raw_record in load_records(filepath):
                 transformed_records = adapter.transform_records(
                     iter([raw_record]), source_dataset
                 )
@@ -98,13 +98,13 @@ def stream_file(
             for record in sampled_records:
                 batch_records.append(record)
                 if len(batch_records) >= batch_size:
-                    yield _dict_list_to_batch(batch_records)
+                    yield records_to_batch(batch_records)
                     batch_records = []
             if batch_records:
-                yield _dict_list_to_batch(batch_records)
+                yield records_to_batch(batch_records)
         else:
             batch_records: list[dict[str, Any]] = []
-            for raw_record in loader.load(filepath):
+            for raw_record in load_records(filepath):
                 transformed_records = adapter.transform_records(
                     iter([raw_record]), source_dataset
                 )
@@ -112,16 +112,16 @@ def stream_file(
                     batch_records.append(record)
 
                     if len(batch_records) >= batch_size:
-                        yield _dict_list_to_batch(batch_records)
+                        yield records_to_batch(batch_records)
                         batch_records = []
 
             if batch_records:
-                yield _dict_list_to_batch(batch_records)
+                yield records_to_batch(batch_records)
     else:
         raise ValueError(f"Unsupported format: {fmt}")
 
 
-def _dict_list_to_batch(records: list[dict[str, Any]]) -> pa.RecordBatch:
+def records_to_batch(records: list[dict[str, Any]]) -> pa.RecordBatch:
     """Convert a list of records to a PyArrow RecordBatch.
 
     Args:

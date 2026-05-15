@@ -124,7 +124,7 @@ uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_age
 #### Full Nemotron Family Mix Examples
 
 ```bash
-# FULL Nemotron family (Terminal Corpus + ALL Agentic v2) - NO sampling
+# FULL Nemotron family (Terminal Corpus = 100% + Agentic v2 = 100%)
 uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_full_family.parquet \
   --include Nemotron
 
@@ -134,6 +134,64 @@ uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_mix
   --include Nemotron \
   --tooling-sample-rate 0.40 \
   --sample-seed 42
+```
+
+### Distillation Mix Datasets
+
+The `test-datasets/` directory contains real distillation mix datasets from HuggingFace. These are used directly as input to the mixer.
+
+```bash
+# Preview what would be mixed
+uv run python -m scripts.dataset_mixer test-datasets/ --dry-run
+```
+
+**Available datasets:**
+
+| Dataset | File | Size | Description |
+|---------|------|------|-------------|
+| **Hunter-Alpha-Coding-Agent-SFT** | `Hunter-Alpha-Coding-Agent-SFT.jsonl` | 168 MB | Coding agent SFT data with tool definitions for file operations, search, and web search. |
+| **Hunter-Alpha-Programming-160000x** | `Hunter-Alpha_s_shuffled.jsonl` | 4.0 GB | Programming reasoning traces distilled from Hunter-Alpha at high reasoning levels. |
+| **Hunter-Alpha-UIGEN-T3-Agent-SFT** | `Hunter-Alpha-UIGEN-T3.jsonl` | 180 MB | Another variant of the Hunter-Alpha agent SFT format. |
+| **High-Coder-SFT-Medium** | `dataset.jsonl` | 3.4 GB | High-Coder SFT data with `provenance.prompt` → user message mapping. |
+| **High-Coder-Reasoning-Multi-Turn** | `High-Coder-Reasoning-Multi-Turn.jsonl` | 4.8 GB | High-Coder reasoning with `conversation` → `conversations` mapping. |
+
+**Adapter requirements:**
+
+| Dataset | Adapter | Schema Transform |
+|---------|---------|------------------|
+| Hunter-Alpha-* (3 datasets) | `MessagesJSONLAdapter` | `messages` → `conversations`, extract metadata, JSON-serialize tools |
+| High-Coder-SFT-Medium | `HighCodeSFTAdapter` | `provenance.prompt` → user msg, `content.text` → assistant msg |
+| High-Coder-Reasoning-Multi-Turn | `HighCodeReasoningAdapter` | `conversation` → `conversations`, `transform_type` → `episode` |
+
+**Mix commands:**
+
+```bash
+# Mix all distillation datasets into a single Parquet file
+uv run python -m scripts.dataset_mixer test-datasets/ \
+  -o output/distillation_mix.parquet
+
+# Mix + shuffle + split into 4 chunks
+uv run python -m scripts.dataset_mixer test-datasets/ \
+  -o output/distillation_mix \
+  --shuffle --shuffle-seed 42 \
+  --num-chunks 4
+# Creates: output/distillation_mix_part_1_of_4.parquet, ..., output/distillation_mix_part_4_of_4.parquet
+
+# Only High-Coder datasets
+uv run python -m scripts.dataset_mixer test-datasets/ \
+  -o output/high_coder_only.parquet \
+  --include "High-Coder"
+
+# Only Hunter-Alpha datasets
+uv run python -m scripts.dataset_mixer test-datasets/ \
+  -o output/hunter_alpha_only.parquet \
+  --include "Hunter-Alpha"
+
+# Exclude large datasets for a quick mix
+uv run python -m scripts.dataset_mixer test-datasets/ \
+  -o output/quick_mix.parquet \
+  --exclude "Hunter-Alpha-Programming-160000x" \
+  --exclude "High-Coder-Reasoning-Multi-Turn"
 ```
 
 #### Advanced Options
@@ -274,19 +332,18 @@ uv run pytest tests/
 
 ```
 dataset-parser/
+├── utils/                 # Core utilities (functional, memory-efficient)
+│   ├── loader.py        # Multi-format data loading (load_records, etc.)
+│   ├── detect.py        # Format detection (detect_format, etc.)
+│   ├── normalize.py      # Schema normalization (normalize_record, etc.)
+│   ├── sampling.py      # Reservoir sampling, shuffle, chunk
+│   ├── streaming.py      # PyArrow RecordBatch transformation
+│   ├── config.py        # Theme configuration
+│   └── data.py          # Data transformation utilities
 ├── scripts/              # Main application code
 │   ├── main.py           # CLI tool
 │   ├── parser_finale.py  # Transformation engine
 │   ├── data_splitter.py  # Dataset splitting utility
-│   ├── data_formats/     # Multi-format data loaders
-│   │   ├── base.py       # Abstract base loader class
-│   │   ├── csv_loader.py
-│   │   ├── jsonl_loader.py
-│   │   ├── json_loader.py
-│   │   ├── parquet_loader.py
-│   │   ├── format_detector.py
-│   │   ├── schema_normalizer.py
-│   │   └── directory_loader.py
 │   ├── dataset_mixer/    # Opinionated dataset mixing pipeline
 │   │   ├── __main__.py   # Entry point (python -m scripts.dataset_mixer)
 │   │   ├── cli.py        # CLI: argparse definition

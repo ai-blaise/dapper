@@ -1,4 +1,4 @@
-"""Tests for ParquetLoader in scripts/data_formats/parquet_loader.py."""
+"""Tests for Parquet loading in utils/loader.py."""
 
 from __future__ import annotations
 
@@ -10,7 +10,12 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from scripts.data_formats import ParquetLoader
+from utils.loader import (
+    load_records,
+    get_record_count,
+    get_record_at_index,
+    get_records_range,
+)
 
 
 def create_parquet_file(filepath: Path, records: list[dict[str, Any]]) -> None:
@@ -26,9 +31,7 @@ def create_parquet_file(filepath: Path, records: list[dict[str, Any]]) -> None:
 
 
 def create_parquet_file_with_row_groups(
-    filepath: Path,
-    records: list[dict[str, Any]],
-    row_group_size: int = 2
+    filepath: Path, records: list[dict[str, Any]], row_group_size: int = 2
 ) -> None:
     """Helper to create a Parquet file with multiple row groups."""
     if not records:
@@ -40,23 +43,8 @@ def create_parquet_file_with_row_groups(
     pq.write_table(table, filepath, row_group_size=row_group_size)
 
 
-class TestParquetLoaderProperties:
-    """Tests for ParquetLoader properties."""
-
-    def test_format_name(self):
-        """ParquetLoader should have correct format name."""
-        loader = ParquetLoader()
-        assert loader.format_name == "parquet"
-
-    def test_supported_extensions(self):
-        """ParquetLoader should support .parquet and .pq."""
-        loader = ParquetLoader()
-        assert ".parquet" in loader.supported_extensions
-        assert ".pq" in loader.supported_extensions
-
-
 class TestParquetLoaderLoad:
-    """Tests for ParquetLoader.load() method."""
+    """Tests for Parquet loading via load_records()."""
 
     def test_load_single_record(self, tmp_path):
         """Load Parquet file with single record."""
@@ -64,8 +52,7 @@ class TestParquetLoaderLoad:
         records = [{"id": 1, "name": "test"}]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        loaded = list(loader.load(str(filepath)))
+        loaded = list(load_records(str(filepath)))
         assert len(loaded) == 1
         assert loaded[0]["id"] == 1
         assert loaded[0]["name"] == "test"
@@ -80,28 +67,25 @@ class TestParquetLoaderLoad:
         ]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        loaded = list(loader.load(str(filepath)))
+        loaded = list(load_records(str(filepath)))
         assert len(loaded) == 3
         assert loaded[0]["id"] == 1
         assert loaded[2]["value"] == "c"
 
-    def test_load_returns_generator(self, tmp_path):
-        """load() should return a generator."""
+    def test_load_returns_iterator(self, tmp_path):
+        """load_records() should return an iterator."""
         filepath = tmp_path / "gen.parquet"
         records = [{"id": 1}, {"id": 2}]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        result = loader.load(str(filepath))
+        result = load_records(str(filepath))
         assert hasattr(result, "__iter__")
         assert hasattr(result, "__next__")
 
     def test_load_file_not_found(self):
         """load() should raise error for non-existent file."""
-        loader = ParquetLoader()
         with pytest.raises(Exception):  # PyArrow raises various errors
-            list(loader.load("/nonexistent/path/data.parquet"))
+            list(load_records("/nonexistent/path/data.parquet"))
 
 
 class TestParquetLoaderNestedStructures:
@@ -116,8 +100,7 @@ class TestParquetLoaderNestedStructures:
         ]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        loaded = list(loader.load(str(filepath)))
+        loaded = list(load_records(str(filepath)))
         assert loaded[0]["items"] == [1, 2, 3]
         assert loaded[1]["items"] == [4, 5, 6]
 
@@ -130,8 +113,7 @@ class TestParquetLoaderNestedStructures:
         ]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        loaded = list(loader.load(str(filepath)))
+        loaded = list(load_records(str(filepath)))
         assert loaded[0]["data"]["key"] == "value"
         assert loaded[1]["data"]["key"] == "other"
 
@@ -149,8 +131,7 @@ class TestParquetLoaderNestedStructures:
         ]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        loaded = list(loader.load(str(filepath)))
+        loaded = list(load_records(str(filepath)))
         assert len(loaded) == 1
         assert len(loaded[0]["conversations"]) == 3
         assert loaded[0]["conversations"][0]["role"] == "system"
@@ -160,18 +141,11 @@ class TestParquetLoaderNestedStructures:
         """Load Parquet file with deeply nested structures."""
         filepath = tmp_path / "deep.parquet"
         records = [
-            {
-                "level1": {
-                    "level2": {
-                        "level3": ["a", "b", "c"]
-                    }
-                }
-            },
+            {"level1": {"level2": {"level3": ["a", "b", "c"]}}},
         ]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        loaded = list(loader.load(str(filepath)))
+        loaded = list(load_records(str(filepath)))
         assert loaded[0]["level1"]["level2"]["level3"] == ["a", "b", "c"]
 
     def test_load_null_values(self, tmp_path):
@@ -183,59 +157,13 @@ class TestParquetLoaderNestedStructures:
         ]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        loaded = list(loader.load(str(filepath)))
+        loaded = list(load_records(str(filepath)))
         assert loaded[0]["optional"] is None
         assert loaded[1]["optional"] == "present"
 
 
-class TestParquetLoaderLoadAll:
-    """Tests for ParquetLoader.load_all() method."""
-
-    def test_load_all_records(self, tmp_path):
-        """load_all() should return all records."""
-        filepath = tmp_path / "all.parquet"
-        records = [{"id": i} for i in range(10)]
-        create_parquet_file(filepath, records)
-
-        loader = ParquetLoader()
-        loaded = loader.load_all(str(filepath))
-        assert len(loaded) == 10
-        assert loaded[0]["id"] == 0
-        assert loaded[9]["id"] == 9
-
-    def test_load_all_with_max_records(self, tmp_path):
-        """load_all() should respect max_records."""
-        filepath = tmp_path / "limited.parquet"
-        records = [{"id": i} for i in range(100)]
-        create_parquet_file(filepath, records)
-
-        loader = ParquetLoader()
-        loaded = loader.load_all(str(filepath), max_records=5)
-        assert len(loaded) == 5
-        assert loaded[4]["id"] == 4
-
-    def test_load_all_with_progress_callback(self, tmp_path):
-        """load_all() should call progress callback."""
-        filepath = tmp_path / "progress.parquet"
-        records = [{"id": i} for i in range(5)]
-        create_parquet_file(filepath, records)
-
-        callback_calls = []
-        def progress_callback(loaded: int, total: int | None) -> None:
-            callback_calls.append((loaded, total))
-
-        loader = ParquetLoader()
-        loader.load_all(str(filepath), progress_callback=progress_callback)
-
-        # Should have at least initial and final calls
-        assert len(callback_calls) >= 1
-        # Final call should report all records loaded
-        assert callback_calls[-1][0] == 5
-
-
-class TestParquetLoaderGetRecordCount:
-    """Tests for ParquetLoader.get_record_count() method."""
+class TestParquetGetRecordCount:
+    """Tests for get_record_count() with Parquet."""
 
     def test_get_record_count(self, tmp_path):
         """get_record_count() should return correct count."""
@@ -243,8 +171,7 @@ class TestParquetLoaderGetRecordCount:
         records = [{"id": i} for i in range(25)]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        count = loader.get_record_count(str(filepath))
+        count = get_record_count(str(filepath))
         assert count == 25
 
     def test_get_record_count_empty(self, tmp_path):
@@ -252,8 +179,7 @@ class TestParquetLoaderGetRecordCount:
         filepath = tmp_path / "empty.parquet"
         create_parquet_file(filepath, [])
 
-        loader = ParquetLoader()
-        count = loader.get_record_count(str(filepath))
+        count = get_record_count(str(filepath))
         assert count == 0
 
     def test_get_record_count_uses_metadata(self, tmp_path):
@@ -263,14 +189,13 @@ class TestParquetLoaderGetRecordCount:
         records = [{"id": i, "data": "x" * 100} for i in range(1000)]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
         # This should be fast because it only reads metadata
-        count = loader.get_record_count(str(filepath))
+        count = get_record_count(str(filepath))
         assert count == 1000
 
 
-class TestParquetLoaderGetRecordAtIndex:
-    """Tests for ParquetLoader.get_record_at_index() method."""
+class TestParquetGetRecordAtIndex:
+    """Tests for get_record_at_index() with Parquet."""
 
     def test_get_first_record(self, tmp_path):
         """get_record_at_index(0) should return first record."""
@@ -278,8 +203,7 @@ class TestParquetLoaderGetRecordAtIndex:
         records = [{"id": i} for i in range(5)]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        record = loader.get_record_at_index(str(filepath), 0)
+        record = get_record_at_index(str(filepath), 0)
         assert record["id"] == 0
 
     def test_get_last_record(self, tmp_path):
@@ -288,8 +212,7 @@ class TestParquetLoaderGetRecordAtIndex:
         records = [{"id": i} for i in range(10)]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        record = loader.get_record_at_index(str(filepath), 9)
+        record = get_record_at_index(str(filepath), 9)
         assert record["id"] == 9
 
     def test_get_middle_record(self, tmp_path):
@@ -298,8 +221,7 @@ class TestParquetLoaderGetRecordAtIndex:
         records = [{"id": i, "value": f"v{i}"} for i in range(20)]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        record = loader.get_record_at_index(str(filepath), 10)
+        record = get_record_at_index(str(filepath), 10)
         assert record["id"] == 10
         assert record["value"] == "v10"
 
@@ -309,11 +231,10 @@ class TestParquetLoaderGetRecordAtIndex:
         records = [{"id": i} for i in range(10)]
         create_parquet_file_with_row_groups(filepath, records, row_group_size=3)
 
-        loader = ParquetLoader()
         # Test records from different row groups
-        assert loader.get_record_at_index(str(filepath), 0)["id"] == 0
-        assert loader.get_record_at_index(str(filepath), 3)["id"] == 3
-        assert loader.get_record_at_index(str(filepath), 7)["id"] == 7
+        assert get_record_at_index(str(filepath), 0)["id"] == 0
+        assert get_record_at_index(str(filepath), 3)["id"] == 3
+        assert get_record_at_index(str(filepath), 7)["id"] == 7
 
     def test_get_record_negative_index_raises(self, tmp_path):
         """get_record_at_index() should raise for negative index."""
@@ -321,9 +242,8 @@ class TestParquetLoaderGetRecordAtIndex:
         records = [{"id": 1}]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
         with pytest.raises(IndexError):
-            loader.get_record_at_index(str(filepath), -1)
+            get_record_at_index(str(filepath), -1)
 
     def test_get_record_index_out_of_range_raises(self, tmp_path):
         """get_record_at_index() should raise for out of range index."""
@@ -331,9 +251,35 @@ class TestParquetLoaderGetRecordAtIndex:
         records = [{"id": i} for i in range(5)]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
         with pytest.raises(IndexError):
-            loader.get_record_at_index(str(filepath), 10)
+            get_record_at_index(str(filepath), 10)
+
+
+class TestParquetGetRecordsRange:
+    """Tests for get_records_range() with Parquet."""
+
+    def test_get_records_range_basic(self, tmp_path):
+        """get_records_range() should return correct range."""
+        filepath = tmp_path / "range.parquet"
+        records = [{"id": i} for i in range(10)]
+        create_parquet_file(filepath, records)
+
+        result = get_records_range(str(filepath), 2, 3)
+        assert len(result) == 3
+        assert result[0]["id"] == 2
+        assert result[1]["id"] == 3
+        assert result[2]["id"] == 4
+
+    def test_get_records_range_at_end(self, tmp_path):
+        """get_records_range() should handle range at end of file."""
+        filepath = tmp_path / "range_end.parquet"
+        records = [{"id": i} for i in range(10)]
+        create_parquet_file(filepath, records)
+
+        result = get_records_range(str(filepath), 8, 5)
+        assert len(result) == 2
+        assert result[0]["id"] == 8
+        assert result[1]["id"] == 9
 
 
 class TestParquetLoaderDataTypes:
@@ -349,8 +295,7 @@ class TestParquetLoaderDataTypes:
         ]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        loaded = list(loader.load(str(filepath)))
+        loaded = list(load_records(str(filepath)))
         assert loaded[0]["text"] == "hello"
         assert loaded[1]["text"] == "世界"
         assert loaded[2]["text"] == "🎉"
@@ -364,8 +309,7 @@ class TestParquetLoaderDataTypes:
         ]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        loaded = list(loader.load(str(filepath)))
+        loaded = list(load_records(str(filepath)))
         assert loaded[0]["int_val"] == 42
         assert loaded[0]["float_val"] == 3.14
 
@@ -378,8 +322,7 @@ class TestParquetLoaderDataTypes:
         ]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        loaded = list(loader.load(str(filepath)))
+        loaded = list(load_records(str(filepath)))
         assert loaded[0]["flag"] is True
         assert loaded[1]["flag"] is False
 
@@ -403,8 +346,7 @@ class TestParquetLoaderWithRealDatasetStructure:
         ]
         create_parquet_file(filepath, records)
 
-        loader = ParquetLoader()
-        loaded = list(loader.load(str(filepath)))
+        loaded = list(load_records(str(filepath)))
 
         assert len(loaded) == 1
         record = loaded[0]

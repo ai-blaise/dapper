@@ -70,6 +70,23 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Resume from existing output file if present (skip already-written records)",
     )
+    parser.add_argument(
+        "--shuffle",
+        action="store_true",
+        help="Randomly shuffle records before writing",
+    )
+    parser.add_argument(
+        "--shuffle-seed",
+        type=int,
+        default=None,
+        help="Random seed for --shuffle reproducibility",
+    )
+    parser.add_argument(
+        "--num-chunks",
+        type=int,
+        default=None,
+        help="Split output into N chunks after mixing",
+    )
 
     args = parser.parse_args(argv)
 
@@ -94,6 +111,9 @@ def main(argv: list[str] | None = None) -> None:
         tooling_sample_rate=args.tooling_sample_rate,
         sample_seed=args.sample_seed,
         resume=args.resume,
+        shuffle=args.shuffle,
+        shuffle_seed=args.shuffle_seed,
+        num_chunks=args.num_chunks,
     )
 
     # Print summary

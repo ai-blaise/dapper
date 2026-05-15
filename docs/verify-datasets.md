@@ -172,3 +172,71 @@ uv run python -m scripts.dataset_mixer datasets/ --dry-run --include Nemotron-SF
 | Agentic v2 40% sample | Nemotron-SFT-Agentic-v2 | ~5,764 |
 
 > **Note:** `interactive_agent.jsonl` in Nemotron-SFT-Agentic-v2 is automatically excluded by the adapter. Only `search.jsonl` and `tool_calling.jsonl` are processed.
+
+---
+
+## Distillation Mix Datasets (`test-datasets/`)
+
+The `test-datasets/` directory contains real distillation mix datasets from HuggingFace, ready to be mixed.
+
+### Available Datasets
+
+| Dataset | File | Size | Description |
+|---------|------|------|-------------|
+| **Hunter-Alpha-Coding-Agent-SFT** | `Hunter-Alpha-Coding-Agent-SFT.jsonl` | 168 MB | Coding agent SFT data with tool definitions for file operations, search, and web search. |
+| **Hunter-Alpha-Programming-160000x** | `Hunter-Alpha_s_shuffled.jsonl` | 4.0 GB | Programming reasoning traces distilled from Hunter-Alpha at high reasoning levels. |
+| **Hunter-Alpha-UIGEN-T3-Agent-SFT** | `Hunter-Alpha-UIGEN-T3.jsonl` | 180 MB | Another variant of the Hunter-Alpha agent SFT format. |
+| **High-Coder-SFT-Medium** | `dataset.jsonl` | 3.4 GB | High-Coder SFT data with `provenance.prompt` → user message mapping. |
+| **High-Coder-Reasoning-Multi-Turn** | `High-Coder-Reasoning-Multi-Turn.jsonl` | 4.8 GB | High-Coder reasoning with `conversation` → `conversations` mapping. |
+
+### Adapter Requirements
+
+| Dataset | Adapter | Schema Transform |
+|---------|---------|------------------|
+| Hunter-Alpha-* (3 datasets) | `MessagesJSONLAdapter` | `messages` → `conversations`, extract metadata, JSON-serialize tools |
+| High-Coder-SFT-Medium | `HighCodeSFTAdapter` | `provenance.prompt` → user msg, `content.text` → assistant msg |
+| High-Coder-Reasoning-Multi-Turn | `HighCodeReasoningAdapter` | `conversation` → `conversations`, `transform_type` → `episode` |
+
+### Mix Commands
+
+```bash
+# Preview what would be mixed
+uv run python -m scripts.dataset_mixer test-datasets/ --dry-run
+
+# Mix all distillation datasets
+uv run python -m scripts.dataset_mixer test-datasets/ \
+  -o output/distillation_mix.parquet
+
+# Mix + shuffle + split into 4 chunks
+uv run python -m scripts.dataset_mixer test-datasets/ \
+  -o output/distillation_mix \
+  --shuffle --shuffle-seed 42 \
+  --num-chunks 4
+
+# Only High-Coder datasets
+uv run python -m scripts.dataset_mixer test-datasets/ \
+  -o output/high_coder_only.parquet \
+  --include "High-Coder"
+
+# Only Hunter-Alpha datasets
+uv run python -m scripts.dataset_mixer test-datasets/ \
+  -o output/hunter_alpha_only.parquet \
+  --include "Hunter-Alpha"
+
+# Exclude large datasets for a quick mix
+uv run python -m scripts.dataset_mixer test-datasets/ \
+  -o output/quick_mix.parquet \
+  --exclude "Hunter-Alpha-Programming-160000x" \
+  --exclude "High-Coder-Reasoning-Multi-Turn"
+```
+
+### Browse in TUI
+
+```bash
+# Browse a single dataset
+uv run python -m scripts.tui.app test-datasets/Hunter-Alpha-Coding-Agent-SFT/
+
+# Compare source against mixed output
+uv run python -m scripts.tui.app test-datasets/ \
+  --compare output/
+```

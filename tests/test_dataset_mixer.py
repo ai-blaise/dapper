@@ -17,9 +17,7 @@ from typing import Any
 import pyarrow.parquet as pq
 import pytest
 
-from scripts.data_formats.csv_loader import CSVLoader
-from scripts.data_formats.jsonl_loader import JSONLLoader
-from scripts.data_formats.parquet_loader import ParquetLoader
+from utils.loader import load_records
 from scripts.dataset_mixer.adapters import (
     HighCodeReasoningAdapter,
     HighCodeSFTAdapter,
@@ -132,14 +130,13 @@ def _skip_if_missing(filepath: str) -> None:
 
 
 def _load_raw_and_adapted(
-    raw_loader,
     adapter,
     filepath: str,
     source_dataset: str,
     n: int = SAMPLE_SIZE,
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     """Load first n records from both raw loader and adapter, return paired."""
-    raw_records = list(islice(raw_loader.load(filepath), n))
+    raw_records = list(islice(load_records(filepath), n))
     adapted_records = list(islice(adapter.stream(filepath, source_dataset), n))
     assert len(raw_records) == len(adapted_records), (
         f"Record count mismatch: raw={len(raw_records)}, adapted={len(adapted_records)}"
@@ -172,9 +169,7 @@ class TestNemotronAdapterIntegrity:
         """Load raw + adapted pairs for one Nemotron file."""
         filepath = request.param
         _skip_if_missing(filepath)
-        return _load_raw_and_adapted(
-            ParquetLoader(), NemotronAdapter(), filepath, "nemotron-test"
-        )
+        return _load_raw_and_adapted(NemotronAdapter(), filepath, "nemotron-test")
 
     def test_conversations_unchanged(self, nemotron_pairs):
         """Conversations must pass through the adapter without any modification."""
@@ -237,7 +232,7 @@ class TestMessagesJSONLAdapterIntegrity:
         """Load raw + adapted pairs for the TeichAI JSONL file."""
         _skip_if_missing(TEICHAI_JSONL)
         return _load_raw_and_adapted(
-            JSONLLoader(), MessagesJSONLAdapter(), TEICHAI_JSONL, "teichai-test"
+            MessagesJSONLAdapter(), TEICHAI_JSONL, "teichai-test"
         )
 
     def test_conversations_match_messages(self, jsonl_pairs):
@@ -321,7 +316,6 @@ class TestPromptCompletionCSVAdapterIntegrity:
         """Load raw + adapted pairs for the Raiden Speciale CSV."""
         _skip_if_missing(RAIDEN_SPECIALE_CSV)
         return _load_raw_and_adapted(
-            CSVLoader(),
             PromptCompletionCSVAdapter(),
             RAIDEN_SPECIALE_CSV,
             "raiden-test",
@@ -361,11 +355,10 @@ class TestPromptCompletionCSVAdapterIntegrity:
     def test_large_completion_preserved(self):
         """Completions > 50K chars must not be truncated."""
         _skip_if_missing(RAIDEN_SPECIALE_CSV)
-        loader = CSVLoader()
         adapter = PromptCompletionCSVAdapter()
         found_large = False
         for raw, adapted in zip(
-            loader.load(RAIDEN_SPECIALE_CSV),
+            load_records(RAIDEN_SPECIALE_CSV),
             adapter.stream(RAIDEN_SPECIALE_CSV, "raiden-test"),
         ):
             if len(raw["completion"]) > 50_000:
@@ -435,8 +428,7 @@ class TestMixOutputIntegrity:
     def test_mix_subset_conversations_match_sources(self, mix_result):
         """Records in mixed output must have non-empty conversations."""
         output_path = mix_result["_output_path"]
-        loader = ParquetLoader()
-        for i, record in enumerate(loader.load(output_path)):
+        for i, record in enumerate(load_records(output_path)):
             assert record["conversations"] is not None, (
                 f"Record {i}: conversations is None"
             )
@@ -465,9 +457,8 @@ class TestMixOutputIntegrity:
     def test_source_dataset_values_correct(self, mix_result):
         """Every record must have a non-null source_dataset matching a subdirectory."""
         output_path = mix_result["_output_path"]
-        loader = ParquetLoader()
         seen_sources = set()
-        for i, record in enumerate(loader.load(output_path)):
+        for i, record in enumerate(load_records(output_path)):
             assert record["source_dataset"] is not None, (
                 f"Record {i}: source_dataset is None"
             )
@@ -482,8 +473,7 @@ class TestMixOutputIntegrity:
     def test_no_empty_conversations(self, mix_result):
         """No record should have empty or None conversations."""
         output_path = mix_result["_output_path"]
-        loader = ParquetLoader()
-        for i, record in enumerate(loader.load(output_path)):
+        for i, record in enumerate(load_records(output_path)):
             assert record["conversations"] is not None, (
                 f"Record {i}: conversations is None"
             )
@@ -494,8 +484,7 @@ class TestMixOutputIntegrity:
     def test_round_trip_parquet_preserves_conversations(self, mix_result):
         """Conversations must survive the Parquet write/read round-trip."""
         output_path = mix_result["_output_path"]
-        loader = ParquetLoader()
-        for i, record in enumerate(loader.load(output_path)):
+        for i, record in enumerate(load_records(output_path)):
             convs = record["conversations"]
             assert isinstance(convs, list), f"Record {i}: conversations is not a list"
             for j, msg in enumerate(convs):
@@ -549,10 +538,9 @@ class TestEdgeCases:
     def test_unicode_content_preserved(self):
         """Non-ASCII content must survive the adapter + Parquet round-trip."""
         _skip_if_missing(RAIDEN_SPECIALE_CSV)
-        loader = CSVLoader()
         adapter = PromptCompletionCSVAdapter()
         for raw, adapted in zip(
-            loader.load(RAIDEN_SPECIALE_CSV),
+            load_records(RAIDEN_SPECIALE_CSV),
             adapter.stream(RAIDEN_SPECIALE_CSV, "raiden-test"),
         ):
             # Verify exact match — catches any encoding normalization
@@ -776,7 +764,6 @@ class TestMessagesJSONLAdapterEnhanced:
         """Load raw + adapted pairs for Hunter-Alpha-Coding-Agent-SFT."""
         _skip_if_missing(HUNTER_ALPHA_CODING_AGENT_SFT)
         return _load_raw_and_adapted(
-            JSONLLoader(),
             MessagesJSONLAdapter(),
             HUNTER_ALPHA_CODING_AGENT_SFT,
             "hunter-alpha-coding-test",
@@ -866,7 +853,6 @@ class TestHighCodeSFTAdapter:
         """Load raw + adapted pairs for High-Coder-SFT-Medium."""
         _skip_if_missing(HIGH_CODER_SFT_MEDIUM)
         return _load_raw_and_adapted(
-            JSONLLoader(),
             HighCodeSFTAdapter(),
             HIGH_CODER_SFT_MEDIUM,
             "high-coder-sft-test",
@@ -958,7 +944,6 @@ class TestHighCodeReasoningAdapter:
         """Load raw + adapted pairs for High-Coder-Reasoning-Multi-Turn."""
         _skip_if_missing(HIGH_CODER_REASONING_MULTI_TURN)
         return _load_raw_and_adapted(
-            JSONLLoader(),
             HighCodeReasoningAdapter(),
             HIGH_CODER_REASONING_MULTI_TURN,
             "high-coder-reasoning-test",
@@ -1109,7 +1094,6 @@ class TestHunterAlphaProgramming160000x:
         """Load raw + adapted pairs for Hunter-Alpha-Programming-160000x."""
         _skip_if_missing(HUNTER_ALPHA_PROGRAMMING_160000X)
         return _load_raw_and_adapted(
-            JSONLLoader(),
             MessagesJSONLAdapter(),
             HUNTER_ALPHA_PROGRAMMING_160000X,
             "hunter-alpha-programming-test",
