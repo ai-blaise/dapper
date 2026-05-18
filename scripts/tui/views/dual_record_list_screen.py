@@ -20,24 +20,18 @@ from scripts.tui.data_loader import (
     FieldMapping,
     get_field_mapping,
     get_record_count,
-    get_record_summary,
     load_all_records,
-    load_record_at_index,
     load_records,
-    load_records_range,
 )
 from scripts.tui.keybindings import DUAL_PANE_BINDINGS, PAGE_BINDINGS
 from scripts.tui.mixins import (
     BackgroundTaskMixin,
     DualPaneMixin,
+    PaginatedRecordsMixin,
     RecordTableMixin,
     VimNavigationMixin,
 )
 from scripts.tui.widgets.json_tree_panel import JsonTreePanel
-
-
-# Number of records per page in lazy mode
-PAGE_SIZE = 200
 
 
 class PaneState(Enum):
@@ -49,7 +43,12 @@ class PaneState(Enum):
 
 
 class DualRecordListScreen(
-    BackgroundTaskMixin, DualPaneMixin, RecordTableMixin, VimNavigationMixin, Screen
+    BackgroundTaskMixin,
+    DualPaneMixin,
+    PaginatedRecordsMixin,
+    RecordTableMixin,
+    VimNavigationMixin,
+    Screen,
 ):
     """Two independent panes, each with FILE_LIST → RECORD_LIST → JSON_VIEW flow."""
 
@@ -425,11 +424,11 @@ class DualRecordListScreen(
         if not selected_file:
             return
 
-        total_pages = self._pane_total_pages(side)
-        page = max(0, min(page, total_pages - 1))
-        start = page * PAGE_SIZE
-
-        page_records = load_records_range(selected_file, start, PAGE_SIZE)
+        page, page_records = self._load_record_page(
+            selected_file,
+            page,
+            total_count,
+        )
 
         if side == "left":
             self._left_page = page
@@ -440,20 +439,15 @@ class DualRecordListScreen(
             self._right_page_records = page_records
             self._right_state = PaneState.RECORD_LIST
 
-        # Populate the record table with this page
         table = self.query_one(f"#{side}-record-table", DataTable)
         mapping = get_field_mapping(selected_file) if selected_file else FieldMapping()
-
-        # Clear and re-setup columns from actual field names
-        table.clear(columns=True)
-        columns = self._get_record_columns(mapping, records=page_records)
-        self._configure_table(table, columns)
-
-        for local_idx, record in enumerate(page_records):
-            global_idx = start + local_idx
-            summary = get_record_summary(record, global_idx, mapping)
-            row = self._build_record_row(summary, mapping, record=record)
-            table.add_row(*row, key=str(global_idx))
+        self._populate_record_page_table(
+            table,
+            page_records,
+            mapping,
+            self._record_page_start(page),
+            empty_message="No records on this page",
+        )
 
         self._refresh_pane(side)
         self._focus_active_widget()
@@ -461,9 +455,7 @@ class DualRecordListScreen(
     def _pane_total_pages(self, side: str) -> int:
         """Get total page count for a pane in lazy mode."""
         total = self._left_total_count if side == "left" else self._right_total_count
-        if total <= 0:
-            return 1
-        return (total + PAGE_SIZE - 1) // PAGE_SIZE
+        return self._record_total_pages(total)
 
     def _is_pane_lazy(self, side: str) -> bool:
         """Check if a pane is in lazy mode."""
@@ -524,28 +516,23 @@ class DualRecordListScreen(
         except (ValueError, TypeError, AttributeError):
             return
 
-        # Get the record — from page records (lazy) or full records (eager)
-        if self._is_pane_lazy(side):
-            page_records = (
-                self._left_page_records if side == "left" else self._right_page_records
-            )
-            page = self._get_pane_page(side)
-            page_start = page * PAGE_SIZE
-            local_idx = global_idx - page_start
-            if 0 <= local_idx < len(page_records):
-                record = page_records[local_idx]
-            else:
-                selected_file = (
-                    self._left_selected_file
-                    if side == "left"
-                    else self._right_selected_file
-                )
-                record = load_record_at_index(selected_file, global_idx)
-        else:
-            records = self._left_records if side == "left" else self._right_records
-            if global_idx < 0 or global_idx >= len(records):
-                return
-            record = records[global_idx]
+        page_records = (
+            self._left_page_records if side == "left" else self._right_page_records
+        )
+        selected_file = (
+            self._left_selected_file if side == "left" else self._right_selected_file
+        )
+        records = self._left_records if side == "left" else self._right_records
+        record = self._resolve_record_index(
+            global_idx,
+            lazy=self._is_pane_lazy(side),
+            page=self._get_pane_page(side),
+            page_records=page_records,
+            records=records,
+            filename=selected_file,
+        )
+        if record is None:
+            return
 
         # Update state for this pane only
         if side == "left":

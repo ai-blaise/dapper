@@ -14,11 +14,24 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from utils.detect import detect_format
-from utils.loader import load_records
-from scripts.dataset_mixer.adapters import BaseAdapter, detect_adapter
+from scripts.dataset_mixer.adapters import BaseAdapter, NemotronAdapter, detect_adapter
 from scripts.dataset_mixer.schema import OUTPUT_SCHEMA, TURN_TYPE
 
 from .data import transform_batch
+
+
+def _record_batches(
+    records: Iterator[dict[str, Any]], batch_size: int
+) -> Iterator[pa.RecordBatch]:
+    """Buffer transformed records into OUTPUT_SCHEMA RecordBatches."""
+    batch_records: list[dict[str, Any]] = []
+    for record in records:
+        batch_records.append(record)
+        if len(batch_records) >= batch_size:
+            yield records_to_batch(batch_records)
+            batch_records = []
+    if batch_records:
+        yield records_to_batch(batch_records)
 
 
 def stream_parquet_file(
@@ -75,18 +88,18 @@ def stream_file(
     )
 
     if fmt == "parquet":
-        yield from stream_parquet_file(filepath, source_dataset, batch_size)
+        adapter: BaseAdapter = detect_adapter(filepath)
+        if isinstance(adapter, NemotronAdapter):
+            yield from stream_parquet_file(filepath, source_dataset, batch_size)
+        else:
+            yield from _record_batches(
+                adapter.stream(filepath, source_dataset), batch_size
+            )
     elif fmt in ("jsonl", "json"):
         adapter: BaseAdapter = detect_adapter(filepath)
 
         if do_sample:
-            all_records: list[dict[str, Any]] = []
-            for raw_record in load_records(filepath):
-                transformed_records = adapter.transform_records(
-                    iter([raw_record]), source_dataset
-                )
-                for record in transformed_records:
-                    all_records.append(record)
+            all_records = list(adapter.stream(filepath, source_dataset))
 
             if sample_seed is not None:
                 random.seed(sample_seed)
@@ -94,29 +107,11 @@ def stream_file(
             sample_size = int(len(all_records) * tooling_sample_rate)
             sampled_records = all_records[:sample_size]
 
-            batch_records: list[dict[str, Any]] = []
-            for record in sampled_records:
-                batch_records.append(record)
-                if len(batch_records) >= batch_size:
-                    yield records_to_batch(batch_records)
-                    batch_records = []
-            if batch_records:
-                yield records_to_batch(batch_records)
+            yield from _record_batches(iter(sampled_records), batch_size)
         else:
-            batch_records: list[dict[str, Any]] = []
-            for raw_record in load_records(filepath):
-                transformed_records = adapter.transform_records(
-                    iter([raw_record]), source_dataset
-                )
-                for record in transformed_records:
-                    batch_records.append(record)
-
-                    if len(batch_records) >= batch_size:
-                        yield records_to_batch(batch_records)
-                        batch_records = []
-
-            if batch_records:
-                yield records_to_batch(batch_records)
+            yield from _record_batches(
+                adapter.stream(filepath, source_dataset), batch_size
+            )
     else:
         raise ValueError(f"Unsupported format: {fmt}")
 

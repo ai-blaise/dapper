@@ -9,19 +9,20 @@ convention), NOT 'messages' (TUI convention).
 
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from typing import Any, Iterator
 
 from utils.detect import detect_format
 from utils.loader import load_records
-from scripts.dataset_mixer.schema import OUTPUT_SCHEMA
-
-# Column names from the output schema (used to fill defaults)
-_SCHEMA_FIELDS = [field.name for field in OUTPUT_SCHEMA]
-
-# Columns to drop from Nemotron sources
-_NEMOTRON_DROP_COLUMNS = {"trial_name", "source"}
+from scripts.dataset_mixer.utils import (
+    first_list_item,
+    json_serialize_if_nested,
+    json_serialize_or_none,
+    make_output,
+    model_provider_from_model,
+    parse_conversations,
+    record_with_schema_defaults,
+)
 
 
 class BaseAdapter(ABC):
@@ -70,18 +71,31 @@ class NemotronAdapter(BaseAdapter):
     ) -> Iterator[dict[str, Any]]:
         """Transform Nemotron records with column drops and source_dataset added."""
         for record in records:
-            out: dict[str, Any] = {}
-            for field in _SCHEMA_FIELDS:
-                if field == "source_dataset":
-                    out[field] = source_dataset
-                elif field in record:
-                    out[field] = record[field]
-                else:
-                    out[field] = None
-            # Ensure tools field is present (defaults to None for NemotronAdapter)
-            if "tools" not in out:
-                out["tools"] = None
-            yield out
+            yield record_with_schema_defaults(record, source_dataset)
+
+
+class MochaTrajectoriesAdapter(BaseAdapter):
+    """Adapter for Mocha trajectory Parquet files.
+
+    These files store the conversation as a JSON-encoded ``messages`` string and
+    include evaluation artifacts that are intentionally outside OUTPUT_SCHEMA.
+    """
+
+    def transform_records(
+        self, records: Iterator[dict[str, Any]], source_dataset: str
+    ) -> Iterator[dict[str, Any]]:
+        """Transform Mocha records, parsing messages into conversations."""
+        for record in records:
+            turns = record.get("turns")
+
+            yield make_output(
+                conversations=parse_conversations(record.get("messages")),
+                source_dataset=source_dataset,
+                task=record.get("instance_id"),
+                episode=str(turns) if turns is not None else None,
+                run_id=record.get("trial_id"),
+                tools=json_serialize_if_nested(record.get("tools")),
+            )
 
 
 class MessagesJSONLAdapter(BaseAdapter):
@@ -98,26 +112,16 @@ class MessagesJSONLAdapter(BaseAdapter):
         for record in records:
             metadata = record.get("metadata", {})
             model = metadata.get("model")
-            model_provider = None
-            if model and "/" in model:
-                model_provider = model.split("/")[0]
 
-            tools = record.get("tools")
-            tools = json.dumps(tools) if tools is not None else None
-
-            yield {
-                "conversations": record.get("messages", []),
-                "agent": None,
-                "model": model,
-                "model_provider": model_provider,
-                "date": metadata.get("created_at"),
-                "task": None,
-                "episode": None,
-                "run_id": metadata.get("run_id") or metadata.get("prompt_id"),
-                "enable_thinking": True,
-                "tools": tools,
-                "source_dataset": source_dataset,
-            }
+            yield make_output(
+                conversations=record.get("messages", []),
+                source_dataset=source_dataset,
+                model=model,
+                model_provider=model_provider_from_model(model),
+                date=metadata.get("created_at"),
+                run_id=metadata.get("run_id") or metadata.get("prompt_id"),
+                tools=json_serialize_or_none(record.get("tools")),
+            )
 
 
 class PromptCompletionCSVAdapter(BaseAdapter):
@@ -132,22 +136,14 @@ class PromptCompletionCSVAdapter(BaseAdapter):
     ) -> Iterator[dict[str, Any]]:
         """Transform CSV records, constructing conversations from prompt/completion."""
         for record in records:
-            yield {
-                "conversations": [
+            yield make_output(
+                conversations=[
                     {"role": "user", "content": record.get("prompt", "")},
                     {"role": "assistant", "content": record.get("completion", "")},
                 ],
-                "agent": None,
-                "model": "deepseek-ai/DeepSeek-V3.2",
-                "model_provider": None,
-                "date": None,
-                "task": None,
-                "episode": None,
-                "run_id": None,
-                "enable_thinking": True,
-                "tools": None,
-                "source_dataset": source_dataset,
-            }
+                source_dataset=source_dataset,
+                model="deepseek-ai/DeepSeek-V3.2",
+            )
 
 
 class HighCodeSFTAdapter(BaseAdapter):
@@ -164,26 +160,19 @@ class HighCodeSFTAdapter(BaseAdapter):
             provenance = record.get("provenance", {})
             content = record.get("content", {})
             model = provenance.get("model")
-            model_provider = None
-            if model and "/" in model:
-                model_provider = model.split("/")[0]
 
-            yield {
-                "conversations": [
+            yield make_output(
+                conversations=[
                     {"role": "user", "content": provenance.get("prompt")},
                     {"role": "assistant", "content": content.get("text")},
                 ],
-                "agent": None,
-                "model": model,
-                "model_provider": model_provider,
-                "date": provenance.get("generated_at"),
-                "task": record.get("language"),
-                "episode": None,
-                "run_id": record.get("sample_id"),
-                "enable_thinking": True,
-                "tools": None,
-                "source_dataset": source_dataset,
-            }
+                source_dataset=source_dataset,
+                model=model,
+                model_provider=model_provider_from_model(model),
+                date=provenance.get("generated_at"),
+                task=record.get("language"),
+                run_id=record.get("sample_id"),
+            )
 
 
 class HighCodeReasoningAdapter(BaseAdapter):
@@ -199,23 +188,17 @@ class HighCodeReasoningAdapter(BaseAdapter):
         for record in records:
             provenance = record.get("provenance", {})
             model = provenance.get("model")
-            model_provider = None
-            if model and "/" in model:
-                model_provider = model.split("/")[0]
 
-            yield {
-                "conversations": record.get("conversation", []),
-                "agent": None,
-                "model": model,
-                "model_provider": model_provider,
-                "date": provenance.get("generated_at"),
-                "task": record.get("language"),
-                "episode": record.get("transform_type"),
-                "run_id": record.get("sample_id"),
-                "enable_thinking": True,
-                "tools": None,
-                "source_dataset": source_dataset,
-            }
+            yield make_output(
+                conversations=record.get("conversation", []),
+                source_dataset=source_dataset,
+                model=model,
+                model_provider=model_provider_from_model(model),
+                date=provenance.get("generated_at"),
+                task=record.get("language"),
+                episode=record.get("transform_type"),
+                run_id=record.get("sample_id"),
+            )
 
 
 class NemotronAgenticV2Adapter(BaseAdapter):
@@ -240,32 +223,22 @@ class NemotronAgenticV2Adapter(BaseAdapter):
         for record in records:
             # Determine model and model_provider
             model = record.get("model")  # Only tool_calling has this
-            model_provider = None
-            if model:
-                # Extract provider from model string, e.g., "deepseek/DeepSeek-V3.2" -> "deepseek"
-                parts = model.split("/")
-                model_provider = parts[0] if parts else None
 
             # Determine task from domain (tool_calling) or used_in (search)
-            task = record.get("domain")
-            if not task:
-                used_in = record.get("used_in")
-                if used_in and isinstance(used_in, list):
-                    task = used_in[0] if used_in else None
+            task = record.get("domain") or first_list_item(record.get("used_in"))
 
-            yield {
-                "conversations": record["messages"],
-                "agent": None,
-                "model": model,
-                "model_provider": model_provider,
-                "date": None,  # Not present in source
-                "task": task,
-                "episode": None,
-                "run_id": record.get("uuid"),
-                "enable_thinking": record.get("parallel_tool_calls", True),
-                "tools": json.dumps(record.get("tools", [])),
-                "source_dataset": source_dataset,
-            }
+            yield make_output(
+                conversations=record["messages"],
+                source_dataset=source_dataset,
+                model=model,
+                model_provider=model_provider_from_model(
+                    model, require_separator=False
+                ),
+                task=task,
+                run_id=record.get("uuid"),
+                enable_thinking=record.get("parallel_tool_calls", True),
+                tools=json_serialize_or_none(record.get("tools", [])),
+            )
 
 
 def detect_adapter(filename: str) -> BaseAdapter:
@@ -301,6 +274,15 @@ def detect_adapter(filename: str) -> BaseAdapter:
         schema = pq.read_schema(filename)
         if "conversations" in schema.names:
             return NemotronAdapter()
+        if {
+            "instance_id",
+            "trial_id",
+            "messages",
+            "reward",
+            "model_patch",
+            "turns",
+        }.issubset(schema.names):
+            return MochaTrajectoriesAdapter()
         raise ValueError(f"Parquet file '{filename}' has no 'conversations' column")
 
     if fmt in ("jsonl", "json"):

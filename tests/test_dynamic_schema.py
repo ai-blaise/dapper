@@ -483,31 +483,28 @@ class TestRecordListColumns:
     """Tests for dynamic column generation in RecordListScreen."""
 
     def test_columns_full_mapping(self):
-        """Full mapping should show all columns."""
+        """Records should drive the displayed top-level field columns."""
         from scripts.tui.views.record_list import RecordListScreen
 
         screen = RecordListScreen(filename="/tmp/test.jsonl")
         mapping = FieldMapping(messages="messages", uuid="uuid", tools="tools")
-        cols = screen._get_record_columns(mapping)
+        records = [{"uuid": "id-1", "messages": [], "tools": [], "license": "test"}]
+        cols = screen._get_record_columns(mapping, records=records)
 
         col_names = [c[0] for c in cols]
-        assert "IDX" in col_names
-        assert "ID" in col_names  # Changed from "UUID" to "ID"
-        assert "MSGS" in col_names
-        assert "TOOLS" in col_names
-        assert "PREVIEW" in col_names
+        assert col_names == ["IDX", "uuid", "messages", "tools", "license"]
 
     def test_columns_no_tools(self):
-        """Missing tools field should hide TOOLS column."""
+        """Missing tools field should be absent from field-driven columns."""
         from scripts.tui.views.record_list import RecordListScreen
 
         screen = RecordListScreen(filename="/tmp/test.jsonl")
         mapping = FieldMapping(messages="messages", uuid="uuid", tools=None)
-        cols = screen._get_record_columns(mapping)
+        records = [{"uuid": "id-1", "messages": []}]
+        cols = screen._get_record_columns(mapping, records=records)
 
         col_names = [c[0] for c in cols]
-        assert "MSGS" in col_names
-        assert "TOOLS" not in col_names
+        assert col_names == ["IDX", "uuid", "messages"]
 
     def test_columns_minimal_mapping(self):
         """Empty mapping should show only IDX and PREVIEW."""
@@ -637,6 +634,98 @@ class TestDataTableMixin:
         mixin = DataTableMixin()
         record = {"id": 42}
         assert mixin._get_record_id_display(record) == "42"
+
+
+class TestPaginatedRecordsMixin:
+    """Tests for pagination helper logic without launching the TUI."""
+
+    def test_record_total_pages(self):
+        from scripts.tui.mixins.paginated_records import PaginatedRecordsMixin
+
+        mixin = PaginatedRecordsMixin()
+        assert mixin._record_total_pages(0, page_size=200) == 1
+        assert mixin._record_total_pages(1, page_size=200) == 1
+        assert mixin._record_total_pages(200, page_size=200) == 1
+        assert mixin._record_total_pages(201, page_size=200) == 2
+
+    def test_clamp_record_page(self):
+        from scripts.tui.mixins.paginated_records import PaginatedRecordsMixin
+
+        mixin = PaginatedRecordsMixin()
+        assert mixin._clamp_record_page(-1, 500, page_size=200) == 0
+        assert mixin._clamp_record_page(1, 500, page_size=200) == 1
+        assert mixin._clamp_record_page(99, 500, page_size=200) == 2
+
+    def test_resolve_record_index_from_eager_records(self):
+        from scripts.tui.mixins.paginated_records import PaginatedRecordsMixin
+
+        mixin = PaginatedRecordsMixin()
+        records = [{"id": "a"}, {"id": "b"}]
+        assert (
+            mixin._resolve_record_index(
+                1,
+                lazy=False,
+                page=0,
+                page_records=[],
+                records=records,
+                filename=None,
+            )
+            == records[1]
+        )
+        assert (
+            mixin._resolve_record_index(
+                2,
+                lazy=False,
+                page=0,
+                page_records=[],
+                records=records,
+                filename=None,
+            )
+            is None
+        )
+
+    def test_resolve_record_index_from_current_page(self):
+        from scripts.tui.mixins.paginated_records import PaginatedRecordsMixin
+
+        mixin = PaginatedRecordsMixin()
+        page_records = [{"id": "200"}, {"id": "201"}]
+        assert (
+            mixin._resolve_record_index(
+                201,
+                lazy=True,
+                page=1,
+                page_records=page_records,
+                records=[],
+                filename="data.parquet",
+                page_size=200,
+            )
+            == page_records[1]
+        )
+
+    def test_resolve_record_index_loads_outside_current_page(self, monkeypatch):
+        import scripts.tui.mixins.paginated_records as pagination
+        from scripts.tui.mixins.paginated_records import PaginatedRecordsMixin
+
+        mixin = PaginatedRecordsMixin()
+        expected = {"id": "401"}
+        monkeypatch.setattr(
+            pagination,
+            "load_record_at_index",
+            lambda filename, index: expected,
+        )
+
+        assert (
+            mixin._resolve_record_index(
+                401,
+                lazy=True,
+                page=1,
+                page_records=[{"id": "200"}],
+                records=[],
+                filename="data.parquet",
+                page_size=200,
+            )
+            == expected
+        )
 
 
 # =============================================================================

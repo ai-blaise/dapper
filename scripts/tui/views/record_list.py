@@ -23,21 +23,25 @@ from textual.widgets import DataTable, Footer, Header, Static
 from scripts.tui.data_loader import (
     export_records,
     get_field_mapping,
-    get_record_summary,
-    load_records_range,
-    load_record_at_index,
     FieldMapping,
 )
 from scripts.tui.keybindings import PAGE_BINDINGS, SINGLE_PANE_BINDINGS
-from scripts.tui.mixins import ExportMixin, RecordTableMixin, VimNavigationMixin
+from scripts.tui.mixins import (
+    ExportMixin,
+    PaginatedRecordsMixin,
+    RecordTableMixin,
+    VimNavigationMixin,
+)
 from scripts.parser_finale import process_record
 
 
-# Number of records per page in lazy mode
-PAGE_SIZE = 200
-
-
-class RecordListScreen(ExportMixin, RecordTableMixin, VimNavigationMixin, Screen):
+class RecordListScreen(
+    ExportMixin,
+    PaginatedRecordsMixin,
+    RecordTableMixin,
+    VimNavigationMixin,
+    Screen,
+):
     """Screen that displays a list of JSONL records in a DataTable.
 
     Supports eager mode (all records in memory) and lazy mode (paginated
@@ -117,9 +121,9 @@ class RecordListScreen(ExportMixin, RecordTableMixin, VimNavigationMixin, Screen
     @property
     def _total_pages(self) -> int:
         """Total number of pages in lazy mode."""
-        if not self._lazy_mode or self._total_count == 0:
+        if not self._lazy_mode:
             return 1
-        return (self._total_count + PAGE_SIZE - 1) // PAGE_SIZE
+        return self._record_total_pages(self._total_count)
 
     @property
     def filename(self) -> str | None:
@@ -176,30 +180,21 @@ class RecordListScreen(ExportMixin, RecordTableMixin, VimNavigationMixin, Screen
         if not self._lazy_mode or not self.filename:
             return
 
-        page = max(0, min(page, self._total_pages - 1))
-        self._page = page
-        start = page * PAGE_SIZE
-
-        self._page_records = load_records_range(
-            self.filename, start, PAGE_SIZE
+        self._page, self._page_records = self._load_record_page(
+            self.filename,
+            page,
+            self._total_count,
         )
 
         mapping = get_field_mapping(self.filename) if self.filename else FieldMapping()
-        columns = self._get_record_columns(mapping, records=self._page_records)
-        table = self._setup_table("record-table", columns)
-
-        if not self._page_records:
-            placeholder = ["--"] * len(columns)
-            if len(placeholder) > 1:
-                placeholder[1] = "No records on this page"
-            table.add_row(*placeholder)
-        else:
-            # Use global indices for row keys so record selection works correctly
-            for local_idx, record in enumerate(self._page_records):
-                global_idx = start + local_idx
-                summary = get_record_summary(record, global_idx, mapping)
-                row = self._build_record_row(summary, mapping, record=record)
-                table.add_row(*row, key=str(global_idx))
+        table = self.query_one("#record-table", DataTable)
+        self._populate_record_page_table(
+            table,
+            self._page_records,
+            mapping,
+            self._record_page_start(self._page),
+            empty_message="No records on this page",
+        )
 
         self._update_page_status()
 
@@ -209,8 +204,7 @@ class RecordListScreen(ExportMixin, RecordTableMixin, VimNavigationMixin, Screen
             status = self.query_one("#page-status", Static)
         except Exception:
             return
-        start = self._page * PAGE_SIZE
-        end = min(start + PAGE_SIZE, self._total_count or 0)
+        start, end = self._record_page_bounds(self._page, self._total_count)
         total = self._total_count or 0
         status.update(
             f" Page {self._page + 1}/{self._total_pages}"
@@ -330,20 +324,17 @@ class RecordListScreen(ExportMixin, RecordTableMixin, VimNavigationMixin, Screen
         except (ValueError, TypeError):
             return
 
-        if self._lazy_mode:
-            # In lazy mode, find the record from current page or load on demand
-            page_start = self._page * PAGE_SIZE
-            local_idx = global_idx - page_start
-            if 0 <= local_idx < len(self._page_records):
-                record = self._page_records[local_idx]
-            else:
-                record = load_record_at_index(self.filename, global_idx)
-            self.post_message(self.RecordSelected(index=global_idx, record=record))
-        else:
-            if global_idx < 0 or global_idx >= len(self._records):
-                return
-            record = self._records[global_idx]
-            self.post_message(self.RecordSelected(index=global_idx, record=record))
+        record = self._resolve_record_index(
+            global_idx,
+            lazy=self._lazy_mode,
+            page=self._page,
+            page_records=self._page_records,
+            records=self._records,
+            filename=self.filename,
+        )
+        if record is None:
+            return
+        self.post_message(self.RecordSelected(index=global_idx, record=record))
 
     def get_record(self, index: int) -> dict | None:
         """Get a record by index.
@@ -356,19 +347,14 @@ class RecordListScreen(ExportMixin, RecordTableMixin, VimNavigationMixin, Screen
         Returns:
             The record dict or None if index is out of range.
         """
-        if self._lazy_mode:
-            page_start = self._page * PAGE_SIZE
-            local_idx = index - page_start
-            if 0 <= local_idx < len(self._page_records):
-                return self._page_records[local_idx]
-            try:
-                return load_record_at_index(self.filename, index)
-            except (IndexError, FileNotFoundError):
-                return None
-        else:
-            if 0 <= index < len(self._records):
-                return self._records[index]
-            return None
+        return self._resolve_record_index(
+            index,
+            lazy=self._lazy_mode,
+            page=self._page,
+            page_records=self._page_records,
+            records=self._records,
+            filename=self.filename,
+        )
 
     @property
     def record_count(self) -> int:

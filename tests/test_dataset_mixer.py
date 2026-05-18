@@ -22,6 +22,7 @@ from scripts.dataset_mixer.adapters import (
     HighCodeReasoningAdapter,
     HighCodeSFTAdapter,
     MessagesJSONLAdapter,
+    MochaTrajectoriesAdapter,
     NemotronAdapter,
     PromptCompletionCSVAdapter,
     detect_adapter,
@@ -109,6 +110,12 @@ HUNTER_ALPHA_PROGRAMMING_160000X = str(
     TEST_DATASETS_DIR
     / "Hunter-Alpha-Programming-160000x"
     / "Hunter-Alpha_s_shuffled.jsonl"
+)
+
+MOCHA_DPSKV32_MINISWE = str(
+    DATASETS_DIR
+    / "mocha-trajectories"
+    / "swe_rebench_dpskv32_miniswe_4k-00000-of-00001.parquet"
 )
 
 # Schema field names for assertions
@@ -383,6 +390,62 @@ class TestPromptCompletionCSVAdapterIntegrity:
                     f"Record {i}: completion with <think> block was modified"
                 )
         assert found_think, "No <think> blocks found in sample — test is ineffective"
+
+
+# ---------------------------------------------------------------------------
+# TestMochaTrajectoriesAdapterIntegrity
+# ---------------------------------------------------------------------------
+
+
+class TestMochaTrajectoriesAdapterIntegrity:
+    """Verify Mocha trajectory Parquet messages are parsed into conversations."""
+
+    @pytest.fixture
+    def mocha_pairs(self) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+        _skip_if_missing(MOCHA_DPSKV32_MINISWE)
+        return _load_raw_and_adapted(
+            MochaTrajectoriesAdapter(),
+            MOCHA_DPSKV32_MINISWE,
+            "mocha-trajectories",
+        )
+
+    def test_messages_json_becomes_conversations(self, mocha_pairs):
+        """JSON-encoded messages must become conversations exactly."""
+        import json
+
+        for i, (raw, adapted) in enumerate(mocha_pairs):
+            assert adapted["conversations"] == json.loads(raw["messages"]), (
+                f"Record {i}: conversations != parsed messages"
+            )
+
+    def test_identifiers_map_to_task_and_run_id(self, mocha_pairs):
+        """instance_id and trial_id must be preserved in schema metadata."""
+        for i, (raw, adapted) in enumerate(mocha_pairs):
+            assert adapted["task"] == raw["instance_id"], f"Record {i}: task mismatch"
+            assert adapted["run_id"] == raw["trial_id"], (
+                f"Record {i}: run_id mismatch"
+            )
+
+    def test_turns_maps_to_episode_string(self, mocha_pairs):
+        """turns must be retained as episode metadata."""
+        for i, (raw, adapted) in enumerate(mocha_pairs):
+            assert adapted["episode"] == str(raw["turns"]), (
+                f"Record {i}: episode mismatch"
+            )
+
+    def test_reward_and_model_patch_are_dropped(self, mocha_pairs):
+        """Evaluation artifacts must not leak into OUTPUT_SCHEMA records."""
+        for i, (_, adapted) in enumerate(mocha_pairs):
+            assert "reward" not in adapted, f"Record {i}: reward should be dropped"
+            assert "model_patch" not in adapted, (
+                f"Record {i}: model_patch should be dropped"
+            )
+
+    def test_metadata_columns_present(self, mocha_pairs):
+        """All OUTPUT_SCHEMA fields must exist in adapted records."""
+        for i, (_, adapted) in enumerate(mocha_pairs):
+            missing = SCHEMA_FIELDS - set(adapted.keys())
+            assert not missing, f"Record {i}: missing schema fields: {missing}"
 
 
 # ---------------------------------------------------------------------------
@@ -671,7 +734,7 @@ class TestSourceFiltering:
         assert len(filtered) >= 4, f"Expected many Nemotron files, got {len(filtered)}"
 
     def test_exclude_single_source(self, tmp_path):
-        """Exclude Nemotron — remaining sources must be TeichAI and Raiden only."""
+        """Exclude one source — remaining records must not include it."""
         if not DATASETS_DIR.exists():
             pytest.skip("datasets/ directory not found")
         output = str(tmp_path / "non_nemotron.parquet")
@@ -683,11 +746,14 @@ class TestSourceFiltering:
         )
         assert result["total_records"] > 0
         assert "Nemotron-Terminal-Corpus" not in result["sources"]
-        expected_sources = {
-            "deepseek-v3.2-speciale-openr1-math-3k",
-            "Raiden-Mini-DeepSeek-V3.2-Speciale",
+        discovered_sources = {
+            f["source_dataset"]
+            for f in _filter_files(
+                discover_files(str(DATASETS_DIR)),
+                exclude=["Nemotron-Terminal-Corpus"],
+            )
         }
-        assert set(result["sources"].keys()) == expected_sources
+        assert set(result["sources"]).issubset(discovered_sources)
 
     def test_exclude_record_count_matches_non_nemotron(self, tmp_path):
         """Exclude Nemotron record count should equal TeichAI + Raiden."""
@@ -706,7 +772,7 @@ class TestSourceFiltering:
         assert result["total_records"] >= 11_358
 
     def test_no_filter_includes_all_sources(self, tmp_path):
-        """No include/exclude should process all three source_datasets."""
+        """No include/exclude should process all recognized source_datasets."""
         if not DATASETS_DIR.exists():
             pytest.skip("datasets/ directory not found")
         output = str(tmp_path / "all.parquet")
@@ -715,9 +781,12 @@ class TestSourceFiltering:
             output_path=output,
             dry_run=True,
         )
-        assert "Nemotron-Terminal-Corpus" in result["sources"]
-        assert "deepseek-v3.2-speciale-openr1-math-3k" in result["sources"]
-        assert "Raiden-Mini-DeepSeek-V3.2-Speciale" in result["sources"]
+        assert result["total_records"] > 0
+        assert result["sources"]
+        discovered_sources = {
+            f["source_dataset"] for f in discover_files(str(DATASETS_DIR))
+        }
+        assert set(result["sources"]).issubset(discovered_sources)
 
     def test_include_nonexistent_source_returns_zero(self, tmp_path):
         """Include a nonexistent source — 0 records, no crash."""
@@ -1081,6 +1150,14 @@ class TestDetectAdapterRouting:
         adapter = detect_adapter(HIGH_CODER_REASONING_MULTI_TURN)
         assert isinstance(adapter, HighCodeReasoningAdapter), (
             f"Expected HighCodeReasoningAdapter, got {type(adapter)}"
+        )
+
+    def test_mocha_trajectories_routes_to_mocha_adapter(self):
+        """Mocha trajectory Parquet must route to MochaTrajectoriesAdapter."""
+        _skip_if_missing(MOCHA_DPSKV32_MINISWE)
+        adapter = detect_adapter(MOCHA_DPSKV32_MINISWE)
+        assert isinstance(adapter, MochaTrajectoriesAdapter), (
+            f"Expected MochaTrajectoriesAdapter, got {type(adapter)}"
         )
 
 

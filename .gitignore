@@ -3,6 +3,7 @@
 .claude
 .opencode
 .ruff_cache
+.codex
 
 ./dataset/
 datasets/

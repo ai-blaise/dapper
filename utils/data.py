@@ -6,11 +6,14 @@ Provides functions for source type detection and PyArrow batch transformations.
 
 from __future__ import annotations
 
-import json
-
 import pyarrow as pa
 
 from scripts.dataset_mixer.schema import OUTPUT_SCHEMA
+from scripts.dataset_mixer.utils import (
+    first_list_item,
+    json_serialize_if_nested,
+    model_provider_from_model,
+)
 
 
 def get_source_type(source_dataset: str) -> str:
@@ -94,14 +97,12 @@ def transform_agentic_batch(
     if "model" in batch.schema.names:
         model_array = batch.column("model")
         columns["model"] = model_array
-
-        def extract_provider(model_val):
-            if model_val is None:
-                return None
-            parts = str(model_val).split("/")
-            return parts[0] if parts else None
-
-        providers = [extract_provider(m) for m in model_array.to_pylist()]
+        providers = [
+            model_provider_from_model(str(m), require_separator=False)
+            if m is not None
+            else None
+            for m in model_array.to_pylist()
+        ]
         columns["model_provider"] = pa.array(providers, type=pa.string())
     else:
         columns["model"] = pa.array([None] * num_rows, type=pa.string())
@@ -113,15 +114,7 @@ def transform_agentic_batch(
         columns["task"] = batch.column("domain")
     elif "used_in" in batch.schema.names:
         used_in_col = batch.column("used_in")
-
-        def get_first_used_in(val):
-            if val is None:
-                return None
-            if isinstance(val, list) and val:
-                return val[0]
-            return None
-
-        tasks = [get_first_used_in(u) for u in used_in_col.to_pylist()]
+        tasks = [first_list_item(u) for u in used_in_col.to_pylist()]
         columns["task"] = pa.array(tasks, type=pa.string())
     else:
         columns["task"] = pa.array([None] * num_rows, type=pa.string())
@@ -140,15 +133,7 @@ def transform_agentic_batch(
 
     if "tools" in batch.schema.names:
         tools_col = batch.column("tools")
-
-        def serialize_tools(tools_val):
-            if tools_val is None:
-                return None
-            if isinstance(tools_val, list):
-                return json.dumps(tools_val)
-            return tools_val
-
-        serialized = [serialize_tools(t) for t in tools_col.to_pylist()]
+        serialized = [json_serialize_if_nested(t) for t in tools_col.to_pylist()]
         columns["tools"] = pa.array(serialized, type=pa.string())
     else:
         columns["tools"] = pa.array([None] * num_rows, type=pa.string())
