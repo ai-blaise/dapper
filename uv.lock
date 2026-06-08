@@ -228,9 +228,9 @@ wheels = [
 ]
 
 [[package]]
-name = "dataset-parser"
+name = "dapper"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
     { name = "aiohttp" },

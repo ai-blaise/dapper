@@ -35,7 +35,7 @@ Records from different sources are normalized to a standard schema:
 ## Running Parser Finale
 
 ```bash
-uv run python -m scripts.parser_finale <path> [options]
+dapper parse <path> [options]
 ```
 
 The `path` argument can be either a single file or a directory.
@@ -45,7 +45,7 @@ The `path` argument can be either a single file or a directory.
 When you pass a file, Parser Finale processes it according to the options:
 
 ```bash
-uv run python -m scripts.parser_finale dataset/conversations.jsonl
+dapper parse dataset/conversations.jsonl
 ```
 
 ### Directory Mode (TUI)
@@ -54,10 +54,10 @@ When you pass a directory, Parser Finale launches an interactive TUI with a file
 
 ```bash
 # Open TUI with directory file picker
-uv run python -m scripts.parser_finale dataset/
+dapper parse dataset/
 
 # Browse and select files interactively
-uv run python -m scripts.parser_finale /path/to/data/directory
+dapper parse /path/to/data/directory
 ```
 
 In directory mode, you can browse files, select one to view its records, and navigate between the original and processed views. See the [TUI Guide](tui.md) for keybindings and navigation.
@@ -92,7 +92,7 @@ These fields are preserved in the output:
 | `--input-format FORMAT` | Input format: `auto`, `jsonl`, `json`, `parquet` (default: auto) |
 | `-f, --format, --output-format FORMAT` | Output format: `json`, `jsonl`, `parquet`, `markdown`, `text` (default: json) |
 | `-o, --output FILE` | Output file path (default: stdout, required for parquet output) |
-| `-O, --output-dir DIR` | Output directory for batch processing (default: parsed_datasets) |
+| `-O, --output-dir DIR` | Output directory for generated `{stem}_parsed.{format}` files |
 | `-i, --index N` | Process only record at index N |
 | `--start N` | Start index for range processing (default: 0) |
 | `--end N` | End index for range processing |
@@ -101,14 +101,14 @@ These fields are preserved in the output:
 
 ### Output Directory Mode
 
-When using `--output-dir` (or `-O`), the tool saves processed output to a file in the specified directory. The output filename follows the pattern: `{original_stem}_parsed.{format}`.
+File mode writes to stdout by default. When using `--output-dir` (or `-O`), the tool saves processed output to a file in the specified directory. The output filename follows the pattern: `{original_stem}_parsed.{format}`.
 
 ```bash
 # Output to directory (creates train_parsed.json)
-uv run python -m scripts.parser_finale dataset/train.jsonl -O parsed_datasets/
+dapper parse dataset/train.jsonl -O parsed_datasets/
 
 # Output as JSONL format (creates train_parsed.jsonl)
-uv run python -m scripts.parser_finale dataset/train.jsonl -f jsonl -O parsed_datasets/
+dapper parse dataset/train.jsonl -f jsonl -O parsed_datasets/
 ```
 
 If `-o` (specific output file) is provided, it takes precedence over `--output-dir`.
@@ -120,7 +120,7 @@ If `-o` (specific output file) is provided, it takes precedence over `--output-d
 Pretty-printed JSON array of processed records.
 
 ```bash
-uv run python -m scripts.parser_finale dataset/file.jsonl -f json
+dapper parse dataset/file.jsonl -f json
 ```
 
 ### JSONL
@@ -128,7 +128,7 @@ uv run python -m scripts.parser_finale dataset/file.jsonl -f json
 One record per line, suitable for streaming or further processing.
 
 ```bash
-uv run python -m scripts.parser_finale dataset/file.jsonl -f jsonl
+dapper parse dataset/file.jsonl -f jsonl
 ```
 
 ### Markdown
@@ -136,7 +136,7 @@ uv run python -m scripts.parser_finale dataset/file.jsonl -f jsonl
 Human-readable format with headers and formatting.
 
 ```bash
-uv run python -m scripts.parser_finale dataset/file.jsonl -f markdown
+dapper parse dataset/file.jsonl -f markdown
 ```
 
 ### Text
@@ -144,7 +144,7 @@ uv run python -m scripts.parser_finale dataset/file.jsonl -f markdown
 Plain text summary of records.
 
 ```bash
-uv run python -m scripts.parser_finale dataset/file.jsonl -f text
+dapper parse dataset/file.jsonl -f text
 ```
 
 ### Parquet
@@ -152,7 +152,7 @@ uv run python -m scripts.parser_finale dataset/file.jsonl -f text
 Apache Parquet columnar format (requires `-o` output file).
 
 ```bash
-uv run python -m scripts.parser_finale dataset/file.jsonl -f parquet -o output.parquet
+dapper parse dataset/file.jsonl -f parquet -o output.parquet
 ```
 
 ## Examples
@@ -161,81 +161,81 @@ uv run python -m scripts.parser_finale dataset/file.jsonl -f parquet -o output.p
 
 ```bash
 # JSON output to stdout (default)
-uv run python -m scripts.parser_finale dataset/conversations.jsonl
+dapper parse dataset/conversations.jsonl
 ```
 
 ### Multi-Format Input
 
 ```bash
 # Process a Parquet file
-uv run python -m scripts.parser_finale dataset/train-00000-of-00001.parquet
+dapper parse dataset/train-00000-of-00001.parquet
 
 # Process a JSON array file
-uv run python -m scripts.parser_finale dataset/data.json
+dapper parse dataset/data.json
 
 # Explicit format (when auto-detection fails)
-uv run python -m scripts.parser_finale mydata --input-format jsonl
+dapper parse mydata --input-format jsonl
 ```
 
 ### Format Conversion
 
 ```bash
 # JSONL to Parquet
-uv run python -m scripts.parser_finale data.jsonl -f parquet -o output.parquet
+dapper parse data.jsonl -f parquet -o output.parquet
 
 # Parquet to JSONL
-uv run python -m scripts.parser_finale data.parquet -f jsonl -o output.jsonl
+dapper parse data.parquet -f jsonl -o output.jsonl
 
 # Parquet to JSON
-uv run python -m scripts.parser_finale data.parquet -f json -o output.json
+dapper parse data.parquet -f json -o output.json
 ```
 
 ### Single Record
 
 ```bash
 # Process only record at index 5
-uv run python -m scripts.parser_finale dataset/conversations.jsonl -i 5
+dapper parse dataset/conversations.jsonl -i 5
 ```
 
 ### Range of Records
 
 ```bash
 # Process records 0-9 (10 records)
-uv run python -m scripts.parser_finale dataset/conversations.jsonl --start 0 --end 10
+dapper parse dataset/conversations.jsonl --start 0 --end 10
 ```
 
 ### Output to File
 
 ```bash
 # Save to output.json
-uv run python -m scripts.parser_finale dataset/conversations.jsonl -o output.json
+dapper parse dataset/conversations.jsonl -o output.json
 
 # Save as JSONL
-uv run python -m scripts.parser_finale dataset/conversations.jsonl -f jsonl -o output.jsonl
+dapper parse dataset/conversations.jsonl -f jsonl -o output.jsonl
 ```
 
 ### Filtering
 
 ```bash
 # Only records with tools
-uv run python -m scripts.parser_finale dataset/conversations.jsonl --has-tools
+dapper parse dataset/conversations.jsonl --has-tools
 
 # Combine with range
-uv run python -m scripts.parser_finale dataset/conversations.jsonl --has-tools --start 0 --end 100
+dapper parse dataset/conversations.jsonl --has-tools --start 0 --end 100
 ```
 
 ### Compact Output
 
 ```bash
 # No indentation (smaller file size)
-uv run python -m scripts.parser_finale dataset/conversations.jsonl --compact -o compact.json
+dapper parse dataset/conversations.jsonl --compact -o compact.json
 ```
 
 ### Human-Readable Output
 
 ```bash
 # Markdown format for review
-uv run python -m scripts.parser_finale dataset/conversations.jsonl -f markdown -i 0 > record.md
+dapper parse dataset/conversations.jsonl -f markdown -i 0 > record.md
 ```
 
 ## Use Cases
@@ -245,7 +245,7 @@ uv run python -m scripts.parser_finale dataset/conversations.jsonl -f markdown -
 Remove model responses to create input-only datasets:
 
 ```bash
-uv run python -m scripts.parser_finale dataset/training.jsonl -f jsonl -o prompts.jsonl
+dapper parse dataset/training.jsonl -f jsonl -o prompts.jsonl
 ```
 
 ### Analyze Tool Usage
@@ -253,7 +253,7 @@ uv run python -m scripts.parser_finale dataset/training.jsonl -f jsonl -o prompt
 Focus on records with tools:
 
 ```bash
-uv run python -m scripts.parser_finale dataset/conversations.jsonl --has-tools -f json -o tools_only.json
+dapper parse dataset/conversations.jsonl --has-tools -f json -o tools_only.json
 ```
 
 ### Create Sample Dataset
@@ -261,7 +261,7 @@ uv run python -m scripts.parser_finale dataset/conversations.jsonl --has-tools -
 Extract a subset for testing:
 
 ```bash
-uv run python -m scripts.parser_finale dataset/large.jsonl --start 0 --end 100 -o sample.json
+dapper parse dataset/large.jsonl --start 0 --end 100 -o sample.json
 ```
 
 ### Review Specific Record
@@ -269,7 +269,7 @@ uv run python -m scripts.parser_finale dataset/large.jsonl --start 0 --end 100 -
 Examine a single record in detail:
 
 ```bash
-uv run python -m scripts.parser_finale dataset/conversations.jsonl -i 42 -f markdown
+dapper parse dataset/conversations.jsonl -i 42 -f markdown
 ```
 
 ## Transformation Example

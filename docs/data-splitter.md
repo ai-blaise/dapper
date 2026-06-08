@@ -5,7 +5,7 @@ The Data Splitter (`scripts/data_splitter.py`) is a command-line tool for splitt
 ## Running the Tool
 
 ```bash
-uv run python -m scripts.data_splitter <input_file> --parts N [options]
+dapper split <input_file> --parts N [options]
 ```
 
 ## Arguments
@@ -69,7 +69,7 @@ The formula ensures the first `remainder` parts get one extra record.
 
 ```bash
 # Split into 4 parts
-uv run python -m scripts.data_splitter dataset/tool_calling.jsonl -n 4
+dapper split dataset/tool_calling.jsonl -n 4
 ```
 
 ### Dry Run (Preview)
@@ -77,7 +77,7 @@ uv run python -m scripts.data_splitter dataset/tool_calling.jsonl -n 4
 Preview the split plan without creating files:
 
 ```bash
-uv run python -m scripts.data_splitter dataset/tool_calling.jsonl -n 10 --dry-run
+dapper split dataset/tool_calling.jsonl -n 10 --dry-run
 ```
 
 Output:
@@ -100,7 +100,7 @@ Total: 316,094 records
 ### Custom Output Directory
 
 ```bash
-uv run python -m scripts.data_splitter dataset/tool_calling.jsonl -n 5 \
+dapper split dataset/tool_calling.jsonl -n 5 \
     --output-dir ./splits/ \
     --prefix training_data
 ```
@@ -110,7 +110,7 @@ uv run python -m scripts.data_splitter dataset/tool_calling.jsonl -n 5 \
 Split and verify that parts recombine correctly:
 
 ```bash
-uv run python -m scripts.data_splitter dataset/interactive_agent.jsonl -n 4 --verify
+dapper split dataset/interactive_agent.jsonl -n 4 --verify
 ```
 
 ### Shuffle Before Split
@@ -119,10 +119,10 @@ Randomly shuffle records before splitting (for creating train/test splits):
 
 ```bash
 # Shuffle with random seed (reproducible)
-uv run python -m scripts.data_splitter dataset/tool_calling.jsonl -n 4 --shuffle --shuffle-seed 42
+dapper split dataset/tool_calling.jsonl -n 4 --shuffle --shuffle-seed 42
 
 # Shuffle with random seed
-uv run python -m scripts.data_splitter dataset/tool_calling.jsonl -n 4 --shuffle
+dapper split dataset/tool_calling.jsonl -n 4 --shuffle
 ```
 
 ### Parquet Support
@@ -130,18 +130,18 @@ uv run python -m scripts.data_splitter dataset/tool_calling.jsonl -n 4 --shuffle
 Split Parquet files (sequential):
 
 ```bash
-uv run python -m scripts.data_splitter mixed.parquet -n 4
+dapper split mixed.parquet -n 4
 ```
 
 Split Parquet with shuffling:
 
 ```bash
-uv run python -m scripts.data_splitter mixed.parquet -n 8 --shuffle --shuffle-seed 42
+dapper split mixed.parquet -n 8 --shuffle --shuffle-seed 42
 ```
 
 ## Recombination
 
-### Manual Recombination (Shell) (and annoying will add this to cli commands later)
+### Manual Recombination (Shell)
 
 ```bash
 # Recombine parts in order

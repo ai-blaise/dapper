@@ -24,11 +24,11 @@ import sys
 from typing import Any, Iterator
 
 from utils.detect import detect_format
-from utils.loader import load_records
+from utils.loader import load_records as _load_records
 from utils.normalize import normalize_record
 
 
-def load_records(filename: str, input_format: str = "auto") -> Iterator[dict]:
+def iter_normalized_records(filename: str, input_format: str = "auto") -> Iterator[dict]:
     """Lazily load records from a data file with format detection.
 
     Args:
@@ -39,8 +39,9 @@ def load_records(filename: str, input_format: str = "auto") -> Iterator[dict]:
         Each record as a dictionary, normalized to standard schema.
     """
     fmt = None if input_format == "auto" else input_format
-    for record in load_records(filename, fmt):
-        yield normalize_record(record, fmt or detect_format(filename))
+    detected_format = fmt or detect_format(filename)
+    for record in _load_records(filename, fmt):
+        yield normalize_record(record, detected_format)
 
 
 def load_records_indexed(filename: str, input_format: str = "auto") -> list[dict]:
@@ -53,11 +54,15 @@ def load_records_indexed(filename: str, input_format: str = "auto") -> list[dict
     Returns:
         List of all records, normalized to standard schema.
     """
-    return list(load_records(filename, input_format))
+    return list(iter_normalized_records(filename, input_format))
 
 
-def truncate(text: str, max_len: int = 50) -> str:
+def truncate(text: Any, max_len: int = 50) -> str:
     """Truncate text with ellipsis."""
+    if text is None:
+        text = "N/A"
+    else:
+        text = str(text)
     if len(text) <= max_len:
         return text
     return text[: max_len - 3] + "..."
@@ -144,7 +149,7 @@ def cmd_list(args):
     print("-" * len(header))
 
     count = 0
-    for idx, record in enumerate(load_records(args.file, args.input_format)):
+    for idx, record in enumerate(iter_normalized_records(args.file, args.input_format)):
         summary = get_record_summary(record, idx)
 
         # Apply filters
@@ -208,7 +213,7 @@ def cmd_search(args):
     print("-" * 60)
 
     matches = 0
-    for idx, record in enumerate(load_records(args.file, args.input_format)):
+    for idx, record in enumerate(iter_normalized_records(args.file, args.input_format)):
         record_str = json.dumps(record)
         search_str = record_str if args.case_sensitive else record_str.lower()
 
@@ -248,7 +253,7 @@ def cmd_stats(args):
     records_with_reasoning = 0
     tool_names = {}
 
-    for record in load_records(args.file, args.input_format):
+    for record in iter_normalized_records(args.file, args.input_format):
         total_records += 1
         messages = record.get("messages", [])
         tools = record.get("tools", [])
@@ -303,7 +308,7 @@ def cmd_stats(args):
     print("=" * 60)
 
 
-def main():
+def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(
         description="Dataset Explorer - Supports JSONL, JSON, and Parquet formats",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -382,7 +387,7 @@ def main():
     )
     stats_parser.set_defaults(func=cmd_stats)
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if not args.command:
         parser.print_help()

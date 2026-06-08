@@ -1,458 +1,315 @@
-# CLI Tool Reference
+# D.A.P.P.E.R. CLI Reference
 
-The CLI tool (`scripts/main.py`) provides commands for exploring and analyzing JSONL datasets from the command line.
+D.A.P.P.E.R. installs a global `dapper` command for exploring, viewing, parsing, mixing, and splitting local dataset files from any working directory.
 
-## Running Commands
-
-All commands are run from the project root directory:
+Install it from a checkout:
 
 ```bash
-uv run python -m scripts.main <command> [arguments] [options]
+uv tool install .
 ```
 
-## Commands
-
-### list
-
-Display a tabular summary of records in the dataset.
+After installation, use the same command from any directory:
 
 ```bash
-uv run python -m scripts.main list <file> [options]
+dapper --help
 ```
 
-#### Options
+## Command Coverage
 
-```
--n, --limit N        : limit output to N records
---has-tools          : filter to records with tool definitions
---has-reasoning      : filter to records with reasoning enabled
---min-messages N     : filter to records with at least N messages
-```
+The public `dapper` CLI currently exposes the core D.A.P.P.E.R. workflows:
 
-#### Output Columns
+| Command | Purpose |
+|---------|---------|
+| `dapper list` | Print a tabular summary of records |
+| `dapper show` | Print a full record or nested field |
+| `dapper search` | Search records for text |
+| `dapper stats` | Print dataset statistics |
+| `dapper view` | Open the interactive TUI |
+| `dapper parse` | Empty assistant responses while preserving prompt/tool structure |
+| `dapper mix` | Mix supported dataset directories into unified Parquet output |
+| `dapper split` | Split JSONL or Parquet files into parts |
 
-| Column | Description |
-|--------|-------------|
-| IDX | Record index (0-based) |
-| UUID | Truncated unique identifier |
-| MSGS | Number of messages in conversation |
-| TOOLS | Number of tool definitions |
-| LICENSE | License type |
-| USED_IN | Dataset/model usage |
-| RSN | Reasoning mode ("on" or "-") |
-| PREVIEW | First user message preview |
+Some repository scripts are still internal or legacy and do not yet have public `dapper` wrappers. This includes the rerollout scripts, upload helpers, filtering helpers, and demo scripts under `scripts/`.
 
-#### Examples
+## Global Help
 
 ```bash
-# List first 10 records
-uv run python -m scripts.main list dataset/conversations.jsonl -n 10
-
-# List records with tools
-uv run python -m scripts.main list dataset/conversations.jsonl --has-tools
-
-# List records with at least 5 messages
-uv run python -m scripts.main list dataset/conversations.jsonl --min-messages 5
-
-# Combine filters
-uv run python -m scripts.main list dataset/conversations.jsonl --has-tools --has-reasoning -n 20
+dapper --help
 ```
 
----
-
-### show
-
-View a complete record or extract a specific field.
+Shows the available top-level commands. Use `--help` after a command to inspect its flags:
 
 ```bash
-uv run python -m scripts.main show <file> <index> [options]
+dapper parse --help
+dapper mix --help
 ```
 
-#### Arguments
+## `dapper list`
 
-| Argument | Description |
-|----------|-------------|
-| `file` | Path to the JSONL file |
-| `index` | Record index (0-based) |
+Print a compact table for records in a JSONL, JSON, or Parquet file.
 
-#### Options
+```bash
+dapper list <file> [options]
+```
+
+Options:
 
 | Option | Description |
 |--------|-------------|
-| `-f, --field PATH` | Extract specific field using dot/bracket notation |
+| `-n, --limit N` | Limit output to N displayed records |
+| `--has-tools` | Only show records with tool definitions |
+| `--has-reasoning` | Only show records with reasoning content |
+| `--min-messages N` | Only show records with at least N messages |
+| `--input-format FORMAT` | Input format: `auto`, `jsonl`, `json`, `parquet` |
 
-#### Field Path Syntax
-
-Access nested fields using dot notation and array indices:
-
-- `messages` - Get the messages array
-- `messages[0]` - Get the first message
-- `messages[0].content` - Get content of first message
-- `tools[1].function.name` - Get name of second tool's function
-
-#### Examples
+Examples:
 
 ```bash
-# Show complete record at index 0
-uv run python -m scripts.main show dataset/conversations.jsonl 0
-
-# Show only the messages array
-uv run python -m scripts.main show dataset/conversations.jsonl 0 -f messages
-
-# Show the second message
-uv run python -m scripts.main show dataset/conversations.jsonl 0 -f messages[1]
-
-# Show content of the second message
-uv run python -m scripts.main show dataset/conversations.jsonl 0 -f messages[1].content
-
-# Show the UUID
-uv run python -m scripts.main show dataset/conversations.jsonl 5 -f uuid
-
-# Show tool definitions
-uv run python -m scripts.main show dataset/conversations.jsonl 0 -f tools
+dapper list dataset/conversations.jsonl -n 10
+dapper list dataset/conversations.parquet --has-tools
+dapper list dataset/conversations.jsonl --min-messages 5
+dapper list dataset/conversations.jsonl --has-tools --has-reasoning -n 20
 ```
 
----
+## `dapper show`
 
-### search
-
-Search for text across all records in the dataset.
+Print one record by zero-based index, or extract a specific nested field.
 
 ```bash
-uv run python -m scripts.main search <file> <query> [options]
+dapper show <file> <index> [options]
 ```
 
-#### Arguments
-
-| Argument | Description |
-|----------|-------------|
-| `file` | Path to the JSONL file |
-| `query` | Search term to find |
-
-#### Options
+Options:
 
 | Option | Description |
 |--------|-------------|
-| `-c, --context` | Show matching context around results |
-| `--case-sensitive` | Enable case-sensitive matching |
-| `-n, --limit N` | Limit number of results |
+| `-f, --field PATH` | Extract a nested field using dot/bracket notation |
+| `--input-format FORMAT` | Input format: `auto`, `jsonl`, `json`, `parquet` |
 
-#### Examples
+Field path examples:
 
-```bash
-# Basic search
-uv run python -m scripts.main search dataset/conversations.jsonl "API"
+| Path | Result |
+|------|--------|
+| `messages` | Full messages array |
+| `messages[0]` | First message |
+| `messages[0].content` | First message content |
+| `tools[1].function.name` | Name of the second tool definition |
 
-# Search with context shown
-uv run python -m scripts.main search dataset/conversations.jsonl "error" -c
-
-# Case-sensitive search
-uv run python -m scripts.main search dataset/conversations.jsonl "API" --case-sensitive
-
-# Limit results
-uv run python -m scripts.main search dataset/conversations.jsonl "function" -n 5
-
-# Combined options
-uv run python -m scripts.main search dataset/conversations.jsonl "Bitcoin" -c -n 10
-```
-
----
-
-### stats
-
-Display statistics about the dataset.
+Examples:
 
 ```bash
-uv run python -m scripts.main stats <file> [options]
+dapper show dataset/conversations.jsonl 0
+dapper show dataset/conversations.jsonl 0 -f messages
+dapper show dataset/conversations.jsonl 0 -f messages[1].content
+dapper show dataset/conversations.jsonl 5 -f uuid
+dapper show dataset/conversations.jsonl 0 -f tools
 ```
 
-#### Options
+## `dapper search`
+
+Search records for text.
+
+```bash
+dapper search <file> <query> [options]
+```
+
+Options:
 
 | Option | Description |
 |--------|-------------|
-| `-v, --verbose` | Show additional details including top tool names |
+| `-n, --limit N` | Limit number of matches, default `20` |
+| `-c, --context` | Show nearby matching text |
+| `--case-sensitive` | Use case-sensitive matching |
+| `--input-format FORMAT` | Input format: `auto`, `jsonl`, `json`, `parquet` |
 
-#### Output
-
-Basic statistics include:
-
-- Total number of records
-- Records with tools
-- Records with reasoning
-- Message count distribution
-- Role distribution (system, user, assistant, tool)
-
-Verbose mode adds:
-
-- Top tool names and their frequency
-- License distribution
-- Usage tracking breakdown
-
-#### Examples
+Examples:
 
 ```bash
-# Basic statistics
-uv run python -m scripts.main stats dataset/conversations.jsonl
-
-# Verbose statistics with tool breakdown
-uv run python -m scripts.main stats dataset/conversations.jsonl -v
+dapper search dataset/conversations.jsonl "API"
+dapper search dataset/conversations.jsonl "error" -c
+dapper search dataset/conversations.jsonl "API" --case-sensitive
+dapper search dataset/conversations.jsonl "function" -n 5
 ```
 
----
+## `dapper stats`
 
-## Parser Finale
-
-The parser finale tool (`scripts/parser_finale.py`) processes dataset records and outputs content with emptied assistant responses.
+Print dataset statistics.
 
 ```bash
-uv run python -m scripts.parser_finale <path> [options]
+dapper stats <file> [options]
 ```
 
-### Arguments
-
-| Argument | Description |
-|----------|-------------|
-| `path` | Path to data file or directory of data files (JSONL, JSON, or Parquet) |
-
-### Options
+Options:
 
 | Option | Description |
 |--------|-------------|
-| `--input-format` | Input format: auto, jsonl, json, parquet (default: auto) |
-| `-f, --format` | Output format: json, jsonl, parquet, markdown, text (default: json) |
-| `-o, --output` | Output file path (default: stdout) |
-| `-O, --output-dir` | Output directory for batch processing (default: parsed_datasets) |
-| `-i, --index` | Process only record at this index |
-| `--start` | Start index for range processing |
-| `--end` | End index for range processing |
+| `-v, --verbose` | Include additional tool-name details |
+| `--input-format FORMAT` | Input format: `auto`, `jsonl`, `json`, `parquet` |
+
+Examples:
+
+```bash
+dapper stats dataset/conversations.jsonl
+dapper stats dataset/conversations.parquet -v
+```
+
+## `dapper view`
+
+Open the interactive terminal UI for a file or directory.
+
+```bash
+dapper view <path> [options]
+```
+
+Options:
+
+| Option | Description |
+|--------|-------------|
+| `-O, --output-dir DIR` | Output directory for export operations |
+| `-c, --compare PATH` | Compare against a second file or directory |
+| `-x, --export` | Enable parser/export comparison mode |
+| `--app-theme THEME` | Textual app theme |
+| `--syntax-theme THEME` | Syntax highlighting theme |
+
+Examples:
+
+```bash
+dapper view dataset/conversations.jsonl
+dapper view dataset/conversations.parquet
+dapper view dataset/
+dapper view dataset_a/ --compare dataset_b/
+dapper view dataset/conversations.jsonl -x
+```
+
+## `dapper parse`
+
+Process records by emptying assistant message content while preserving system/user/tool messages, tool calls, metadata, and conversation structure.
+
+```bash
+dapper parse <path> [options]
+```
+
+File mode writes to stdout by default. Use `-o` for a specific file or `-O` for generated output in a directory.
+
+Options:
+
+| Option | Description |
+|--------|-------------|
+| `--input-format FORMAT` | Input format: `auto`, `jsonl`, `json`, `parquet` |
+| `-f, --format, --output-format FORMAT` | Output format: `json`, `jsonl`, `parquet`, `markdown`, `text` |
+| `-o, --output FILE` | Output file path, default stdout |
+| `-O, --output-dir DIR` | Output directory for generated `{stem}_parsed.{format}` files |
+| `-i, --index N` | Process only one record |
+| `--start N` | Start index for range processing |
+| `--end N` | End index for range processing |
 | `--has-tools` | Only include records with tools |
-| `--compact` | Compact JSON output (no indentation) |
+| `--compact` | Compact JSON output |
 
-### Output Directory Mode
-
-When using `--output-dir` (or `-O`), the tool saves processed output to a file in the specified directory. The output filename follows the pattern: `{original_stem}_parsed.{format}`.
-
-**Example:**
-- Input: `dataset/train.jsonl`
-- Output: `parsed_datasets/train_parsed.json`
-
-If `-o` (specific output file) is provided, it takes precedence over `--output-dir`.
-
-### Examples
+Examples:
 
 ```bash
-# Process file to stdout
-uv run python -m scripts.parser_finale dataset/train.jsonl
-
-# Process file to output directory
-uv run python -m scripts.parser_finale dataset/train.jsonl -O parsed_datasets
-
-# Process to specific file (overrides --output-dir)
-uv run python -m scripts.parser_finale dataset/train.jsonl -o output.json
-
-# Process as JSONL format to output directory
-uv run python -m scripts.parser_finale dataset/train.jsonl -f jsonl -O parsed_datasets
-
-# Process directory (launches TUI)
-uv run python -m scripts.parser_finale dataset/ -O parsed_datasets
-
-# Process only records with tools
-uv run python -m scripts.parser_finale dataset/train.jsonl --has-tools -O parsed_datasets
+dapper parse dataset/train.jsonl
+dapper parse dataset/train.jsonl -f jsonl -o prompts.jsonl
+dapper parse dataset/train.parquet -f jsonl -o prompts.jsonl
+dapper parse dataset/train.jsonl -i 5 -f markdown
+dapper parse dataset/train.jsonl --start 0 --end 100 -o sample.json
+dapper parse dataset/train.jsonl --has-tools -f json -o tools_only.json
+dapper parse dataset/train.jsonl -O parsed_datasets/
 ```
 
----
-
-## Dataset Mixer
-
-The dataset mixer combines multiple HuggingFace datasets into a single unified Parquet training file.
+Parquet output requires a file destination:
 
 ```bash
-uv run python -m scripts.dataset_mixer <input_dir> [options]
+dapper parse dataset/train.jsonl -f parquet -o output.parquet
 ```
 
-### Arguments
+## `dapper mix`
 
-| Argument | Description |
-|----------|-------------|
-| `input_dir` | Root directory containing dataset subdirectories |
+Mix supported dataset directories into unified Parquet training data.
 
-### Options
+```bash
+dapper mix <input_dir> [options]
+```
+
+Options:
 
 | Option | Description |
 |--------|-------------|
-| `-o, --output PATH` | Output Parquet file path (default: `mixed_output.parquet`) |
+| `-o, --output PATH` | Output Parquet file path, default `mixed_output.parquet` |
 | `--dry-run` | Show record counts without writing output |
-| `--include [SOURCE ...]` | Only include datasets matching these prefixes (supports prefix matching) |
-| `--exclude [SOURCE ...]` | Exclude datasets matching these prefixes |
-| `--batch-size N` | Records per write batch for memory control (default: 2000) |
-| `--tooling-sample-rate RATE` | Random sample rate (0.0-1.0) for Nemotron-SFT-Agentic-v2 tool_calling subset only (search is always 100%) |
-| `--sample-seed SEED` | Random seed for reproducible sampling |
-| `--resume` | Resume from existing output file if present |
-| `--shuffle` | Randomly shuffle records before writing (requires loading all records) |
-| `--shuffle-seed SEED` | Random seed for --shuffle reproducibility |
-| `--num-chunks N` | Split output into N chunks after mixing |
+| `--include [SOURCE ...]` | Only include matching source dataset prefixes |
+| `--exclude [SOURCE ...]` | Exclude matching source dataset prefixes |
+| `--batch-size N` | Records per write batch, default `500` |
+| `--tooling-sample-rate RATE` | Sample `Nemotron-SFT-Agentic-v2` tool-calling records only |
+| `--sample-seed SEED` | Seed for tool-calling sampling |
+| `--resume` | Resume from existing output when possible |
+| `--shuffle` | Shuffle records before writing |
+| `--shuffle-seed SEED` | Seed for shuffle |
+| `--num-chunks N` | Split output into N Parquet chunks |
 
-### Source Filtering
-
-The `--include` and `--exclude` flags filter which datasets to process. They support **prefix matching**, so you can use partial names:
-
-- `--include Nemotron` matches both `Nemotron-Terminal-Corpus` AND `Nemotron-SFT-Agentic-v2-*`
-- `--include Nemotron-SFT-Agentic-v2` matches `Nemotron-SFT-Agentic-v2-search` and `Nemotron-SFT-Agentic-v2-tool_calling`
-
-#### Available Source Prefixes
-
-| Prefix | Description |
-|--------|-------------|
-| `Nemotron` | All Nemotron family (Terminal Corpus + Agentic v2) |
-| `Nemotron-Terminal-Corpus` | Only Terminal Corpus (adapters + synthetic tasks) |
-| `Nemotron-SFT-Agentic-v2` | Only Agentic v2 (search + tool_calling) |
-| `Nemotron-SFT-Agentic-v2-search` | Only search subset |
-| `Nemotron-SFT-Agentic-v2-tool_calling` | Only tool_calling subset |
-| `TeichAI` or `deepseek-v3.2-speciale-openr1-math-3k` | Math reasoning dataset |
-| `Raiden` or `Raiden-Mini-DeepSeek-V3.2-Speciale` | Creative/analytic prompts |
-
-### Random Sampling
-
-The `--tooling-sample-rate` option applies random sampling **only** to the `Nemotron-SFT-Agentic-v2-tool_calling` subset. The `search` subset is always kept at 100%. Other sources (like Nemotron-Terminal-Corpus) are always included at 100%.
-
-- `--tooling-sample-rate 0.5` = 50% of tool_calling records (100% of search)
-- `--tooling-sample-rate 0.4` = 40% of tool_calling records (100% of search)
-- `--tooling-sample-rate 0.2` = 20% of tool_calling records (100% of search)
-
-Use `--sample-seed` for reproducibility (e.g., `--sample-seed 42`).
-
-### Examples
-
-#### Basic Usage
+Examples:
 
 ```bash
-# Mix all datasets into single file
-uv run python -m scripts.dataset_mixer datasets/ -o output.parquet
-
-# Preview what will be included
-uv run python -m scripts.dataset_mixer datasets/ --dry-run
+dapper mix datasets/ --dry-run
+dapper mix datasets/ -o output.parquet
+dapper mix datasets/ -o nemotron.parquet --include Nemotron
+dapper mix datasets/ -o agentic.parquet --include Nemotron-SFT-Agentic-v2
+dapper mix datasets/ -o non_nemotron.parquet --exclude Nemotron
 ```
 
-#### Filter by Source
+Sampling examples:
 
 ```bash
-# Only Nemotron family (prefix matching)
-uv run python -m scripts.dataset_mixer datasets/ -o nemotron.parquet --include Nemotron
-
-# Only Nemotron Terminal Corpus
-uv run python -m scripts.dataset_mixer datasets/ -o terminal.parquet --include Nemotron-Terminal-Corpus
-
-# Only Nemotron-SFT-Agentic-v2 (search + tool_calling)
-uv run python -m scripts.dataset_mixer datasets/ -o agentic.parquet --include Nemotron-SFT-Agentic-v2
-
-# Everything EXCEPT Nemotron
-uv run python -m scripts.dataset_mixer datasets/ -o non_nemotron.parquet --exclude Nemotron
-```
-
-#### Random Sampling
-
-```bash
-# Full Agentic v2 (no sampling)
-uv run python -m scripts.dataset_mixer datasets/ -o agentic_full.parquet \
-  --include Nemotron-SFT-Agentic-v2
-
-# 50% sample of Agentic v2 tool_calling (search always 100%)
-uv run python -m scripts.dataset_mixer datasets/ -o agentic_50.parquet \
+dapper mix datasets/ -o agentic_50.parquet \
   --include Nemotron-SFT-Agentic-v2 \
-  --tooling-sample-rate 0.5
-
-# 40% sample of Agentic v2 tool_calling with seed
-uv run python -m scripts.dataset_mixer datasets/ -o agentic_40.parquet \
-  --include Nemotron-SFT-Agentic-v2 \
-  --tooling-sample-rate 0.40 \
-  --sample-seed 42
-
-# 20% sample of Agentic v2 tool_calling with seed
-uv run python -m scripts.dataset_mixer datasets/ -o agentic_20.parquet \
-  --include Nemotron-SFT-Agentic-v2 \
-  --tooling-sample-rate 0.2 \
+  --tooling-sample-rate 0.5 \
   --sample-seed 42
 ```
 
-#### Full Nemotron Family Mix
+Shuffle and chunk examples:
 
 ```bash
-# Full family (Terminal Corpus 100% + Agentic v2 100%)
-uv run python -m scripts.dataset_mixer datasets/ -o nemotron_full.parquet \
-  --include Nemotron
-
-# Full family with 40% sampling on tool_calling only (search stays 100%)
-uv run python -m scripts.dataset_mixer datasets/ -o nemotron_mixed.parquet \
-  --include Nemotron \
-  --tooling-sample-rate 0.40 \
-  --sample-seed 42
-```
-
-#### Memory Management
-
-```bash
-# Smaller batch size for large datasets
-uv run python -m scripts.dataset_mixer datasets/ -o output.parquet --batch-size 500
-```
-
-#### Shuffle and Chunk
-
-```bash
-# Mix + shuffle + single output (reproducible)
-uv run python -m scripts.dataset_mixer datasets/ -o shuffled.parquet \
+dapper mix datasets/ -o shuffled.parquet \
   --include Nemotron-SFT-Agentic-v2 \
   --shuffle --shuffle-seed 42
 
-# Mix + shuffle + split into 8 chunks (for distillation)
-uv run python -m scripts.dataset_mixer datasets/ -o chunks/distill \
+dapper mix datasets/ -o chunks/distill \
   --include Nemotron-SFT-Agentic-v2 \
-  --shuffle --shuffle-seed 42 --num-chunks 8
-# Creates: chunks/distill_part_1_of_8.parquet, ..., chunks/distill_part_8_of_8.parquet
-
-# Mix + chunk only (sequential, no shuffle)
-uv run python -m scripts.dataset_mixer datasets/ -o chunks/distill \
-  --num-chunks 4
+  --shuffle --shuffle-seed 42 \
+  --num-chunks 8
 ```
 
-### Output Schema
+## `dapper split`
 
-The mixer outputs Parquet with the following schema:
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `conversations` | list | Message history (role, content, etc.) |
-| `agent` | string | Agent type (nullable) |
-| `model` | string | Model name |
-| `model_provider` | string | Model provider |
-| `date` | string | Date (nullable) |
-| `task` | string | Task/category |
-| `episode` | int | Episode number (nullable) |
-| `run_id` | string | Unique run identifier |
-| `enable_thinking` | bool | Reasoning enabled |
-| `tools` | string | JSON tool definitions (nullable) |
-| `source_dataset` | string | Source dataset name |
-
----
-
-## Tips
-
-### Large Datasets
-
-For large datasets, use limits to avoid overwhelming output:
+Split JSONL or Parquet files into N parts.
 
 ```bash
-# Sample first 100 records
-uv run python -m scripts.main list dataset/large.jsonl -n 100
+dapper split <input_file> -n <parts> [options]
 ```
 
-### Field Exploration
+Options:
 
-Use `show` to explore record structure before writing queries:
+| Option | Description |
+|--------|-------------|
+| `-n, --parts N` | Number of parts to create |
+| `-o, --output-dir DIR` | Output directory, default same as input |
+| `--prefix PREFIX` | Output filename prefix, default input filename |
+| `--dry-run` | Show split plan without writing files |
+| `--verify` | Verify parts recombine to the original file |
+| `--shuffle` | Shuffle records before splitting |
+| `--shuffle-seed SEED` | Seed for reproducible shuffling |
+
+Examples:
 
 ```bash
-# See full record structure
-uv run python -m scripts.main show dataset/file.jsonl 0
-
-# Then drill down
-uv run python -m scripts.main show dataset/file.jsonl 0 -f messages[0].role
+dapper split dataset/train.jsonl -n 4
+dapper split dataset/train.jsonl -n 10 --dry-run
+dapper split dataset/train.jsonl -n 5 --output-dir ./splits/ --prefix training_data
+dapper split dataset/train.jsonl -n 4 --verify
+dapper split dataset/train.jsonl -n 4 --shuffle --shuffle-seed 42
+dapper split mixed.parquet -n 8 --shuffle --shuffle-seed 42
 ```
+
+## Developer Notes
+
+The implementation modules under `scripts/` still exist for development and backwards compatibility, but user-facing docs and workflows should prefer `dapper`.

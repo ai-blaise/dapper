@@ -318,8 +318,9 @@ def recombine_parts(parts_paths: list[Path], output_path: Path) -> int:
     return total
 
 
-def main():
+def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(
+        prog="dapper split",
         description="Split JSONL datasets into N equal (or near-equal) parts."
     )
     parser.add_argument("input_file", type=Path, help="Input JSONL file")
@@ -357,7 +358,7 @@ def main():
         help="Random seed for reproducible shuffling",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Validate input
     if not args.input_file.exists():

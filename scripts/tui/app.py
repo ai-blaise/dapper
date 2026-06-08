@@ -468,9 +468,10 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
         self.push_screen(RecordListScreen())
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Parse arguments and run the application."""
     parser = argparse.ArgumentParser(
+        prog="dapper view",
         description="Compare original and processed dataset records in a terminal UI. "
         "Supports JSONL, JSON, and Parquet formats."
     )
@@ -508,7 +509,7 @@ def main() -> None:
         default=None,
         help="Syntax highlighting theme (e.g., monokai, dracula)",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Verify the path exists
     if not os.path.exists(args.path):

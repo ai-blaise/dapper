@@ -8,16 +8,16 @@ The TUI provides an interactive way to browse and compare datasets. Supports JSO
 
 ```bash
 # Browse a single file (read-only view)
-uv run python -m scripts.tui.app dataset/conversations.jsonl
+dapper view dataset/conversations.jsonl
 
 # Browse with export mode (shows original vs. parsed side-by-side)
-uv run python -m scripts.tui.app dataset/conversations.jsonl -x
+dapper view dataset/conversations.jsonl -x
 
 # Browse a directory
-uv run python -m scripts.tui.app dataset/
+dapper view dataset/
 
 # Compare two directories
-uv run python -m scripts.tui.app dataset_a/ --compare dataset_b/
+dapper view dataset_a/ --compare dataset_b/
 ```
 
 ## Supported Formats
@@ -103,8 +103,8 @@ Theme selection follows this priority order:
 Browse a dataset and view records as-is — no processing applied:
 
 ```bash
-uv run python -m scripts.tui.app dataset/conversations.jsonl
-uv run python -m scripts.tui.app dataset/
+dapper view dataset/conversations.jsonl
+dapper view dataset/
 ```
 
 **Flow:** File List → Record List → Record Detail View
@@ -116,7 +116,7 @@ The record detail view shows the full record as an expandable JSON tree. The rec
 Browse a dataset and view original vs. parsed records side-by-side:
 
 ```bash
-uv run python -m scripts.tui.app dataset/conversations.jsonl -x
+dapper view dataset/conversations.jsonl -x
 ```
 
 **Flow:** File List → Record List → Comparison View
@@ -132,7 +132,7 @@ This is useful for reviewing what `parser_finale` does to your data. Export keys
 Compare two directories side-by-side (no parsing applied):
 
 ```bash
-uv run python -m scripts.tui.app left_dataset/ --compare right_dataset/
+dapper view left_dataset/ --compare right_dataset/
 ```
 
 This opens a dual-pane view where each side has independent navigation:

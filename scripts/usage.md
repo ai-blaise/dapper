@@ -1,172 +1,139 @@
-# JSONL Dataset Explorer Usage
+# D.A.P.P.E.R. Usage
 
-Run all commands from the project root directory.
+D.A.P.P.E.R. provides a global `dapper` command for local dataset inspection, parsing, comparison, mixing, and splitting.
+
+Install from a checkout:
+
+```bash
+uv tool install .
+```
+
+Run from a development checkout:
+
+```bash
+dapper --help
+```
 
 ## Record Structure
 
-Each JSONL record contains these fields:
+Common AI conversation records contain these fields:
 
 | Field | Description |
 |-------|-------------|
 | `uuid` | Unique identifier for the record |
-| `messages` | List of conversation messages (system, user, assistant, tool) |
-| `tools` | List of tool/function definitions available to the assistant |
-| `license` | License type (e.g., "cc-by-4.0") |
-| `used_in` | List of datasets/models this record is used in (e.g., ["nano_v3"]) |
-| `reasoning` | Reasoning mode flag (only in interactive_agent.jsonl, value: "on") |
+| `messages` | Conversation messages with roles such as system, user, assistant, and tool |
+| `conversations` | Parquet-oriented conversation field used by mixed outputs |
+| `tools` | Tool/function definitions available to the assistant |
+| `license` | License type |
+| `used_in` | Dataset/model usage tags |
+| `reasoning` | Reasoning mode flag, when present |
 
----
+## Interactive TUI
 
-## TUI Application
-
-Interactive terminal UI for browsing datasets.
-
-### Running the TUI
+Browse a file or directory:
 
 ```bash
-uv run python -m scripts.tui.app dataset/interactive_agent.jsonl
+dapper view dataset/interactive_agent.jsonl
+dapper view dataset/
+dapper view dataset_a/ --compare dataset_b/
 ```
 
-### Keybindings
+Useful flags:
 
-| Key | Action |
-|-----|--------|
-| `Enter` | View full record details (Messages, Tools, Metadata tabs) |
-| `f` | Show field detail modal for current cell |
-| `q` | Quit application |
-| `ESC` | Close modal / Go back to list |
-| `Tab` | Switch tabs in detail view |
-| `Arrow keys` | Navigate cells in the table |
+| Flag | Description |
+|------|-------------|
+| `-x, --export` | Show original vs. parsed records and enable export keys |
+| `-O, --output-dir DIR` | Directory for TUI exports |
+| `--compare PATH` | Side-by-side dataset comparison |
+| `--app-theme THEME` | Textual app theme |
+| `--syntax-theme THEME` | JSON syntax theme |
 
-### Field Detail Modal
+## Parse Records
 
-Click on any cell or press `f` to view detailed information for that field:
-
-| Field | Detail View Shows |
-|-------|-------------------|
-| IDX | Record index with navigation hint |
-| UUID | Full UUID (untruncated) |
-| MSGS | Message count breakdown by role (system, user, assistant, tool) |
-| TOOLS | Scrollable list of all tool names with descriptions |
-| LICENSE | Full license name |
-| USED_IN | Complete list of usage contexts |
-| RSN | Reasoning status and count of messages with reasoning_content |
-| PREVIEW | Full first user message content |
-
----
-
-## Parser Finale
-
-Output JSONL content **without model responses** (assistant messages excluded). Useful for extracting training prompts or analyzing input data.
-
-### What's Included
-
-- `uuid` - Record identifier
-- `messages` - Only system, user, and tool messages (no assistant)
-- `tools` - Full tool definitions
-- `license` - License information
-- `used_in` - Usage tracking
-- `reasoning` - Reasoning flag (if present)
-
-### What's Excluded
-
-- All `assistant` messages (including tool_calls, content, and reasoning_content)
-
-### Usage
+`dapper parse` preserves conversation structure but empties assistant response text. Tool calls are preserved.
 
 ```bash
-# Basic usage - JSON output to stdout
-uv run python -m scripts.parser_finale dataset/interactive_agent.jsonl
+# JSON output to stdout
+dapper parse dataset/interactive_agent.jsonl
 
 # Specific record by index
-uv run python -m scripts.parser_finale dataset/interactive_agent.jsonl -i 5
+dapper parse dataset/interactive_agent.jsonl -i 5
 
 # Range of records
-uv run python -m scripts.parser_finale dataset/interactive_agent.jsonl --start 0 --end 10
+dapper parse dataset/interactive_agent.jsonl --start 0 --end 10
 
 # Different output formats
-uv run python -m scripts.parser_finale dataset/interactive_agent.jsonl -f json      # Pretty JSON (default)
-uv run python -m scripts.parser_finale dataset/interactive_agent.jsonl -f jsonl     # One record per line
-uv run python -m scripts.parser_finale dataset/interactive_agent.jsonl -f markdown  # Human-readable
-uv run python -m scripts.parser_finale dataset/interactive_agent.jsonl -f text      # Plain text summary
+dapper parse dataset/interactive_agent.jsonl -f json
+dapper parse dataset/interactive_agent.jsonl -f jsonl
+dapper parse dataset/interactive_agent.jsonl -f markdown
+dapper parse dataset/interactive_agent.jsonl -f text
 
 # Output to file
-uv run python -m scripts.parser_finale dataset/interactive_agent.jsonl -o output.json
+dapper parse dataset/interactive_agent.jsonl -o output.json
 
 # Filter records with tools only
-uv run python -m scripts.parser_finale dataset/interactive_agent.jsonl --has-tools
+dapper parse dataset/interactive_agent.jsonl --has-tools
 
-# Compact JSON (no indentation)
-uv run python -m scripts.parser_finale dataset/interactive_agent.jsonl --compact
+# Compact JSON
+dapper parse dataset/interactive_agent.jsonl --compact
 ```
 
-### Options
+Parse options:
 
 | Option | Description |
 |--------|-------------|
-| `-f/--format` | Output format: `json`, `jsonl`, `markdown`, `text` (default: json) |
-| `-o/--output` | Output file path (default: stdout) |
-| `-i/--index` | Process only record at this index |
-| `--start` | Start index for range processing (default: 0) |
-| `--end` | End index for range processing |
-| `--has-tools` | Only include records with tools |
-| `--compact` | Compact JSON output (no indentation) |
+| `--input-format FORMAT` | Input format: `auto`, `jsonl`, `json`, `parquet` |
+| `-f, --format FORMAT` | Output format: `json`, `jsonl`, `parquet`, `markdown`, `text` |
+| `-o, --output FILE` | Output file path, default stdout |
+| `-O, --output-dir DIR` | Generated output directory |
+| `-i, --index N` | Process one record |
+| `--start N` | Start index |
+| `--end N` | End index |
+| `--has-tools` | Only include records with tool definitions |
+| `--compact` | Compact JSON output |
 
----
-
-## CLI Tool (main.py)
+## Explore Records
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `list` | Tabular summary of records | `uv run python -m scripts.main list dataset/file.jsonl -n 10` |
-| `show` | View record or specific field | `uv run python -m scripts.main show dataset/file.jsonl 0 -f messages[1]` |
-| `search` | Find text in records | `uv run python -m scripts.main search dataset/file.jsonl "query" -c` |
-| `stats` | Dataset statistics | `uv run python -m scripts.main stats dataset/file.jsonl -v` |
+| `dapper list` | Tabular summary of records | `dapper list dataset/file.jsonl -n 10` |
+| `dapper show` | View record or specific field | `dapper show dataset/file.jsonl 0 -f messages[1]` |
+| `dapper search` | Find text in records | `dapper search dataset/file.jsonl "query" -c` |
+| `dapper stats` | Dataset statistics | `dapper stats dataset/file.jsonl -v` |
 
-### List Output Columns
-
-| Column | Description |
-|--------|-------------|
-| IDX | Record index (0-based) |
-| UUID | Truncated unique identifier |
-| MSGS | Number of messages in conversation |
-| TOOLS | Number of tool definitions |
-| LICENSE | License type |
-| USED_IN | Dataset/model usage |
-| RSN | Reasoning mode ("on" or "-") |
-| PREVIEW | First user message preview |
-
-### Options
-
-#### list
-- `-n/--limit` - Limit output
-- `--has-tools` - Filter to records with tools
-- `--has-reasoning` - Filter to records with reasoning
-- `--min-messages N` - Minimum message count
-
-#### show
-- `-f/--field` - Extract specific field (supports `messages[0].content` notation)
-
-#### search
-- `-c/--context` - Show matching context
-- `--case-sensitive` - Case-sensitive matching
-- `-n/--limit` - Limit results
-
-#### stats
-- `-v/--verbose` - Show top tool names
-
-### Examples
+Examples:
 
 ```bash
-# List first 10 records
-uv run python -m scripts.main list dataset/interactive_agent.jsonl -n 10
-
-# Show the second message of record 0
-uv run python -m scripts.main show dataset/interactive_agent.jsonl 0 -f messages[1]
-
-# Search for "Bitcoin" with context
-uv run python -m scripts.main search dataset/interactive_agent.jsonl "Bitcoin" -c
-
-# Get full statistics with tool breakdown
-uv run python -m scripts.main stats dataset/interactive_agent.jsonl -v
+dapper list dataset/interactive_agent.jsonl -n 10
+dapper show dataset/interactive_agent.jsonl 0 -f messages[1]
+dapper search dataset/interactive_agent.jsonl "Bitcoin" -c
+dapper stats dataset/interactive_agent.jsonl -v
 ```
+
+## Mix Datasets
+
+Combine supported dataset directories into unified Parquet output:
+
+```bash
+dapper mix datasets/ --dry-run
+dapper mix datasets/ -o output.parquet
+dapper mix datasets/ -o nemotron.parquet --include Nemotron
+dapper mix datasets/ -o agentic_50.parquet \
+  --include Nemotron-SFT-Agentic-v2 \
+  --tooling-sample-rate 0.5 \
+  --sample-seed 42
+```
+
+## Split Datasets
+
+Split JSONL or Parquet files into parts:
+
+```bash
+dapper split dataset/file.jsonl -n 4
+dapper split dataset/file.jsonl -n 10 --dry-run
+dapper split mixed.parquet -n 8 --shuffle --shuffle-seed 42
+```
+
+## Command Coverage
+
+The public `dapper` CLI currently covers the core workflows: `list`, `show`, `search`, `stats`, `view`, `parse`, `mix`, and `split`. Other scripts in this directory are internal or legacy until explicit `dapper` wrappers are added.

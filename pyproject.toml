@@ -1,7 +1,7 @@
 [project]
-name = "dataset-parser"
+name = "dapper"
 version = "0.1.0"
-description = "A toolkit for exploring and transforming datasets containing AI conversation data"
+description = "D.A.P.P.E.R. - Dataset Absurdly Powerful Parser Engineered Recklessly"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -16,6 +16,16 @@ dependencies = [
 [project.optional-dependencies]
 parquet = ["pyarrow>=15.0.0"]
 all = ["pyarrow>=15.0.0"]
+
+[project.scripts]
+dapper = "dapper.cli:main"
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["dapper*", "scripts*", "utils*"]
 
 [dependency-groups]
 dev = [

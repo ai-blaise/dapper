@@ -16,7 +16,7 @@ from scripts.dataset_mixer.mixer import mix
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        prog="dataset_mixer",
+        prog="dapper mix",
         description="Mix multiple datasets into a single unified Parquet file.",
     )
     parser.add_argument(

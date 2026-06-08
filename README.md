@@ -1,4 +1,6 @@
-# dataset-parser
+# D.A.P.P.E.R.
+
+Dataset Absurdly Powerful Parser Engineered Recklessly
 
 A dataset exploration and comparison tool with an interactive TUI. Currently optimized for AI conversation datasets, with a vision to become a **general-purpose dataset comparer**.
 
@@ -18,19 +20,43 @@ A dataset exploration and comparison tool with an interactive TUI. Currently opt
 
 ## Installation
 
-### Using uv (recommended)
+### Install Globally With uv
+
+From a local checkout:
 
 ```bash
 git clone <repository-url>
-cd dataset-parser
+cd dapper
+uv tool install .
+```
+
+From a Git repository:
+
+```bash
+uv tool install git+<repository-url>
+```
+
+After installation, run D.A.P.P.E.R. from any directory:
+
+```bash
+dapper --help
+dapper view /path/to/dataset.parquet
+dapper list /path/to/dataset.jsonl -n 20
+dapper mix /path/to/datasets -o /path/to/mixed.parquet
+```
+
+### Local Development
+
+```bash
 uv sync
+dapper --help
 ```
 
 ### Using pip
 
 ```bash
 git clone <repository-url>
-cd dataset-parser
+cd dapper
 pip install -e .
 ```
 
@@ -40,26 +66,26 @@ pip install -e .
 
 ```bash
 # Open a single file (read-only view)
-uv run python -m scripts.tui.app dataset/conversations.jsonl
+dapper view dataset/conversations.jsonl
 
 # Open with export mode (original vs. parsed side-by-side)
-uv run python -m scripts.tui.app dataset/conversations.jsonl -x
+dapper view dataset/conversations.jsonl -x
 
 # Open a directory (shows file picker)
-uv run python -m scripts.tui.app dataset/
+dapper view dataset/
 ```
 
 ### Extract prompts (remove assistant responses)
 
 ```bash
 # Output to stdout
-uv run python -m scripts.parser_finale dataset/conversations.jsonl
+dapper parse dataset/conversations.jsonl
 
 # Output to a specific file
-uv run python -m scripts.parser_finale dataset/conversations.jsonl -o prompts.json
+dapper parse dataset/conversations.jsonl -o prompts.json
 
 # Output to a directory (creates train_parsed.json)
-uv run python -m scripts.parser_finale dataset/train.jsonl -O parsed_datasets/
+dapper parse dataset/train.jsonl -O parsed_datasets/
 ```
 
 ### Mix datasets into unified training data
@@ -70,10 +96,10 @@ The dataset mixer combines multiple HuggingFace datasets into a single Parquet f
 
 ```bash
 # Mix ALL datasets in datasets/ into a single Parquet file
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/full_mix_all_sources.parquet
+dapper mix datasets/ -o output-datasets/full_mix_all_sources.parquet
 
 # Dry-run: show record counts without writing output
-uv run python -m scripts.dataset_mixer datasets/ --dry-run
+dapper mix datasets/ --dry-run
 ```
 
 #### Source Filtering
@@ -82,15 +108,15 @@ Filter which datasets to include or exclude using `--include` and `--exclude`. T
 
 ```bash
 # Only Nemotron family (Terminal Corpus + Agentic v2)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_only.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_only.parquet \
   --include Nemotron
 
 # Only Nemotron Terminal Corpus (adapters + synthetic tasks)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_terminal_corpus_only.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_terminal_corpus_only.parquet \
   --include Nemotron-Terminal-Corpus
 
 # Only Nemotron-SFT-Agentic-v2 (search + tool_calling combined)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_agentic_v2_combined.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_agentic_v2_combined.parquet \
   --include Nemotron-SFT-Agentic-v2
 ```
 
@@ -100,22 +126,22 @@ Apply random sampling to **Nemotron-SFT-Agentic-v2** records only (does NOT affe
 
 ```bash
 # Full Agentic v2 (no sampling)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_agentic_v2_full.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_agentic_v2_full.parquet \
   --include Nemotron-SFT-Agentic-v2
 
 # 50% sample of Agentic v2 tool_calling (search stays 100%)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_agentic_v2_sample_50.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_agentic_v2_sample_50.parquet \
   --include Nemotron-SFT-Agentic-v2 \
   --tooling-sample-rate 0.5
 
 # 40% sample of Agentic v2 tool_calling with seed for reproducibility
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_agentic_v2_sample_40.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_agentic_v2_sample_40.parquet \
   --include Nemotron-SFT-Agentic-v2 \
   --tooling-sample-rate 0.40 \
   --sample-seed 42
 
 # 20% sample of Agentic v2 tool_calling with seed
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_agentic_v2_sample_20.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_agentic_v2_sample_20.parquet \
   --include Nemotron-SFT-Agentic-v2 \
   --tooling-sample-rate 0.2 \
   --sample-seed 42
@@ -125,12 +151,12 @@ uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_age
 
 ```bash
 # FULL Nemotron family (Terminal Corpus = 100% + Agentic v2 = 100%)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_full_family.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_full_family.parquet \
   --include Nemotron
 
 # FULL Nemotron family + 40% sample of Agentic v2 tool_calling only
 # (Terminal Corpus = 100%, search = 100%, tool_calling = 40%)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_mixed_sample.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_mixed_sample.parquet \
   --include Nemotron \
   --tooling-sample-rate 0.40 \
   --sample-seed 42
@@ -142,7 +168,7 @@ The `test-datasets/` directory contains real distillation mix datasets from Hugg
 
 ```bash
 # Preview what would be mixed
-uv run python -m scripts.dataset_mixer test-datasets/ --dry-run
+dapper mix test-datasets/ --dry-run
 ```
 
 **Available datasets:**
@@ -167,28 +193,28 @@ uv run python -m scripts.dataset_mixer test-datasets/ --dry-run
 
 ```bash
 # Mix all distillation datasets into a single Parquet file
-uv run python -m scripts.dataset_mixer test-datasets/ \
+dapper mix test-datasets/ \
   -o output/distillation_mix.parquet
 
 # Mix + shuffle + split into 4 chunks
-uv run python -m scripts.dataset_mixer test-datasets/ \
+dapper mix test-datasets/ \
   -o output/distillation_mix \
   --shuffle --shuffle-seed 42 \
   --num-chunks 4
 # Creates: output/distillation_mix_part_1_of_4.parquet, ..., output/distillation_mix_part_4_of_4.parquet
 
 # Only High-Coder datasets
-uv run python -m scripts.dataset_mixer test-datasets/ \
+dapper mix test-datasets/ \
   -o output/high_coder_only.parquet \
   --include "High-Coder"
 
 # Only Hunter-Alpha datasets
-uv run python -m scripts.dataset_mixer test-datasets/ \
+dapper mix test-datasets/ \
   -o output/hunter_alpha_only.parquet \
   --include "Hunter-Alpha"
 
 # Exclude large datasets for a quick mix
-uv run python -m scripts.dataset_mixer test-datasets/ \
+dapper mix test-datasets/ \
   -o output/quick_mix.parquet \
   --exclude "Hunter-Alpha-Programming-160000x" \
   --exclude "High-Coder-Reasoning-Multi-Turn"
@@ -198,21 +224,21 @@ uv run python -m scripts.dataset_mixer test-datasets/ \
 
 ```bash
 # Custom batch size for memory control (default: 2000)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/custom.parquet \
+dapper mix datasets/ -o output-datasets/custom.parquet \
   --batch-size 500
 
 # Preview what will be included before running
-uv run python -m scripts.dataset_mixer datasets/ --dry-run --include Nemotron
+dapper mix datasets/ --dry-run --include Nemotron
 ```
 
 ### Split a dataset into parts
 
 ```bash
 # Split into 4 parts
-uv run python -m scripts.data_splitter dataset/conversations.jsonl -n 4
+dapper split dataset/conversations.jsonl -n 4
 
 # Preview split without creating files
-uv run python -m scripts.data_splitter dataset/conversations.jsonl -n 10 --dry-run
+dapper split dataset/conversations.jsonl -n 10 --dry-run
 ```
 
 ## Usage
@@ -221,10 +247,18 @@ uv run python -m scripts.data_splitter dataset/conversations.jsonl -n 10 --dry-r
 
 | Command | Description |
 |---------|-------------|
-| `uv run python -m scripts.main list <file>` | Tabular summary of records |
-| `uv run python -m scripts.main show <file> <index>` | View record or specific field |
-| `uv run python -m scripts.main search <file> <query>` | Search text across records |
-| `uv run python -m scripts.main stats <file>` | Dataset statistics |
+| `dapper list <file>` | Tabular summary of records |
+| `dapper show <file> <index>` | View record or specific field |
+| `dapper search <file> <query>` | Search text across records |
+| `dapper stats <file>` | Dataset statistics |
+| `dapper view <file-or-dir>` | Interactive TUI for local datasets |
+| `dapper parse <file>` | Extract prompts / normalize records |
+| `dapper mix <dir> -o <file.parquet>` | Mix datasets into unified Parquet |
+| `dapper split <file> -n <parts>` | Split datasets into parts |
+
+### Command Coverage Status
+
+The public `dapper` CLI currently exposes the core dataset workflows: exploration, TUI viewing, parsing, mixing, and splitting. Some scripts in `scripts/` are still internal or legacy and do not yet have public `dapper` wrappers, including rerollout variants, upload helpers, filtering helpers, and demo scripts.
 
 ### TUI Keybindings
 
@@ -278,19 +312,19 @@ Use `--include` and `--exclude` to produce filtered mix outputs from a single `d
 ```bash
 # Full Nemotron family (~380K records)
 # Combines Terminal Corpus (100%) + Agentic v2 (100%)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_full_family.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_full_family.parquet \
   --include Nemotron
 
 # Nemotron Terminal Corpus only (~366K records)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_terminal_corpus_only.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_terminal_corpus_only.parquet \
   --include Nemotron-Terminal-Corpus
 
 # Nemotron-SFT-Agentic-v2 only (~14K records)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_agentic_v2_combined.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_agentic_v2_combined.parquet \
   --include Nemotron-SFT-Agentic-v2
 
 # Full family with 40% sampling on tool_calling only (search stays 100%)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_mixed_40.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_mixed_40.parquet \
   --include Nemotron \
   --tooling-sample-rate 0.40 \
   --sample-seed 42
@@ -304,7 +338,7 @@ The tool is currently optimized for AI conversation datasets but is designed to 
 
 - **Configurable schema detection** - Support any JSON structure, not just conversations
 - **ID-based record matching** - Match records by key field instead of index
-- **Pluggable transformations** - Optional processing instead of hardcoded parser_finale
+- **Pluggable transformations** - Optional processing instead of hardcoded Parser Finale behavior
 - **Additional formats** - Excel/XLSX support
 
 ## Documentation
@@ -331,7 +365,7 @@ uv run pytest tests/
 ### Project Structure
 
 ```
-dataset-parser/
+dapper/
 ├── utils/                 # Core utilities (functional, memory-efficient)
 │   ├── loader.py        # Multi-format data loading (load_records, etc.)
 │   ├── detect.py        # Format detection (detect_format, etc.)
@@ -345,7 +379,7 @@ dataset-parser/
 │   ├── parser_finale.py  # Transformation engine
 │   ├── data_splitter.py  # Dataset splitting utility
 │   ├── dataset_mixer/    # Opinionated dataset mixing pipeline
-│   │   ├── __main__.py   # Entry point (python -m scripts.dataset_mixer)
+│   │   ├── __main__.py   # Developer module entry point
 │   │   ├── cli.py        # CLI: argparse definition
 │   │   ├── mixer.py      # Core mixing logic
 │   │   ├── adapters.py   # Per-source adapters + auto-detection

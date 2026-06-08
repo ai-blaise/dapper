@@ -1,6 +1,6 @@
 # Record Structure
 
-This document describes the JSONL record format used by dataset-parser.
+This document describes the JSONL record format used by D.A.P.P.E.R.
 
 ## Overview
 
@@ -216,5 +216,5 @@ Typical records contain:
 Use `stats -v` to analyze role distribution in your dataset:
 
 ```bash
-uv run python -m scripts.main stats dataset/file.jsonl -v
+dapper stats dataset/file.jsonl -v
 ```

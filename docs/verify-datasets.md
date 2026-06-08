@@ -9,30 +9,30 @@ Generate the mixed outputs first:
 ```bash
 # Full Nemotron family (~380K records)
 # Combines Terminal Corpus (100%) + Agentic v2 (100%)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_full_family.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_full_family.parquet \
   --include Nemotron
 
 # Nemotron Terminal Corpus only (~366K records)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_terminal_corpus_only.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_terminal_corpus_only.parquet \
   --include Nemotron-Terminal-Corpus
 
 # Nemotron-SFT-Agentic-v2 only (~14K records)
 # This includes search + tool_calling (excludes interactive_agent)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_agentic_v2_combined.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_agentic_v2_combined.parquet \
   --include Nemotron-SFT-Agentic-v2
 
 # Full family with 40% sampling on tool_calling only (search stays 100%)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_mixed_40.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_mixed_40.parquet \
   --include Nemotron \
   --tooling-sample-rate 0.40 \
   --sample-seed 42
 
 # Sampled Agentic v2 examples (tool_calling only, search stays 100%)
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_agentic_v2_sample_50.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_agentic_v2_sample_50.parquet \
   --include Nemotron-SFT-Agentic-v2 \
   --tooling-sample-rate 0.5
 
-uv run python -m scripts.dataset_mixer datasets/ -o output-datasets/nemotron_agentic_v2_sample_40.parquet \
+dapper mix datasets/ -o output-datasets/nemotron_agentic_v2_sample_40.parquet \
   --include Nemotron-SFT-Agentic-v2 \
   --tooling-sample-rate 0.40 \
   --sample-seed 42
@@ -44,13 +44,13 @@ Use `--dry-run` to see record counts without writing output:
 
 ```bash
 # Preview all Nemotron family
-uv run python -m scripts.dataset_mixer datasets/ --dry-run --include Nemotron
+dapper mix datasets/ --dry-run --include Nemotron
 
 # Preview Agentic v2 only
-uv run python -m scripts.dataset_mixer datasets/ --dry-run --include Nemotron-SFT-Agentic-v2
+dapper mix datasets/ --dry-run --include Nemotron-SFT-Agentic-v2
 
 # Preview Terminal Corpus only
-uv run python -m scripts.dataset_mixer datasets/ --dry-run --include Nemotron-Terminal-Corpus
+dapper mix datasets/ --dry-run --include Nemotron-Terminal-Corpus
 ```
 
 ## Side-by-Side Comparison (TUI)
@@ -60,7 +60,7 @@ Use `--compare` to launch the dual-pane TUI with a source dataset on the left an
 ### Compare Nemotron Terminal Corpus source against mixed output
 
 ```bash
-uv run python -m scripts.tui.app datasets/Nemotron-Terminal-Corpus/ \
+dapper view datasets/Nemotron-Terminal-Corpus/ \
   --compare output-datasets/
 ```
 
@@ -73,7 +73,7 @@ uv run python -m scripts.tui.app datasets/Nemotron-Terminal-Corpus/ \
 ### Compare Nemotron-SFT-Agentic-v2 source against mixed output
 
 ```bash
-uv run python -m scripts.tui.app datasets/Nemotron-SFT-Agentic-v2/ \
+dapper view datasets/Nemotron-SFT-Agentic-v2/ \
   --compare output-datasets/
 ```
 
@@ -89,14 +89,14 @@ To inspect a mixed parquet without comparison:
 
 ```bash
 # Browse full Nemotron family
-uv run python -m scripts.tui.app output-datasets/nemotron_full_family.parquet
+dapper view output-datasets/nemotron_full_family.parquet
 
 # Browse Nemotron Terminal Corpus only
-uv run python -m scripts.tui.app output-datasets/nemotron_terminal_corpus_only.parquet
+dapper view output-datasets/nemotron_terminal_corpus_only.parquet
 
 # Browse Agentic v2 (sampled or full)
-uv run python -m scripts.tui.app output-datasets/nemotron_agentic_v2_combined.parquet
-uv run python -m scripts.tui.app output-datasets/nemotron_agentic_v2_sample_40.parquet
+dapper view output-datasets/nemotron_agentic_v2_combined.parquet
+dapper view output-datasets/nemotron_agentic_v2_sample_40.parquet
 ```
 
 ## TUI Keybindings (Comparison Mode)
@@ -147,16 +147,16 @@ Preview record counts per source without writing files:
 
 ```bash
 # All sources (Nemotron family)
-uv run python -m scripts.dataset_mixer datasets/ --dry-run
+dapper mix datasets/ --dry-run
 
 # Nemotron family with include
-uv run python -m scripts.dataset_mixer datasets/ --dry-run --include Nemotron
+dapper mix datasets/ --dry-run --include Nemotron
 
 # Terminal Corpus only
-uv run python -m scripts.dataset_mixer datasets/ --dry-run --include Nemotron-Terminal-Corpus
+dapper mix datasets/ --dry-run --include Nemotron-Terminal-Corpus
 
 # Agentic v2 only
-uv run python -m scripts.dataset_mixer datasets/ --dry-run --include Nemotron-SFT-Agentic-v2
+dapper mix datasets/ --dry-run --include Nemotron-SFT-Agentic-v2
 ```
 
 ## Expected Record Counts
@@ -201,30 +201,30 @@ The `test-datasets/` directory contains real distillation mix datasets from Hugg
 
 ```bash
 # Preview what would be mixed
-uv run python -m scripts.dataset_mixer test-datasets/ --dry-run
+dapper mix test-datasets/ --dry-run
 
 # Mix all distillation datasets
-uv run python -m scripts.dataset_mixer test-datasets/ \
+dapper mix test-datasets/ \
   -o output/distillation_mix.parquet
 
 # Mix + shuffle + split into 4 chunks
-uv run python -m scripts.dataset_mixer test-datasets/ \
+dapper mix test-datasets/ \
   -o output/distillation_mix \
   --shuffle --shuffle-seed 42 \
   --num-chunks 4
 
 # Only High-Coder datasets
-uv run python -m scripts.dataset_mixer test-datasets/ \
+dapper mix test-datasets/ \
   -o output/high_coder_only.parquet \
   --include "High-Coder"
 
 # Only Hunter-Alpha datasets
-uv run python -m scripts.dataset_mixer test-datasets/ \
+dapper mix test-datasets/ \
   -o output/hunter_alpha_only.parquet \
   --include "Hunter-Alpha"
 
 # Exclude large datasets for a quick mix
-uv run python -m scripts.dataset_mixer test-datasets/ \
+dapper mix test-datasets/ \
   -o output/quick_mix.parquet \
   --exclude "Hunter-Alpha-Programming-160000x" \
   --exclude "High-Coder-Reasoning-Multi-Turn"
@@ -234,9 +234,9 @@ uv run python -m scripts.dataset_mixer test-datasets/ \
 
 ```bash
 # Browse a single dataset
-uv run python -m scripts.tui.app test-datasets/Hunter-Alpha-Coding-Agent-SFT/
+dapper view test-datasets/Hunter-Alpha-Coding-Agent-SFT/
 
 # Compare source against mixed output
-uv run python -m scripts.tui.app test-datasets/ \
+dapper view test-datasets/ \
   --compare output/
 ```

@@ -59,6 +59,22 @@ class BaseAdapter(ABC):
         pass
 
 
+class UnifiedSchemaAdapter(BaseAdapter):
+    """Adapter for datasets that already conform to OUTPUT_SCHEMA.
+
+    This is a generic passthrough adapter for sources that have the unified
+    conversations-based schema. It validates records have 'conversations' and
+    uses record_with_schema_defaults to ensure all required fields are present.
+    """
+
+    def transform_records(
+        self, records: Iterator[dict[str, Any]], source_dataset: str
+    ) -> Iterator[dict[str, Any]]:
+        """Pass through records, ensuring schema conformance and source_dataset."""
+        for record in records:
+            yield record_with_schema_defaults(record, source_dataset)
+
+
 class NemotronAdapter(BaseAdapter):
     """Adapter for Nemotron Terminal Corpus Parquet files (Sources A & B).
 
@@ -288,7 +304,6 @@ def detect_adapter(filename: str) -> BaseAdapter:
     if fmt in ("jsonl", "json"):
         for record in load_records(filename):
             if "messages" in record:
-                # Check for Nemotron-SFT-Agentic-v2 specific files
                 if "Nemotron-SFT-Agentic-v2" in filename:
                     return NemotronAgenticV2Adapter()
                 return MessagesJSONLAdapter()
@@ -296,6 +311,8 @@ def detect_adapter(filename: str) -> BaseAdapter:
                 return HighCodeReasoningAdapter()
             if "provenance" in record and "content" in record:
                 return HighCodeSFTAdapter()
+            if "conversations" in record:
+                return UnifiedSchemaAdapter()
             break
         raise ValueError(f"JSONL/JSON file '{filename}' has no recognized adapter")
 

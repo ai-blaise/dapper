@@ -250,10 +250,11 @@ def write_json_array(
         json.dump(records, f, indent=indent, ensure_ascii=False)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Main entry point for parser_finale."""
     # Define args
     parser = argparse.ArgumentParser(
+        prog="dapper parse",
         description="Parse datasets and output content with emptied assistant responses. "
         "Supports JSONL, JSON, and Parquet input/output formats."
     )
@@ -280,8 +281,8 @@ def main() -> None:
     parser.add_argument(
         "-O",
         "--output-dir",
-        default="parsed_datasets",
-        help="Output directory for batch processing (default: parsed_datasets)",
+        default=None,
+        help="Output directory for generated parsed files",
     )
     parser.add_argument(
         "-i", "--index", type=int, help="Process only record at this index"
@@ -297,7 +298,7 @@ def main() -> None:
         "--compact", action="store_true", help="Compact JSON output (no indentation)"
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Verify path exists
     if not os.path.exists(args.path):

@@ -11,6 +11,7 @@ dataset-analysis/
 output-datasets/
 nemotron/
 parsed_datasets/
+jobs/
 test-datasets/
 sft-mix/
 distillation-mix/

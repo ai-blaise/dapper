@@ -1,10 +1,10 @@
 # Architecture Overview
 
-This document describes the architecture of the dataset-parser tool.
+This document describes the architecture of the D.A.P.P.E.R. tool.
 
 ## System Overview
 
-dataset-parser is a modular toolkit for exploring and comparing datasets. Currently optimized for AI conversation data, with architecture designed for future generalization to any dataset type.
+D.A.P.P.E.R. is a modular toolkit for exploring and comparing datasets. Currently optimized for AI conversation data, with architecture designed for future generalization to any dataset type.
 
 **Core interfaces:**
 
@@ -22,13 +22,18 @@ dataset-parser is a modular toolkit for exploring and comparing datasets. Curren
 ## Directory Structure
 
 ```
-dataset-parser/
+D.A.P.P.E.R./
 ├── main.py                    # Stub entry point
 ├── pyproject.toml             # Project metadata and dependencies
 ├── uv.lock                    # Dependency lock file
 ├── README.md                  # Quick start guide
 ├── LICENSE                    # MIT License
 ├── AGENTS.md                  # Development workflow instructions
+│
+├── dapper/                    # Public package and CLI router
+│   ├── __init__.py            # Package metadata
+│   ├── __main__.py            # python -m dapper entry point
+│   └── cli.py                 # dapper command dispatcher
 │
 ├── utils/                     # Core utilities (functional, memory-efficient)
 │   ├── loader.py              # Multi-format data loading
@@ -94,7 +99,7 @@ dataset-parser/
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                    dataset-parser Application                     │
+│                    D.A.P.P.E.R. Application                     │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
 │  ┌──────────┬──────────────┬─────────┬──────────────┬────────────┐ │
@@ -119,34 +124,38 @@ dataset-parser/
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-## Entry Points
+## Public Entry Points
 
-All commands are run from the project root using `uv run`:
+D.A.P.P.E.R. installs a global `dapper` command. Public usage should always be written as `dapper {command}` after installation.
 
 | Command | Description |
 |---------|-------------|
-| `uv run python -m scripts.main <cmd>` | CLI tool (list, show, search, stats) |
-| `uv run python -m scripts.tui.app <path>` | Interactive TUI |
-| `uv run python -m scripts.parser_finale <path>` | Transform records |
-| `uv run python -m scripts.data_splitter <file> -n N` | Split dataset |
-| `uv run python -m scripts.dataset_mixer <dir>` | Mix HuggingFace datasets |
-| `uv run python -m scripts.dataset_mixer` | (alias via __main__.py) |
+| `dapper list <file>` | List records |
+| `dapper show <file> <index>` | Show a record or nested field |
+| `dapper search <file> <query>` | Search records |
+| `dapper stats <file>` | Show dataset statistics |
+| `dapper view <path>` | Interactive TUI |
+| `dapper parse <path>` | Transform records |
+| `dapper split <file> -n N` | Split dataset |
+| `dapper mix <dir>` | Mix HuggingFace datasets |
 
-### CLI Tool (`scripts.main`)
+Some repository scripts are still internal or legacy and do not yet have public `dapper` wrappers, including rerollout variants, upload helpers, filtering helpers, and demo scripts.
+
+### CLI Tool (`dapper list/show/search/stats`)
 
 ```bash
-uv run python -m scripts.main list <file>
-uv run python -m scripts.main show <file> <index>
-uv run python -m scripts.main search <file> <query>
-uv run python -m scripts.main stats <file>
+dapper list <file>
+dapper show <file> <index>
+dapper search <file> <query>
+dapper stats <file>
 ```
 
-### TUI Application (`scripts.tui.app`)
+### TUI Application (`dapper view`)
 
 ```bash
-uv run python -m scripts.tui.app dataset/file.jsonl
-uv run python -m scripts.tui.app dataset/                  # directory mode
-uv run python -m scripts.tui.app dataset/ --compare other/  # comparison mode
+dapper view dataset/file.jsonl
+dapper view dataset/                  # directory mode
+dapper view dataset/ --compare other/  # comparison mode
 ```
 
 TUI Options:
@@ -156,27 +165,27 @@ TUI Options:
 - `--app-theme TEXTUAL_THEME` - Set app theme
 - `--syntax-theme PYGMENTS_THEME` - Set syntax theme
 
-### Parser Finale (`scripts.parser_finale`)
+### Parser Finale (`dapper parse`)
 
 ```bash
-uv run python -m scripts.parser_finale dataset/file.jsonl
-uv run python -m scripts.parser_finale dataset/ -O output/  # batch mode
+dapper parse dataset/file.jsonl
+dapper parse dataset/file.jsonl -O output/
 ```
 
-### Data Splitter (`scripts.data_splitter`)
+### Data Splitter (`dapper split`)
 
 ```bash
-uv run python -m scripts.data_splitter dataset/file.jsonl -n 4
+dapper split dataset/file.jsonl -n 4
 ```
 
-### Dataset Mixer (`scripts.dataset_mixer`)
+### Dataset Mixer (`dapper mix`)
 
 ```bash
-uv run python -m scripts.dataset_mixer datasets/ -o output.parquet
-uv run python -m scripts.dataset_mixer datasets/ --dry-run
+dapper mix datasets/ -o output.parquet
+dapper mix datasets/ --dry-run
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                    dataset-parser Application                     │
+│                    D.A.P.P.E.R. Application                     │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
 │  ┌──────────┬──────────────┬─────────┬──────────────┬────────────┐ │
@@ -274,6 +283,25 @@ An opinionated pipeline that combines specific HuggingFace datasets into a singl
 | `PromptCompletionCSVAdapter` | `sequelbox/Raiden-Mini-DeepSeek-V3.2-Speciale` | CSV | Construct `conversations` from prompt/completion pairs |
 | `HighCodeSFTAdapter` | `High-Coder-SFT-Medium` | JSONL | Map `provenance.prompt` → user message, `content.text` → assistant message |
 | `HighCodeReasoningAdapter` | `High-Coder-Reasoning-Multi-Turn` | JSONL | Map `conversation` (singular) → `conversations`, `transform_type` → `episode` |
+| `UnifiedSchemaAdapter` | Any dataset with unified schema | JSONL | Passthrough — validates schema conformance and adds `source_dataset` |
+
+#### Unified Output Schema (`OUTPUT_SCHEMA`)
+
+All adapters produce records conforming to this schema:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `conversations` | `list[{role, content}]` | List of message turns with `role` (e.g., "user", "assistant") and `content` |
+| `agent` | `string` | Agent identifier |
+| `model` | `string` | Model name (e.g., `nvidia/Nemotron-Mini-Helper`) |
+| `model_provider` | `string` | Provider prefix (e.g., `nvidia`) |
+| `date` | `string` | Creation date |
+| `task` | `string` | Task or domain identifier |
+| `episode` | `string` | Episode or subtask identifier |
+| `run_id` | `string` | Run/trial identifier |
+| `enable_thinking` | `bool` | Whether thinking is enabled |
+| `tools` | `string` | JSON-serialized tool definitions |
+| `source_dataset` | `string` | Original HuggingFace dataset name |
 
 Key design decisions:
 - **Adapter auto-detection**: File format + column inspection determines adapter
