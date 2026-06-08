@@ -1,12 +1,20 @@
-# D.A.P.P.E.R. CLI Reference
+# Dapper CLI Reference
 
-D.A.P.P.E.R. installs a global `dapper` command for exploring, viewing, parsing, mixing, and splitting local dataset files from any working directory.
+Dapper installs a global `dapper` command for exploring, viewing, parsing, mixing, and splitting local dataset files from any working directory.
 
 Install it from a checkout:
 
 ```bash
 uv tool install .
 ```
+
+Install it from PyPI after publishing:
+
+```bash
+uv tool install dapper-datasets
+```
+
+`dapper-datasets` is the package name. `dapper` is the terminal command.
 
 After installation, use the same command from any directory:
 
@@ -16,7 +24,7 @@ dapper --help
 
 ## Command Coverage
 
-The public `dapper` CLI currently exposes the core D.A.P.P.E.R. workflows:
+The public `dapper` CLI currently exposes the core Dapper workflows:
 
 | Command | Purpose |
 |---------|---------|

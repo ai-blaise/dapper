@@ -1,4 +1,4 @@
-# D.A.P.P.E.R.
+# Dapper
 
 Dataset Absurdly Powerful Parser Engineered Recklessly
 
@@ -26,17 +26,23 @@ From a local checkout:
 
 ```bash
 git clone <repository-url>
-cd dapper
+cd dataset-parser
 uv tool install .
+```
+
+From a published package:
+
+```bash
+uv tool install dapper-datasets
 ```
 
 From a Git repository:
 
 ```bash
-uv tool install git+<repository-url>
+uv tool install "dapper-datasets @ git+ssh://git@github.com/ai-blaise/dataset-parser.git"
 ```
 
-After installation, run D.A.P.P.E.R. from any directory:
+`dapper-datasets` is the package name. `dapper` is the terminal command. After installation, run Dapper from any directory:
 
 ```bash
 dapper --help
@@ -56,7 +62,7 @@ dapper --help
 
 ```bash
 git clone <repository-url>
-cd dapper
+cd dataset-parser
 pip install -e .
 ```
 
@@ -397,6 +403,13 @@ dapper/
 └── plans/                # Design plans
 ```
 
+
+```bash
+
+uv tool install "dapper-datasets @ git+ssh://git@github.com/ai-blaise/dataset-parser.git"
+
+
+```
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

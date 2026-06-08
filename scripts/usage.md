@@ -1,6 +1,6 @@
-# D.A.P.P.E.R. Usage
+# Dapper Usage
 
-D.A.P.P.E.R. provides a global `dapper` command for local dataset inspection, parsing, comparison, mixing, and splitting.
+Dapper provides a global `dapper` command for local dataset inspection, parsing, comparison, mixing, and splitting.
 
 Install from a checkout:
 

@@ -228,7 +228,7 @@ wheels = [
 ]
 
 [[package]]
-name = "dapper"
+name = "dapper-datasets"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

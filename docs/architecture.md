@@ -1,10 +1,10 @@
 # Architecture Overview
 
-This document describes the architecture of the D.A.P.P.E.R. tool.
+This document describes the architecture of the Dapper tool.
 
 ## System Overview
 
-D.A.P.P.E.R. is a modular toolkit for exploring and comparing datasets. Currently optimized for AI conversation data, with architecture designed for future generalization to any dataset type.
+Dapper is a modular toolkit for exploring and comparing datasets. Currently optimized for AI conversation data, with architecture designed for future generalization to any dataset type.
 
 **Core interfaces:**
 
@@ -22,7 +22,7 @@ D.A.P.P.E.R. is a modular toolkit for exploring and comparing datasets. Currentl
 ## Directory Structure
 
 ```
-D.A.P.P.E.R./
+Dapper/
 ├── main.py                    # Stub entry point
 ├── pyproject.toml             # Project metadata and dependencies
 ├── uv.lock                    # Dependency lock file
@@ -99,7 +99,7 @@ D.A.P.P.E.R./
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                    D.A.P.P.E.R. Application                     │
+│                    Dapper Application                     │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
 │  ┌──────────┬──────────────┬─────────┬──────────────┬────────────┐ │
@@ -126,7 +126,7 @@ D.A.P.P.E.R./
 
 ## Public Entry Points
 
-D.A.P.P.E.R. installs a global `dapper` command. Public usage should always be written as `dapper {command}` after installation.
+Dapper installs a global `dapper` command. Public usage should always be written as `dapper {command}` after installation.
 
 | Command | Description |
 |---------|-------------|
@@ -185,7 +185,7 @@ dapper mix datasets/ -o output.parquet
 dapper mix datasets/ --dry-run
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                    D.A.P.P.E.R. Application                     │
+│                    Dapper Application                     │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
 │  ┌──────────┬──────────────┬─────────┬──────────────┬────────────┐ │

@@ -1,6 +1,6 @@
 # Record Structure
 
-This document describes the JSONL record format used by D.A.P.P.E.R.
+This document describes the JSONL record format used by Dapper
 
 ## Overview
 

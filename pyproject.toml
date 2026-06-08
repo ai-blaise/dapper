@@ -1,7 +1,7 @@
 [project]
-name = "dapper"
+name = "dapper-datasets"
 version = "0.1.0"
-description = "D.A.P.P.E.R. - Dataset Absurdly Powerful Parser Engineered Recklessly"
+description = "Dapper - Dataset Absurdly Powerful Parser Engineered Recklessly"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

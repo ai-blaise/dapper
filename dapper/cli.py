@@ -1,4 +1,4 @@
-"""Public command-line entry point for D.A.P.P.E.R."""
+"""Public command-line entry point for Dapper"""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def _print_help() -> None:
     parser = argparse.ArgumentParser(
         prog="dapper",
         description=(
-            "D.A.P.P.E.R. - Dataset Absurdly Powerful Parser Engineered Recklessly"
+            "Dapper - Dataset Absurdly Powerful Parser Engineered Recklessly"
         ),
     )
     subparsers = parser.add_subparsers(dest="command", metavar="command")
