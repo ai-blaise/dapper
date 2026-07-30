@@ -9,8 +9,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 
+from dapper.config import load_optional_config
+from dapper.schema import DEFAULT_SCHEMA, add_schema_argument, resolve_schema
+from dapper.schema import schema_from_config
 from scripts.dataset_mixer.mixer import mix
 
 
@@ -33,6 +35,22 @@ def main(argv: list[str] | None = None) -> None:
         "--dry-run",
         action="store_true",
         help="Show record counts per source without writing output",
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "Config file override. By default Dapper auto-loads dapper.yaml "
+            "when present."
+        ),
+    )
+    add_schema_argument(
+        parser,
+        default=None,
+        help_text=(
+            "Schema operating assumption for mixing. Defaults to mix.schema in "
+            "dapper.yaml, then sft."
+        ),
     )
     parser.add_argument(
         "--include",
@@ -90,7 +108,11 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
 
+    project_config = load_optional_config(args.config)
+    default_schema = schema_from_config(project_config, "mix", default=DEFAULT_SCHEMA)
+    schema = resolve_schema(args.schema, default=default_schema)
     print(f"Input directory: {args.input_dir}")
+    print(f"Schema: {schema.name}")
     if args.dry_run:
         print("Mode: dry-run (no output will be written)\n")
     else:
@@ -114,6 +136,7 @@ def main(argv: list[str] | None = None) -> None:
         shuffle=args.shuffle,
         shuffle_seed=args.shuffle_seed,
         num_chunks=args.num_chunks,
+        schema=schema.name,
     )
 
     # Print summary

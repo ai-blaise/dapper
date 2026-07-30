@@ -29,9 +29,88 @@ def _run_parse(argv: Sequence[str] | None) -> None:
 
 
 def _run_mix(argv: Sequence[str] | None) -> None:
-    from scripts.dataset_mixer.cli import main as mixer_main
+    from dapper.mix.cli import main as mixer_main
 
     mixer_main(argv)
+
+
+def _run_dedup(argv: Sequence[str] | None) -> None:
+    import argparse
+
+    from dapper.config import ConfigError
+    from dapper.dedup import run as dedup_run
+    from dapper.schema import add_schema_argument
+
+    parser = argparse.ArgumentParser(
+        prog="dapper dedup",
+        description=(
+            "Inspect, normalize, and deduplicate datasets using the project "
+            "dapper.yaml config."
+        ),
+    )
+    parser.add_argument(
+        "input_path",
+        nargs="?",
+        default=None,
+        help=(
+            "Optional local file or directory to deduplicate. If omitted, "
+            "sources are read from dapper.yaml."
+        ),
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "Config file override. By default Dapper auto-loads dapper.yaml, "
+            "dapper.config.yaml, or config.yaml from the current directory."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Inspect configured sources with tiny samples and report schema gaps.",
+    )
+    add_schema_argument(
+        parser,
+        default=None,
+        help_text=(
+            "Schema operating assumption. Defaults to dedup.schema in "
+            "dapper.yaml, then pretraining."
+        ),
+    )
+    parser.add_argument(
+        "--normalize",
+        action="store_true",
+        help="Normalize configured local sources to the selected canonical schema.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output path for --normalize. Defaults to the configured output_dir.",
+    )
+    parser.add_argument(
+        "--exact",
+        action="store_true",
+        help="Run exact dedup using the selected canonical schema.",
+    )
+    args = parser.parse_args(list(argv or []))
+
+    try:
+        output = dedup_run(
+            input_path=args.input_path,
+            config_path=args.config,
+            schema=args.schema,
+            dry_run=args.dry_run,
+            normalize=args.normalize,
+            output_path=args.output,
+            exact=args.exact,
+        )
+    except (ConfigError, RuntimeError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+    print(output)
 
 
 def _run_split(argv: Sequence[str] | None) -> None:
@@ -48,6 +127,7 @@ COMMANDS: dict[str, tuple[str, CommandMain]] = {
     "view": ("Open the interactive dataset TUI", _run_tui),
     "parse": ("Extract prompts / normalize records", _run_parse),
     "mix": ("Mix datasets into unified Parquet output", _run_mix),
+    "dedup": ("Inspect and deduplicate datasets", _run_dedup),
     "split": ("Split a dataset into multiple parts", _run_split),
 }
 

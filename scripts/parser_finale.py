@@ -36,6 +36,11 @@ from typing import Any, Iterator
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from dapper.config import load_optional_config
+from dapper.schema import DEFAULT_SCHEMA, add_schema_argument, resolve_schema
+from dapper.schema import schema_from_config
+from dapper.dedup.config import parse_dedup_config, SourceConfig
+from dapper.dedup.normalize import normalize_pretraining_record
 from utils.detect import detect_format
 from utils.loader import load_records as _load_records
 from utils.normalize import normalize_record
@@ -96,6 +101,25 @@ def process_record(record: dict[str, Any]) -> dict[str, Any]:
     return processed
 
 
+def process_record_for_schema(
+    record: dict[str, Any],
+    schema: str,
+) -> dict[str, Any]:
+    """Process one record according to the selected Dapper schema."""
+    if schema == "sft":
+        return process_record(record)
+    if schema == "pretraining":
+        config = parse_dedup_config(
+            {
+                "sources": [{"name": "parse", "type": "local", "mode": "pretraining"}]
+            },
+            schema_name="pretraining",
+        )
+        source = SourceConfig(name="parse", type="local", mode="pretraining")
+        return normalize_pretraining_record(record, source, config)
+    raise ValueError(f"Unsupported schema: {schema}")
+
+
 def format_json(record: dict[str, Any], pretty: bool = True) -> str:
     """Format record as JSON."""
     if pretty:
@@ -110,21 +134,25 @@ def format_jsonl(record: dict[str, Any]) -> str:
 
 def format_markdown(record: dict[str, Any]) -> str:
     """Format record as human-readable Markdown."""
+    if "messages" not in record and "conversations" not in record:
+        return format_json(record, pretty=True)
+
+    messages_key = "conversations" if "conversations" in record else "messages"
     lines: list[str] = []
-    lines.append(f"# Record: {record['uuid']}")
+    lines.append(f"# Record: {record.get('uuid') or record.get('id')}")
     lines.append("")
 
     # Metadata
     lines.append("## Metadata")
-    lines.append(f"- **License:** {record['license']}")
-    lines.append(f"- **Used In:** {', '.join(record['used_in'])}")
+    lines.append(f"- **License:** {record.get('license')}")
+    lines.append(f"- **Used In:** {', '.join(record.get('used_in', []))}")
     if record.get("reasoning"):
         lines.append(f"- **Reasoning:** {record['reasoning']}")
     lines.append("")
 
     # Messages
     lines.append("## Messages")
-    for i, msg in enumerate(record["messages"]):
+    for i, msg in enumerate(record[messages_key]):
         role = msg.get("role", "unknown")
         content = msg.get("content", "")
         lines.append(f"### [{i}] {role.upper()}")
@@ -138,7 +166,7 @@ def format_markdown(record: dict[str, Any]) -> str:
 
     # Tools
     lines.append("## Tools")
-    for tool in record["tools"]:
+    for tool in record.get("tools", []):
         func = tool.get("function", tool)
         name = func.get("name", "unknown")
         desc = func.get("description", "No description")
@@ -151,16 +179,21 @@ def format_markdown(record: dict[str, Any]) -> str:
 
 def format_text(record: dict[str, Any]) -> str:
     """Format record as plain text summary."""
+    if "messages" not in record and "conversations" not in record:
+        text = record.get("text")
+        return str(text if text is not None else record)
+
+    messages_key = "conversations" if "conversations" in record else "messages"
     lines: list[str] = []
-    lines.append(f"=== Record: {record['uuid']} ===")
-    lines.append(f"License: {record['license']}")
-    lines.append(f"Used In: {', '.join(record['used_in'])}")
-    lines.append(f"Messages: {len(record['messages'])} (assistant content emptied)")
-    lines.append(f"Tools: {len(record['tools'])}")
+    lines.append(f"=== Record: {record.get('uuid') or record.get('id')} ===")
+    lines.append(f"License: {record.get('license')}")
+    lines.append(f"Used In: {', '.join(record.get('used_in', []))}")
+    lines.append(f"Messages: {len(record[messages_key])} (assistant content emptied)")
+    lines.append(f"Tools: {len(record.get('tools', []))}")
     lines.append("")
 
     lines.append("--- Messages ---")
-    for i, msg in enumerate(record["messages"]):
+    for i, msg in enumerate(record[messages_key]):
         role = msg.get("role", "unknown").upper()
         content = msg.get("content", "")
         if isinstance(content, dict):
@@ -171,7 +204,7 @@ def format_text(record: dict[str, Any]) -> str:
     lines.append("")
 
     lines.append("--- Tools ---")
-    for tool in record["tools"]:
+    for tool in record.get("tools", []):
         func = tool.get("function", tool)
         name = func.get("name", "unknown")
         lines.append(f"  - {name}")
@@ -255,7 +288,8 @@ def main(argv: list[str] | None = None) -> None:
     # Define args
     parser = argparse.ArgumentParser(
         prog="dapper parse",
-        description="Parse datasets and output content with emptied assistant responses. "
+        description="Parse datasets using a selected schema. SFT parsing empties "
+        "assistant responses; pretraining parsing normalizes text records. "
         "Supports JSONL, JSON, and Parquet input/output formats."
     )
     parser.add_argument(
@@ -279,6 +313,14 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("-o", "--output", help="Output file (default: stdout)")
     parser.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "Config file override. By default Dapper auto-loads dapper.yaml "
+            "when present."
+        ),
+    )
+    parser.add_argument(
         "-O",
         "--output-dir",
         default=None,
@@ -297,8 +339,19 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--compact", action="store_true", help="Compact JSON output (no indentation)"
     )
+    add_schema_argument(
+        parser,
+        default=None,
+        help_text=(
+            "Schema operating assumption for parsing. Defaults to parse.schema "
+            "in dapper.yaml, then sft."
+        ),
+    )
 
     args = parser.parse_args(argv)
+    project_config = load_optional_config(args.config)
+    default_schema = schema_from_config(project_config, "parse", default=DEFAULT_SCHEMA)
+    schema = resolve_schema(args.schema, default=default_schema)
 
     # Verify path exists
     if not os.path.exists(args.path):
@@ -357,7 +410,10 @@ def main(argv: list[str] | None = None) -> None:
         results: list[dict[str, Any]] = []
 
         # Use format-aware loading
-        for idx, record in enumerate(load_records(args.path, args.input_format)):
+        normalize_input = schema.is_sft
+        for idx, record in enumerate(
+            load_records(args.path, args.input_format, normalize=normalize_input)
+        ):
             # Apply index filter
             if args.index is not None and idx != args.index:
                 continue
@@ -372,7 +428,7 @@ def main(argv: list[str] | None = None) -> None:
             if args.has_tools and not record.get("tools"):
                 continue
 
-            processed = process_record(record)
+            processed = process_record_for_schema(record, schema.name)
 
             # Stream JSONL output directly
             if args.output_format == "jsonl":

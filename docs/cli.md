@@ -33,8 +33,9 @@ The public `dapper` CLI currently exposes the core Dapper workflows:
 | `dapper search` | Search records for text |
 | `dapper stats` | Print dataset statistics |
 | `dapper view` | Open the interactive TUI |
-| `dapper parse` | Empty assistant responses while preserving prompt/tool structure |
+| `dapper parse` | Parse records under a selected schema |
 | `dapper mix` | Mix supported dataset directories into unified Parquet output |
+| `dapper dedup` | Inspect, normalize, and deduplicate configured datasets |
 | `dapper split` | Split JSONL or Parquet files into parts |
 
 Some repository scripts are still internal or legacy and do not yet have public `dapper` wrappers. This includes the rerollout scripts, upload helpers, filtering helpers, and demo scripts under `scripts/`.
@@ -191,7 +192,7 @@ dapper view dataset/conversations.jsonl -x
 
 ## `dapper parse`
 
-Process records by emptying assistant message content while preserving system/user/tool messages, tool calls, metadata, and conversation structure.
+Process records under a selected schema. The default SFT schema empties assistant message content while preserving system/user/tool messages, tool calls, metadata, and conversation structure. The pretraining schema normalizes text records into Dapper's canonical pretraining fields.
 
 ```bash
 dapper parse <path> [options]
@@ -212,11 +213,13 @@ Options:
 | `--end N` | End index for range processing |
 | `--has-tools` | Only include records with tools |
 | `--compact` | Compact JSON output |
+| `--schema {sft,pretraining}` | Schema operating assumption, default `sft` unless `parse.schema` is set in `dapper.yaml` |
 
 Examples:
 
 ```bash
 dapper parse dataset/train.jsonl
+dapper parse dataset/pretrain.jsonl --schema pretraining -f jsonl
 dapper parse dataset/train.jsonl -f jsonl -o prompts.jsonl
 dapper parse dataset/train.parquet -f jsonl -o prompts.jsonl
 dapper parse dataset/train.jsonl -i 5 -f markdown
@@ -247,6 +250,7 @@ Options:
 | `--dry-run` | Show record counts without writing output |
 | `--include [SOURCE ...]` | Only include matching source dataset prefixes |
 | `--exclude [SOURCE ...]` | Exclude matching source dataset prefixes |
+| `--schema {sft,pretraining}` | Schema operating assumption, default `sft` unless `mix.schema` is set in `dapper.yaml` |
 | `--batch-size N` | Records per write batch, default `500` |
 | `--tooling-sample-rate RATE` | Sample `Nemotron-SFT-Agentic-v2` tool-calling records only |
 | `--sample-seed SEED` | Seed for tool-calling sampling |
@@ -260,6 +264,7 @@ Examples:
 ```bash
 dapper mix datasets/ --dry-run
 dapper mix datasets/ -o output.parquet
+dapper mix datasets/ --schema pretraining -o pretraining.parquet
 dapper mix datasets/ -o nemotron.parquet --include Nemotron
 dapper mix datasets/ -o agentic.parquet --include Nemotron-SFT-Agentic-v2
 dapper mix datasets/ -o non_nemotron.parquet --exclude Nemotron
@@ -285,6 +290,67 @@ dapper mix datasets/ -o chunks/distill \
   --include Nemotron-SFT-Agentic-v2 \
   --shuffle --shuffle-seed 42 \
   --num-chunks 8
+```
+
+## `dapper dedup`
+
+Inspect, normalize, and deduplicate local dataset shards. Pass a local file or directory to stream already-materialized data without downloading anything. If no input path is provided, Dapper reads sources from `dapper.yaml`.
+
+```bash
+dapper dedup [input_path] [options]
+```
+
+Options:
+
+| Option | Description |
+|--------|-------------|
+| `input_path` | Optional local file or directory to deduplicate |
+| `--config FILE` | Config file override |
+| `--schema {sft,pretraining}` | Schema operating assumption, default from `dedup.schema` or `pretraining` |
+| `--dry-run` | Inspect configured sources with tiny samples and report schema gaps |
+| `--normalize` | Normalize configured local sources to the selected canonical schema |
+| `-o, --output FILE` | Output path for `--normalize` |
+| `--exact` | Run local exact text-hash dedup |
+
+Examples:
+
+```bash
+dapper dedup datasets/ --schema pretraining --dry-run
+dapper dedup datasets/ --schema pretraining --normalize -o dedup-output/
+dapper dedup datasets/ --schema sft --exact
+dapper dedup --schema pretraining --dry-run
+```
+
+For Hugging Face schema dry runs without materializing full corpora locally, configure sources in `dapper.yaml` and omit `input_path`:
+
+```yaml
+huggingface:
+  download_mode: streaming
+  dry_run_sample_records: 2
+
+dedup:
+  schema: pretraining
+
+sources:
+  - name: fineweb
+    type: huggingface
+    repo: HuggingFaceFW/fineweb
+    dataset_config: sample-10BT
+    split: train
+    mode: pretraining
+    text_field: text
+    id_field: id
+    url_field: url
+    token_count_field: token_count
+
+  - name: cosmopedia
+    type: huggingface
+    repo: HuggingFaceTB/cosmopedia
+    dataset_config: web_samples_v2
+    split: train
+    mode: pretraining
+    text_field: text
+    id_field: seed_data
 ```
 
 ## `dapper split`

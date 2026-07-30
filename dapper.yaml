@@ -1,0 +1,50 @@
+project:
+  name: pretraining-dry-run
+  output_dir: outputs
+
+huggingface:
+  download_mode: streaming
+  dry_run_sample_records: 2
+  trust_remote_code: false
+
+schemas:
+  pretraining:
+    text_fields: ["text", "content", "document"]
+    id_fields: ["id", "doc_id", "uuid", "seed_data"]
+    url_fields: ["url", "metadata.url"]
+    token_count_fields: ["token_count", "num_tokens"]
+
+dedup:
+  schema: pretraining
+  datatrove:
+    work_dir: .dapper/dedup/datatrove
+    n_grams: 5
+    num_buckets: 14
+    hashes_per_bucket: 8
+    precision: 64
+    tasks: 1
+    workers: 1
+
+sources:
+  - name: fineweb
+    type: huggingface
+    repo: HuggingFaceFW/fineweb
+    dataset_config: sample-10BT
+    split: train
+    mode: pretraining
+    text_field: text
+    id_field: id
+    url_field: url
+    token_count_field: token_count
+    license: ODC-By-1.0
+
+  - name: cosmopedia
+    type: huggingface
+    repo: HuggingFaceTB/cosmopedia
+    dataset_config: web_samples_v2
+    split: train
+    mode: pretraining
+    text_field: text
+    id_field: seed_data
+    synthetic: true
+    license: Apache-2.0

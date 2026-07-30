@@ -19,6 +19,10 @@ from utils.streaming import records_to_batch
 from scripts.dataset_mixer.adapters import detect_adapter
 from scripts.dataset_mixer.schema import OUTPUT_SCHEMA
 from utils import get_existing_record_count, stream_file
+from dapper.dedup.config import SourceConfig, parse_dedup_config
+from dapper.dedup.normalize import normalize_pretraining_record
+from dapper.dedup.schema import PRETRAINING_ARROW_SCHEMA
+from dapper.schema import DEFAULT_SCHEMA, resolve_schema
 
 
 def discover_files(input_dir: str) -> list[dict[str, str]]:
@@ -104,6 +108,7 @@ def stream_all(
     exclude: list[str] | None = None,
     tooling_sample_rate: float | None = None,
     sample_seed: int | None = None,
+    schema: str = DEFAULT_SCHEMA,
 ) -> Iterator[dict[str, Any]]:
     """Stream all records from all files, transformed to the unified schema.
 
@@ -123,6 +128,11 @@ def stream_all(
     if file_list is None:
         file_list = discover_files(input_dir)
     file_list = _filter_files(file_list, include, exclude)
+    schema_context = resolve_schema(schema, default=DEFAULT_SCHEMA)
+
+    if schema_context.is_pretraining:
+        yield from _stream_pretraining(file_list)
+        return
 
     # If sampling enabled, collect only tool_calling records separately
     if tooling_sample_rate is not None:
@@ -181,6 +191,7 @@ def mix(
     shuffle: bool = False,
     shuffle_seed: int | None = None,
     num_chunks: int | None = None,
+    schema: str = DEFAULT_SCHEMA,
 ) -> dict[str, Any]:
     """Run the full mixing pipeline with streaming for memory efficiency.
 
@@ -204,6 +215,10 @@ def mix(
     """
     import gc
 
+    schema_context = resolve_schema(schema, default=DEFAULT_SCHEMA)
+    expected_schema = (
+        PRETRAINING_ARROW_SCHEMA if schema_context.is_pretraining else OUTPUT_SCHEMA
+    )
     file_list = discover_files(input_dir)
     file_list = _filter_files(file_list, include, exclude)
     sources: dict[str, int] = {}
@@ -223,7 +238,13 @@ def mix(
     if dry_run:
         # Use original stream_all for dry-run (memory-efficient enough for counting)
         for record in stream_all(
-            input_dir, file_list, include, exclude, tooling_sample_rate, sample_seed
+            input_dir,
+            file_list,
+            include,
+            exclude,
+            tooling_sample_rate,
+            sample_seed,
+            schema_context.name,
         ):
             src = record.get("source_dataset", "unknown")
             sources[src] = sources.get(src, 0) + 1
@@ -258,14 +279,19 @@ def mix(
             print(f"Processing: {filepath}")
 
             try:
+                if schema_context.is_pretraining:
+                    batch_iter = _stream_pretraining_batches(file_info, batch_size)
+                else:
+                    batch_iter = stream_file(
+                        filepath,
+                        source_dataset,
+                        batch_size,
+                        tooling_sample_rate,
+                        sample_seed,
+                    )
+
                 # Stream this file with transformed batches
-                for batch in stream_file(
-                    filepath,
-                    source_dataset,
-                    batch_size,
-                    tooling_sample_rate,
-                    sample_seed,
-                ):
+                for batch in batch_iter:
                     # Track statistics
                     for i in range(batch.num_rows):
                         src = source_dataset
@@ -274,7 +300,7 @@ def mix(
 
                     # Write batch
                     if writer is None:
-                        writer = pq.ParquetWriter(output_path, OUTPUT_SCHEMA)
+                        writer = pq.ParquetWriter(output_path, expected_schema)
                     writer.write_batch(batch)
 
                     # Clear references and collect garbage
@@ -328,14 +354,14 @@ def mix(
                 )
 
             # Schema conformance check
-            output_schema = output_file.schema_arrow
-            if output_schema != OUTPUT_SCHEMA:
-                missing = set(OUTPUT_SCHEMA.names) - set(output_schema.names)
-                extra = set(output_schema.names) - set(OUTPUT_SCHEMA.names)
+            actual_output_schema = output_file.schema_arrow
+            if actual_output_schema != expected_schema:
+                missing = set(expected_schema.names) - set(actual_output_schema.names)
+                extra = set(actual_output_schema.names) - set(expected_schema.names)
                 type_mismatches = []
-                for field in OUTPUT_SCHEMA:
-                    if field.name in output_schema.names:
-                        out_field = output_schema.field(field.name)
+                for field in expected_schema:
+                    if field.name in actual_output_schema.names:
+                        out_field = actual_output_schema.field(field.name)
                         if out_field.type != field.type:
                             type_mismatches.append(
                                 f"  {field.name}: expected {field.type}, got {out_field.type}"
@@ -381,8 +407,8 @@ def mix(
                 chunk_path = (
                     output_dir / f"{prefix}_part_{i + 1}_of_{num_chunks}.parquet"
                 )
-                writer = pq.ParquetWriter(chunk_path, OUTPUT_SCHEMA)
-                writer.write_batch(records_to_batch(chunk))
+                writer = pq.ParquetWriter(chunk_path, expected_schema)
+                writer.write_batch(_records_to_schema_batch(chunk, expected_schema))
                 writer.close()
                 chunk_paths.append(str(chunk_path))
 
@@ -395,8 +421,8 @@ def mix(
             }
         elif shuffle or shuffle_seed is not None:
             # Shuffle-only (no chunking), overwrite single file
-            writer = pq.ParquetWriter(output_path, OUTPUT_SCHEMA)
-            writer.write_batch(records_to_batch(all_records))
+            writer = pq.ParquetWriter(output_path, expected_schema)
+            writer.write_batch(_records_to_schema_batch(all_records, expected_schema))
             writer.close()
             return {
                 "total_records": total,
@@ -411,3 +437,45 @@ def mix(
         "tasks": tasks,
         "output_path": output_path,
     }
+
+
+def _stream_pretraining(file_list: list[dict[str, str]]) -> Iterator[dict[str, Any]]:
+    config = parse_dedup_config({"sources": []}, schema_name="pretraining")
+    for file_info in file_list:
+        source = SourceConfig(
+            name=file_info["source_dataset"],
+            type="local",
+            path=file_info["path"],
+            mode="pretraining",
+        )
+        for record in load_records(file_info["path"]):
+            yield normalize_pretraining_record(dict(record), source, config)
+
+
+def _stream_pretraining_batches(
+    file_info: dict[str, str],
+    batch_size: int,
+) -> Iterator[pa.RecordBatch]:
+    records = []
+    for record in _stream_pretraining([file_info]):
+        records.append(record)
+        if len(records) >= batch_size:
+            yield _records_to_schema_batch(records, PRETRAINING_ARROW_SCHEMA)
+            records = []
+    if records:
+        yield _records_to_schema_batch(records, PRETRAINING_ARROW_SCHEMA)
+
+
+def _records_to_schema_batch(
+    records: list[dict[str, Any]],
+    schema: pa.Schema,
+) -> pa.RecordBatch:
+    if schema == OUTPUT_SCHEMA:
+        return records_to_batch(records)
+    columns = {
+        field.name: [record.get(field.name) for record in records] for field in schema
+    }
+    arrays = {
+        field.name: pa.array(columns[field.name], type=field.type) for field in schema
+    }
+    return pa.RecordBatch.from_pydict(arrays, schema=schema)
