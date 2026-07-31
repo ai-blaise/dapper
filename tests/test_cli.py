@@ -1,4 +1,4 @@
-"""Tests for CLI functionality in parser_finale.py main function."""
+"""Tests for CLI functionality in the dapper parser command."""
 
 from __future__ import annotations
 
@@ -11,12 +11,12 @@ from pathlib import Path
 
 import pytest
 
-# Path to the module
-PARSER_MODULE = "scripts.parser_finale"
+# Path to the parser module.
+PARSER_MODULE = "dapper.parser.cli"
 
 
 def run_parser(*args: str, input_file: str | None = None) -> subprocess.CompletedProcess:
-    """Run parser_finale with given arguments."""
+    """Run the parser with given arguments."""
     cmd = [sys.executable, "-m", PARSER_MODULE]
     if input_file:
         cmd.append(input_file)

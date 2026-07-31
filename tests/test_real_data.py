@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from parser_finale import load_jsonl, process_record, process_messages
+from dapper.parser.cli import load_jsonl, process_record, process_messages
 
 
 # Skip these tests if dataset files don't exist

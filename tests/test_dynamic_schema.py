@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from scripts.tui.data_loader import (
+from dapper.tui.data_loader import (
     detect_messages_field,
     detect_uuid_field,
     detect_tools_field,
@@ -331,7 +331,7 @@ class TestSchemaCaching:
 
         # Load file - should trigger schema detection
         with patch(
-            "scripts.tui.data_loader.detect_schema", wraps=detect_schema
+            "dapper.tui.data_loader.detect_schema", wraps=detect_schema
         ) as mock_detect:
             load_all_records(str(filepath))
             # Detection should be called exactly once
@@ -484,7 +484,7 @@ class TestRecordListColumns:
 
     def test_columns_full_mapping(self):
         """Records should drive the displayed top-level field columns."""
-        from scripts.tui.views.record_list import RecordListScreen
+        from dapper.tui.views.record_list import RecordListScreen
 
         screen = RecordListScreen(filename="/tmp/test.jsonl")
         mapping = FieldMapping(messages="messages", uuid="uuid", tools="tools")
@@ -496,7 +496,7 @@ class TestRecordListColumns:
 
     def test_columns_no_tools(self):
         """Missing tools field should be absent from field-driven columns."""
-        from scripts.tui.views.record_list import RecordListScreen
+        from dapper.tui.views.record_list import RecordListScreen
 
         screen = RecordListScreen(filename="/tmp/test.jsonl")
         mapping = FieldMapping(messages="messages", uuid="uuid", tools=None)
@@ -508,7 +508,7 @@ class TestRecordListColumns:
 
     def test_columns_minimal_mapping(self):
         """Empty mapping should show only IDX and PREVIEW."""
-        from scripts.tui.views.record_list import RecordListScreen
+        from dapper.tui.views.record_list import RecordListScreen
 
         screen = RecordListScreen(filename="/tmp/test.jsonl")
         mapping = FieldMapping(messages=None, uuid=None, tools=None)
@@ -563,28 +563,28 @@ class TestDataTableMixin:
 
     def test_should_skip_table_single_record(self):
         """Single record list should return True for skipping."""
-        from scripts.tui.mixins.data_table import DataTableMixin
+        from dapper.tui.mixins.data_table import DataTableMixin
 
         mixin = DataTableMixin()
         assert mixin._should_skip_table([{"data": "one"}]) is True
 
     def test_should_not_skip_table_multiple_records(self):
         """Multiple record list should return False for skipping."""
-        from scripts.tui.mixins.data_table import DataTableMixin
+        from dapper.tui.mixins.data_table import DataTableMixin
 
         mixin = DataTableMixin()
         assert mixin._should_skip_table([{"data": "one"}, {"data": "two"}]) is False
 
     def test_should_not_skip_table_empty_list(self):
         """Empty list should return False for skipping."""
-        from scripts.tui.mixins.data_table import DataTableMixin
+        from dapper.tui.mixins.data_table import DataTableMixin
 
         mixin = DataTableMixin()
         assert mixin._should_skip_table([]) is False
 
     def test_get_record_id_display_truncates(self):
         """Long IDs should be truncated to 8 characters."""
-        from scripts.tui.mixins.data_table import DataTableMixin
+        from dapper.tui.mixins.data_table import DataTableMixin
 
         mixin = DataTableMixin()
         record = {"uuid": "1234567890abcdef"}
@@ -594,7 +594,7 @@ class TestDataTableMixin:
 
     def test_get_record_id_display_short_id(self):
         """Short IDs should not be truncated."""
-        from scripts.tui.mixins.data_table import DataTableMixin
+        from dapper.tui.mixins.data_table import DataTableMixin
 
         mixin = DataTableMixin()
         record = {"uuid": "short"}
@@ -603,7 +603,7 @@ class TestDataTableMixin:
 
     def test_get_record_id_display_tries_multiple_fields(self):
         """Should try multiple ID field names in order."""
-        from scripts.tui.mixins.data_table import DataTableMixin
+        from dapper.tui.mixins.data_table import DataTableMixin
 
         mixin = DataTableMixin()
 
@@ -621,7 +621,7 @@ class TestDataTableMixin:
 
     def test_get_record_id_display_unknown(self):
         """Returns 'Unknown' if no ID field found."""
-        from scripts.tui.mixins.data_table import DataTableMixin
+        from dapper.tui.mixins.data_table import DataTableMixin
 
         mixin = DataTableMixin()
         record = {"data": "value", "other": 123}
@@ -629,7 +629,7 @@ class TestDataTableMixin:
 
     def test_get_record_id_display_integer_id(self):
         """Integer IDs should be converted to string."""
-        from scripts.tui.mixins.data_table import DataTableMixin
+        from dapper.tui.mixins.data_table import DataTableMixin
 
         mixin = DataTableMixin()
         record = {"id": 42}
@@ -640,7 +640,7 @@ class TestPaginatedRecordsMixin:
     """Tests for pagination helper logic without launching the TUI."""
 
     def test_record_total_pages(self):
-        from scripts.tui.mixins.paginated_records import PaginatedRecordsMixin
+        from dapper.tui.mixins.paginated_records import PaginatedRecordsMixin
 
         mixin = PaginatedRecordsMixin()
         assert mixin._record_total_pages(0, page_size=200) == 1
@@ -649,7 +649,7 @@ class TestPaginatedRecordsMixin:
         assert mixin._record_total_pages(201, page_size=200) == 2
 
     def test_clamp_record_page(self):
-        from scripts.tui.mixins.paginated_records import PaginatedRecordsMixin
+        from dapper.tui.mixins.paginated_records import PaginatedRecordsMixin
 
         mixin = PaginatedRecordsMixin()
         assert mixin._clamp_record_page(-1, 500, page_size=200) == 0
@@ -657,7 +657,7 @@ class TestPaginatedRecordsMixin:
         assert mixin._clamp_record_page(99, 500, page_size=200) == 2
 
     def test_resolve_record_index_from_eager_records(self):
-        from scripts.tui.mixins.paginated_records import PaginatedRecordsMixin
+        from dapper.tui.mixins.paginated_records import PaginatedRecordsMixin
 
         mixin = PaginatedRecordsMixin()
         records = [{"id": "a"}, {"id": "b"}]
@@ -685,7 +685,7 @@ class TestPaginatedRecordsMixin:
         )
 
     def test_resolve_record_index_from_current_page(self):
-        from scripts.tui.mixins.paginated_records import PaginatedRecordsMixin
+        from dapper.tui.mixins.paginated_records import PaginatedRecordsMixin
 
         mixin = PaginatedRecordsMixin()
         page_records = [{"id": "200"}, {"id": "201"}]
@@ -703,8 +703,8 @@ class TestPaginatedRecordsMixin:
         )
 
     def test_resolve_record_index_loads_outside_current_page(self, monkeypatch):
-        import scripts.tui.mixins.paginated_records as pagination
-        from scripts.tui.mixins.paginated_records import PaginatedRecordsMixin
+        import dapper.tui.mixins.paginated_records as pagination
+        from dapper.tui.mixins.paginated_records import PaginatedRecordsMixin
 
         mixin = PaginatedRecordsMixin()
         expected = {"id": "401"}
@@ -738,14 +738,14 @@ class TestMixinInheritance:
 
     def test_record_table_mixin_inherits_from_data_table_mixin(self):
         """RecordTableMixin should inherit from DataTableMixin."""
-        from scripts.tui.mixins.data_table import DataTableMixin
-        from scripts.tui.mixins.record_table import RecordTableMixin
+        from dapper.tui.mixins.data_table import DataTableMixin
+        from dapper.tui.mixins.record_table import RecordTableMixin
 
         assert issubclass(RecordTableMixin, DataTableMixin)
 
     def test_record_table_mixin_has_inherited_methods(self):
         """RecordTableMixin should have methods from DataTableMixin."""
-        from scripts.tui.mixins.record_table import RecordTableMixin
+        from dapper.tui.mixins.record_table import RecordTableMixin
 
         mixin = RecordTableMixin()
 
@@ -765,7 +765,7 @@ class TestMixinInheritance:
 
     def test_record_table_mixin_can_use_inherited_methods(self):
         """RecordTableMixin should be able to call inherited methods."""
-        from scripts.tui.mixins.record_table import RecordTableMixin
+        from dapper.tui.mixins.record_table import RecordTableMixin
 
         mixin = RecordTableMixin()
 

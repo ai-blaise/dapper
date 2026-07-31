@@ -2,7 +2,7 @@
 
 The TUI provides an interactive way to browse and compare datasets. Supports JSONL, JSON, Parquet, and CSV formats.
 
-> **Recent changes:** The TUI now defaults to a **read-only view mode** — records are displayed as-is without parser_finale processing. Use `-x` to enable export/comparison mode. Keybindings have been centralized and are consistent across all screens. The record list now shows **actual field names** from the data as column headers.
+> **Recent changes:** The TUI now defaults to a **read-only view mode** — records are displayed as-is without Dapper parser processing. Use `-x` to enable export/comparison mode. Keybindings have been centralized and are consistent across all screens. The record list now shows **actual field names** from the data as column headers.
 
 ## Quick Start
 
@@ -33,7 +33,7 @@ dapper view dataset_a/ --compare dataset_b/
 
 | Option | Description |
 |--------|-------------|
-| `-x, --export` | Enable export mode (comparison view with parser_finale processing). Without this flag, the TUI shows a read-only detail view. |
+| `-x, --export` | Enable export mode (comparison view with Dapper parser processing). Without this flag, the TUI shows a read-only detail view. |
 | `-O, --output-dir` | Output directory for export operations (default: `parsed_datasets`) |
 | `-c, --compare` | Path to second dataset for side-by-side comparison |
 | `--app-theme` | Set the app theme (CLI takes precedence over config) |
@@ -125,7 +125,7 @@ In the comparison view:
 - **Left panel**: Original record
 - **Right panel**: Parsed output (assistant content emptied, reasoning removed)
 
-This is useful for reviewing what `parser_finale` does to your data. Export keys (`P`, `X`, `x`) are only available in this mode.
+This is useful for reviewing what `Dapper parser` does to your data. Export keys (`P`, `X`, `x`) are only available in this mode.
 
 ### Dataset Comparison Mode
 
@@ -145,7 +145,7 @@ Use `h/l` or `Tab` to switch between panes. Each pane navigates independently.
 
 ## Keybindings
 
-All keybindings are defined in a single module (`scripts/tui/keybindings.py`) and are consistent across every screen.
+All keybindings are defined in a single module (`dapper/tui/keybindings.py`) and are consistent across every screen.
 
 ### Global (available everywhere)
 

@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import copy
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from parser_finale import process_messages, process_record, load_jsonl
+from dapper.parser.cli import process_messages, process_record, load_jsonl
 
 
 class TestContentIntegrity:

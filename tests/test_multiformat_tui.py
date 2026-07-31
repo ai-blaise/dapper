@@ -14,7 +14,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from scripts.tui.data_loader import (
+from dapper.tui.data_loader import (
     load_records,
     load_all_records,
     load_record_at_index,

@@ -1,7 +1,5 @@
 """
 detect.py - Format detection utilities.
-
-Moved from scripts/data_formats/format_detector.py
 """
 
 from __future__ import annotations

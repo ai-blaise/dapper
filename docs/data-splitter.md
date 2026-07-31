@@ -1,6 +1,6 @@
 # Data Splitter
 
-The Data Splitter (`scripts/data_splitter.py`) is a command-line tool for splitting datasets (JSONL or Parquet) into N equal (or near-equal) parts. It handles both even and odd record counts, ensuring that recombination recreates the original dataset exactly.
+The Data Splitter (`dapper/split/`) is a command-line tool for splitting datasets (JSONL or Parquet) into N equal (or near-equal) parts. It handles both even and odd record counts, ensuring that recombination recreates the original dataset exactly.
 
 ## Running the Tool
 
@@ -159,7 +159,7 @@ diff dataset/tool_calling.jsonl dataset/tool_calling_recombined.jsonl
 The module exports a `recombine_parts()` function:
 
 ```python
-from scripts.data_splitter import recombine_parts
+from dapper.split.cli import recombine_parts
 from pathlib import Path
 
 parts = [

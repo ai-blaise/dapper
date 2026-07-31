@@ -1,15 +1,11 @@
-"""Tests for formatter functions in parser_finale.py."""
+"""Tests for formatter functions in the Dapper parser."""
 
 from __future__ import annotations
 
 import json
 import pytest
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from parser_finale import format_json, format_jsonl, format_markdown, format_text
+from dapper.parser.cli import format_json, format_jsonl, format_markdown, format_text
 
 
 @pytest.fixture

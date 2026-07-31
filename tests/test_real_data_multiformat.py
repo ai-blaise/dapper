@@ -12,7 +12,7 @@ from pathlib import Path
 from utils.detect import detect_format
 from utils.loader import load_records, get_record_count, get_record_at_index
 from utils.normalize import normalize_record
-from scripts.tui.data_loader import (
+from dapper.tui.data_loader import (
     load_records as tui_load_records,
     load_all_records,
     load_record_at_index,

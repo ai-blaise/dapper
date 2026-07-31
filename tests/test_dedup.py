@@ -25,7 +25,7 @@ def test_tui_styles_are_included_as_package_data():
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
 
     package_data = pyproject["tool"]["setuptools"]["package-data"]
-    assert "styles/*.tcss" in package_data["scripts.tui"]
+    assert "styles/*.tcss" in package_data["dapper.tui"]
 
 
 def test_dedup_dry_run_local_source_uses_auto_loaded_config(tmp_path, monkeypatch):

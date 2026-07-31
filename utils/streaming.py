@@ -14,8 +14,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from utils.detect import detect_format
-from scripts.dataset_mixer.adapters import BaseAdapter, NemotronAdapter, detect_adapter
-from scripts.dataset_mixer.schema import OUTPUT_SCHEMA, TURN_TYPE
+from dapper.mix.adapters import BaseAdapter, NemotronAdapter, detect_adapter
+from dapper.mix.schema import OUTPUT_SCHEMA, TURN_TYPE
 
 from .data import transform_batch
 

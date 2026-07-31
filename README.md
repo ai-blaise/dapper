@@ -283,7 +283,7 @@ The public `dapper` CLI currently exposes the core dataset workflows: exploratio
 | `n/p` | Next/previous page (large files) |
 | `P/X/x` | Export files/records/record (requires `-x` mode) |
 
-### Parser Finale Formats
+### Dapper Parser Formats
 
 | Format | Description |
 |--------|-------------|
@@ -344,7 +344,7 @@ The tool is currently optimized for AI conversation datasets but is designed to 
 
 - **Configurable schema detection** - Support any JSON structure, not just conversations
 - **ID-based record matching** - Match records by key field instead of index
-- **Pluggable transformations** - Optional processing instead of hardcoded Parser Finale behavior
+- **Pluggable transformations** - Optional processing instead of hardcoded Dapper Parser behavior
 - **Additional formats** - Excel/XLSX support
 
 ## Documentation
@@ -355,7 +355,7 @@ For detailed documentation, see the [docs](docs/) directory:
 - [Record Structure](docs/record-structure.md) - JSONL data format reference
 - [CLI Reference](docs/cli.md) - Complete CLI command documentation
 - [TUI Guide](docs/tui.md) - Interactive terminal UI guide
-- [Parser Finale](docs/parser-finale.md) - Transformation tool documentation
+- [Dapper Parser](docs/parser.md) - Transformation tool documentation
 - [Data Splitter](docs/data-splitter.md) - Dataset splitting utility
 - [Data Formats](docs/data-formats.md) - Multi-format loading and schema normalization
 - [Verify Datasets](docs/verify-datasets.md) - How to verify mixed training outputs against source datasets
@@ -372,31 +372,27 @@ uv run pytest tests/
 
 ```
 dapper/
-├── utils/                 # Core utilities (functional, memory-efficient)
-│   ├── loader.py        # Multi-format data loading (load_records, etc.)
-│   ├── detect.py        # Format detection (detect_format, etc.)
+├── dapper/               # Packaged Dapper commands and shared project logic
+│   ├── cli.py            # Public dapper command dispatcher
+│   ├── schema.py         # Universal --schema handling
+│   ├── explore/          # dapper list/show/search/stats
+│   ├── parser/           # dapper parse
+│   ├── mix/              # dapper mix
+│   ├── dedup/            # dapper dedup
+│   ├── split/            # dapper split
+│   └── tui/              # dapper view
+├── utils/                # Core utilities (functional, memory-efficient)
+│   ├── loader.py         # Multi-format data loading (load_records, etc.)
+│   ├── detect.py         # Format detection (detect_format, etc.)
 │   ├── normalize.py      # Schema normalization (normalize_record, etc.)
-│   ├── sampling.py      # Reservoir sampling, shuffle, chunk
+│   ├── sampling.py       # Reservoir sampling, shuffle, chunk
 │   ├── streaming.py      # PyArrow RecordBatch transformation
-│   ├── config.py        # Theme configuration
-│   └── data.py          # Data transformation utilities
-├── scripts/              # Main application code
-│   ├── main.py           # CLI tool
-│   ├── parser_finale.py  # Transformation engine
-│   ├── data_splitter.py  # Dataset splitting utility
-│   ├── dataset_mixer/    # Opinionated dataset mixing pipeline
-│   │   ├── __main__.py   # Developer module entry point
-│   │   ├── cli.py        # CLI: argparse definition
-│   │   ├── mixer.py      # Core mixing logic
-│   │   ├── adapters.py   # Per-source adapters + auto-detection
-│   │   └── schema.py     # Explicit PyArrow output schema
-│   └── tui/              # Terminal UI
-│       ├── app.py        # Main application
-│       ├── keybindings.py # Centralized keybinding definitions
-│       ├── data_loader.py
-│       ├── views/        # Screen components (record_detail, record_list, comparison, etc.)
-│       ├── mixins/       # Reusable behavior (vim nav, dual pane, export, etc.)
-│       └── widgets/      # Reusable UI widgets
+│   ├── config.py         # Theme configuration
+│   └── data.py           # Data transformation utilities
+├── scripts/              # Standalone maintenance/rerollout utilities
+│   ├── rerollout*.py     # Rerollout helpers
+│   ├── filter_evals.py   # Evaluation filtering helper
+│   └── upload_to_hf.py   # Hugging Face upload helper
 ├── tests/                # Test suite
 ├── datasets/             # HuggingFace datasets (gitignored)
 ├── docs/                 # Documentation

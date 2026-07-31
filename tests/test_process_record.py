@@ -1,14 +1,10 @@
-"""Tests for process_record function in parser_finale.py."""
+"""Tests for process_record function in the Dapper parser."""
 
 from __future__ import annotations
 
 import pytest
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from parser_finale import process_record
+from dapper.parser.cli import process_record
 
 
 class TestProcessRecordBasic:

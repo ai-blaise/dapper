@@ -1,4 +1,4 @@
-"""Pytest configuration and shared fixtures for parser_finale tests."""
+"""Pytest configuration and shared fixtures for Dapper parser tests."""
 
 from __future__ import annotations
 

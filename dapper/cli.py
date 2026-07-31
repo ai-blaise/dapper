@@ -11,19 +11,19 @@ CommandMain = Callable[[Sequence[str] | None], None]
 
 
 def _run_dataset_cli(argv: Sequence[str] | None) -> None:
-    from scripts.main import main as dataset_main
+    from dapper.explore.cli import main as dataset_main
 
     dataset_main(argv)
 
 
 def _run_tui(argv: Sequence[str] | None) -> None:
-    from scripts.tui.app import main as tui_main
+    from dapper.tui.app import main as tui_main
 
     tui_main(argv)
 
 
 def _run_parse(argv: Sequence[str] | None) -> None:
-    from scripts.parser_finale import main as parse_main
+    from dapper.parser.cli import main as parse_main
 
     parse_main(argv)
 
@@ -114,7 +114,7 @@ def _run_dedup(argv: Sequence[str] | None) -> None:
 
 
 def _run_split(argv: Sequence[str] | None) -> None:
-    from scripts.data_splitter import main as splitter_main
+    from dapper.split.cli import main as splitter_main
 
     splitter_main(argv)
 

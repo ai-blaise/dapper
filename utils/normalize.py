@@ -1,8 +1,6 @@
 """
 normalize.py - Schema normalization utilities.
 
-Moved from scripts/data_formats/schema_normalizer.py
-
 Note: This is a TUI/display concern. Normalization should NOT happen
 during loading - only at display/processing time if needed.
 """

@@ -281,7 +281,7 @@ All functions raise standard exceptions:
 The TUI application uses this module for all data loading:
 
 ```python
-# In scripts/tui/data_loader.py
+# In dapper/tui/data_loader.py
 from utils.detect import detect_format
 from utils.loader import load_records
 from utils.normalize import normalize_record

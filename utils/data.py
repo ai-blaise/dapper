@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pyarrow as pa
 
-from scripts.dataset_mixer.schema import OUTPUT_SCHEMA
-from scripts.dataset_mixer.utils import (
+from dapper.mix.schema import OUTPUT_SCHEMA
+from dapper.mix.utils import (
     first_list_item,
     json_serialize_if_nested,
     model_provider_from_model,

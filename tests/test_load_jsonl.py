@@ -1,17 +1,13 @@
-"""Tests for load_jsonl function in parser_finale.py."""
+"""Tests for load_jsonl function in the Dapper parser."""
 
 from __future__ import annotations
 
 import json
 import os
 import pytest
-import sys
 import tempfile
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from parser_finale import load_jsonl
+from dapper.parser.cli import load_jsonl
 
 
 class TestLoadJsonlBasic:

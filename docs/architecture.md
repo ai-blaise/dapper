@@ -10,7 +10,7 @@ Dapper is a modular toolkit for exploring and comparing datasets. Currently opti
 
 1. **TUI Application** - Interactive terminal UI for browsing and comparing datasets
 2. **CLI Tool** - Command-line interface for dataset exploration
-3. **Parser Finale** - Transformation engine for processing records (AI-specific)
+3. **Dapper Parser** - Transformation engine for processing records (AI-specific)
 4. **Data Splitter** - Utility for splitting files into N parts
 
 **Key architectural strengths:**
@@ -30,10 +30,18 @@ Dapper/
 ├── LICENSE                    # MIT License
 ├── AGENTS.md                  # Development workflow instructions
 │
-├── dapper/                    # Public package and CLI router
+├── dapper/                    # Public package and command modules
 │   ├── __init__.py            # Package metadata
 │   ├── __main__.py            # python -m dapper entry point
-│   └── cli.py                 # dapper command dispatcher
+│   ├── cli.py                 # dapper command dispatcher
+│   ├── config.py              # Project config discovery/loading
+│   ├── schema.py              # Universal --schema handling
+│   ├── explore/               # dapper list/show/search/stats
+│   ├── parser/                # dapper parse
+│   ├── mix/                   # dapper mix
+│   ├── dedup/                 # dapper dedup
+│   ├── split/                 # dapper split
+│   └── tui/                   # dapper view
 │
 ├── utils/                     # Core utilities (functional, memory-efficient)
 │   ├── loader.py              # Multi-format data loading
@@ -51,41 +59,10 @@ Dapper/
 │   ├── config.py             # Theme configuration
 │   └── data.py                # Data transformation utilities
 │
-├── scripts/                   # Main application code
-│   ├── main.py                # CLI tool implementation
-│   ├── parser_finale.py       # Core record processor (AI-specific)
-│   ├── data_splitter.py       # Dataset splitting utility
-│   ├── dataset_mixer/         # Opinionated dataset mixing pipeline
-│   │   ├── __main__.py        # Entry point
-│   │   ├── cli.py             # CLI definition
-│   │   ├── mixer.py           # Core mixing logic
-│   │   ├── adapters.py        # Per-source adapters
-│   │   └── schema.py          # PyArrow output schema
-│   ├── config.json            # TUI theme configuration
-│   └── tui/                   # Terminal UI application
-│       ├── app.py             # Main Textual app
-│       ├── data_loader.py     # Data loading with schema detection
-│       ├── mixins/            # Reusable behavior mixins
-│       │   ├── data_table.py      # DataTable utilities
-│       │   ├── record_table.py    # Schema-aware record tables
-│       │   ├── dual_pane.py       # Dual-pane management
-│       │   ├── vim_navigation.py  # j/k/h/l navigation
-│       │   ├── export.py          # Export functionality
-│       │   └── background_task.py # Async loading
-│       ├── views/             # Screen components
-│       │   ├── file_list.py
-│       │   ├── record_list.py
-│       │   ├── comparison_screen.py
-│       │   └── dual_record_list_screen.py
-│       ├── widgets/           # Reusable UI components
-│       │   ├── json_tree_panel.py
-│       │   ├── diff_indicator.py
-│       │   └── field_detail_modal.py
-│       ├── screens/           # Modal screens
-│       │   ├── loading_screen.py
-│       │   └── exporting_screen.py
-│       └── styles/            # CSS styles
-│           └── base.tcss
+├── scripts/                   # Standalone maintenance/rerollout utilities
+│   ├── rerollout*.py          # Rerollout helpers
+│   ├── filter_evals.py        # Evaluation filtering helper
+│   └── upload_to_hf.py        # Hugging Face upload helper
 │
 ├── tests/                     # Test suite
 │   ├── conftest.py            # Pytest fixtures
@@ -103,7 +80,7 @@ Dapper/
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
 │  ┌──────────┬──────────────┬─────────┬──────────────┬────────────┐ │
-│  │CLI Tool  │Parser Finale │  TUI    │Data Splitter │Dataset     │ │
+│  │CLI Tool  │Dapper Parser │  TUI    │Data Splitter │Dataset     │ │
 │  │(main.py) │(AI-specific) │(app.py) │(data_splitter)│Mixer      │ │
 │  └────┬─────┴──────┬───────┴────┬────┴──────────────┴─────┬──────┘ │
 │         │             │              │                            │
@@ -165,7 +142,7 @@ TUI Options:
 - `--app-theme TEXTUAL_THEME` - Set app theme
 - `--syntax-theme PYGMENTS_THEME` - Set syntax theme
 
-### Parser Finale (`dapper parse`)
+### Dapper Parser (`dapper parse`)
 
 ```bash
 dapper parse dataset/file.jsonl
@@ -189,7 +166,7 @@ dapper mix datasets/ --dry-run
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
 │  ┌──────────┬──────────────┬─────────┬──────────────┬────────────┐ │
-│  │CLI Tool  │Parser Finale │  TUI    │Data Splitter │Dataset     │ │
+│  │CLI Tool  │Dapper Parser │  TUI    │Data Splitter │Dataset     │ │
 │  │(main.py) │(AI-specific) │(app.py) │(data_splitter)│Mixer      │ │
 │  └────┬─────┴──────┬───────┴────┬────┴──────────────┴─────┬──────┘ │
 │         │             │              │                            │
@@ -226,7 +203,7 @@ dapper mix datasets/ --dry-run
 
 ## Core Components
 
-### CLI Tool (`scripts/main.py`)
+### CLI Tool (`dapper/explore/`)
 
 The CLI provides four commands for dataset exploration:
 
@@ -239,7 +216,7 @@ The CLI provides four commands for dataset exploration:
 
 See [CLI Documentation](cli.md) for detailed usage.
 
-### Parser Finale (`scripts/parser_finale.py`)
+### Dapper Parser (`dapper/parser/`)
 
 The core transformation engine that processes JSONL records by removing assistant message content while preserving the overall structure. This is useful for:
 
@@ -247,9 +224,9 @@ The core transformation engine that processes JSONL records by removing assistan
 - Analyzing input data independently
 - Creating filtered datasets
 
-See [Parser Finale Documentation](parser-finale.md) for detailed usage.
+See [Dapper Parser Documentation](parser.md) for detailed usage.
 
-### TUI Application (`scripts/tui/`)
+### TUI Application (`dapper/tui/`)
 
 An interactive terminal interface built with the [Textual](https://textual.textualize.io/) framework. It provides:
 
@@ -259,7 +236,7 @@ An interactive terminal interface built with the [Textual](https://textual.textu
 
 See [TUI Documentation](tui.md) for detailed usage.
 
-### Data Splitter (`scripts/data_splitter.py`)
+### Data Splitter (`dapper/split/`)
 
 A standalone utility for splitting JSONL files into N equal (or near-equal) parts. Key features:
 
@@ -271,7 +248,7 @@ A standalone utility for splitting JSONL files into N equal (or near-equal) part
 
 See [Data Splitter Documentation](data-splitter.md) for detailed usage.
 
-### Dataset Mixer (`scripts/dataset_mixer/`)
+### Dataset Mixer (`dapper/mix/`)
 
 An opinionated pipeline that combines specific HuggingFace datasets into a single unified Parquet training file. This is **not** a general-purpose mixer — it has dedicated adapters for each target dataset:
 
@@ -313,7 +290,7 @@ Key design decisions:
 
 See the [Dataset Mixer section in README](../README.md#dataset-mixer) for usage.
 
-### Data Loader (`scripts/tui/data_loader.py`)
+### Data Loader (`dapper/tui/data_loader.py`)
 
 Shared utilities for loading and processing data with dynamic schema detection:
 
@@ -361,7 +338,7 @@ JSONL records are loaded on-demand via generators. This enables handling large d
 
 The CLI, TUI, and parser logic are modular and independent. Each component can be used standalone or combined as needed.
 
-### 3. Parser Finale Pattern
+### 3. Dapper Parser Pattern
 
 The core transformation empties assistant responses while preserving structure, enabling training data extraction without model outputs.
 

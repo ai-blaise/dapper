@@ -40,6 +40,8 @@ env/
 coverage/
 htmlcov/
 
+./tmp
+
 # Coverage
 .coverage
 .coveragerc

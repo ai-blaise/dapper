@@ -18,7 +18,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from utils.loader import load_records
-from scripts.dataset_mixer.adapters import (
+from dapper.mix.adapters import (
     HighCodeReasoningAdapter,
     HighCodeSFTAdapter,
     MessagesJSONLAdapter,
@@ -27,8 +27,8 @@ from scripts.dataset_mixer.adapters import (
     PromptCompletionCSVAdapter,
     detect_adapter,
 )
-from scripts.dataset_mixer.mixer import _filter_files, discover_files, mix
-from scripts.dataset_mixer.schema import OUTPUT_SCHEMA
+from dapper.mix.mixer import _filter_files, discover_files, mix
+from dapper.mix.schema import OUTPUT_SCHEMA
 
 # ---------------------------------------------------------------------------
 # Dataset paths (real files — tests skip if absent)
@@ -260,7 +260,7 @@ class TestMessagesJSONLAdapterIntegrity:
                 )
 
     def test_assistant_content_not_modified(self, jsonl_pairs):
-        """Assistant content must NOT be stripped (unlike parser_finale)."""
+        """Assistant content must NOT be stripped (unlike Dapper parser)."""
         for i, (raw, adapted) in enumerate(jsonl_pairs):
             raw_asst = [m for m in raw["messages"] if m["role"] == "assistant"]
             adapted_asst = [
