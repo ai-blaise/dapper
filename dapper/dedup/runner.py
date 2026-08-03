@@ -16,6 +16,7 @@ from dapper.dedup.normalize import normalize_sources
 from dapper.dedup.report import (
     format_dry_run_report,
     format_exact_report,
+    format_gcs_stage_plan,
     format_normalize_report,
     format_datatrove_report,
 )
@@ -24,6 +25,7 @@ from dapper.dedup.schema_inspect import (
     failed_inspection,
     inspect_records,
 )
+from dapper.dedup.stage import build_gcs_stage_plan
 from utils.loader import load_records
 
 
@@ -36,13 +38,23 @@ def run(
     normalize: bool = False,
     output_path: str | None = None,
     exact: bool = False,
+    stage_to: str | None = None,
+    plan_gcs: bool = False,
+    gcs: bool = False,
 ) -> str:
-    """Run the dedup subsystem and return display text."""
+    """Run the dedup subsystem and return display text.
+
+    Archiving lives in `dapper.archive`; the two communicate only through the
+    staged-input prefix in GCS.
+    """
     project_config = load_optional_config(config_path) if input_path else load_config(config_path)
     dedup_config = parse_dedup_config(project_config, schema_name=schema)
     if input_path:
         sources = discover_local_sources(input_path, dedup_config.schema_name)
         dedup_config = replace(dedup_config, sources=sources)
+
+    if gcs:
+        return _run_gcs_dedup(dedup_config)
 
     if dry_run:
         inspections = (
@@ -58,10 +70,54 @@ def run(
     if exact:
         return format_exact_report(run_exact_dedup(dedup_config))
 
+    if plan_gcs:
+        local_input = output_path or dedup_config.output_dir
+        return format_gcs_stage_plan(
+            build_gcs_stage_plan(
+                dedup_config,
+                local_input_path=local_input,
+                destination_uri=stage_to,
+            )
+        )
+
     normalized = normalize_sources(dedup_config, output_path)
+    if stage_to:
+        return "\n\n".join(
+            [
+                format_normalize_report(normalized),
+                format_gcs_stage_plan(
+                    build_gcs_stage_plan(
+                        dedup_config,
+                        local_input_path=normalized.output_path,
+                        destination_uri=stage_to,
+                    )
+                ),
+            ]
+        )
     return format_datatrove_report(
         run_datatrove_dedup(dedup_config, normalized.output_path)
     )
+
+
+def _run_gcs_dedup(config: DedupConfig) -> str:
+    """Run the full DataTrove dedup against GCS, in place."""
+    from dapper.corpus.gcs import count_shards, init_gcs
+
+    context = init_gcs(config)
+
+    # Each DataTrove task takes a slice of the input files, so leaving tasks at
+    # 1 would read every ingested shard sequentially.
+    shards = count_shards(context.staged_input_uri)
+    if shards > config.datatrove_tasks:
+        config = replace(config, datatrove_tasks=shards)
+
+    report = run_datatrove_dedup(
+        config,
+        context.staged_input_uri,
+        work_dir=context.work_uri,
+        output_dir=context.output_uri,
+    )
+    return format_datatrove_report(report)
 
 
 def _inspect_config_sources(config: DedupConfig) -> list[SchemaInspection]:

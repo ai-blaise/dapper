@@ -14,6 +14,51 @@ DEFAULT_ID_FIELDS = ("id", "doc_id", "uuid")
 DEFAULT_URL_FIELDS = ("url", "metadata.url")
 DEFAULT_TOKEN_COUNT_FIELDS = ("token_count", "num_tokens")
 
+# GLM-5.2 ships a fast `tokenizer.json`, which DataTrove's TokensCounter needs.
+DEFAULT_TOKENIZER = "zai-org/GLM-5.2"
+
+# Upper bounds, inclusive. The final bin is unbounded: anything larger than the
+# last edge is assigned to it rather than being dropped.
+DEFAULT_LEN_BINS = (8192, 65536, 262144)
+
+
+class DedupConfigError(ValueError):
+    """Raised for malformed dedup configuration."""
+
+
+def _parse_len_bins(raw: Any) -> tuple[int, ...]:
+    """Validate and normalize the context-length bin edges."""
+    if raw is None:
+        return DEFAULT_LEN_BINS
+    if not isinstance(raw, (list, tuple)) or not raw:
+        raise DedupConfigError("dedup.len_bins must be a non-empty list of integers.")
+    try:
+        bins = tuple(int(value) for value in raw)
+    except (TypeError, ValueError) as exc:
+        raise DedupConfigError("dedup.len_bins must contain only integers.") from exc
+    if any(value <= 0 for value in bins):
+        raise DedupConfigError("dedup.len_bins values must be positive.")
+    if list(bins) != sorted(bins) or len(set(bins)) != len(bins):
+        raise DedupConfigError(
+            f"dedup.len_bins must be strictly ascending, got {list(bins)}."
+        )
+    return bins
+
+
+def assign_len_bucket(token_count: int | None, len_bins: tuple[int, ...]) -> int | None:
+    """Return the bin a document belongs to.
+
+    Bins are inclusive upper bounds, so a document of exactly 8192 tokens lands
+    in the 8192 bin and 8193 moves up. The last bin is unbounded, so documents
+    longer than the final edge are absorbed by it.
+    """
+    if token_count is None or not len_bins:
+        return None
+    for edge in len_bins:
+        if token_count <= edge:
+            return edge
+    return len_bins[-1]
+
 
 @dataclass(frozen=True)
 class SourceConfig:
@@ -25,6 +70,7 @@ class SourceConfig:
     dataset_config: str | None = None
     split: str | None = None
     path: str | None = None
+    uri: str | None = None
     mode: str = "pretraining"
     text_field: str | None = None
     id_field: str | None = None
@@ -33,6 +79,7 @@ class SourceConfig:
     synthetic: bool = False
     priority: int | None = None
     license: str | None = None
+    domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +104,95 @@ class DedupConfig:
     datatrove_precision: int
     datatrove_tasks: int
     datatrove_workers: int
+    datatrove_executor: str
+    tokenizer: str
+    len_bins: tuple[int, ...]
+    storage_provider: str | None
+    storage_bucket: str | None
+    storage_dataset_prefix: str | None
+    storage_work_prefix: str | None
+    storage_output_prefix: str | None
+    remote_runner: str | None
+
+
+def _source_from_raw(
+    raw: dict[str, Any], selected_schema: str, *, default_type: str
+) -> SourceConfig | None:
+    """Build one SourceConfig, or None when it belongs to another schema."""
+    mode = str(raw.get("mode", selected_schema))
+    if mode != selected_schema:
+        return None
+    return SourceConfig(
+        name=str(raw.get("name") or raw.get("repo") or raw.get("path") or "source"),
+        type=str(raw.get("type", default_type)),
+        repo=raw.get("repo"),
+        dataset_config=raw.get("dataset_config") or raw.get("config_name"),
+        split=raw.get("split"),
+        path=raw.get("path"),
+        uri=raw.get("uri"),
+        mode=mode,
+        text_field=raw.get("text_field"),
+        id_field=raw.get("id_field"),
+        url_field=raw.get("url_field"),
+        token_count_field=raw.get("token_count_field"),
+        synthetic=bool(raw.get("synthetic", False)),
+        priority=raw.get("priority"),
+        license=raw.get("license"),
+        domain=raw.get("domain"),
+    )
+
+
+def _corpus_sources(config: dict[str, Any], selected_schema: str) -> list[SourceConfig]:
+    """Parse the ``corpus:`` block.
+
+    Sources are grouped by *handler*: the block key under ``corpus.sources`` is
+    the loader that reads them, so ``huggingface:`` entries need no ``type:``
+    field. ``corpus.defaults`` is merged beneath every entry, so shared values
+    like ``split: train`` are stated once rather than on each source.
+    """
+    corpus = config.get("corpus")
+    if not isinstance(corpus, dict):
+        return []
+    defaults = corpus.get("defaults")
+    defaults = defaults if isinstance(defaults, dict) else {}
+    grouped = corpus.get("sources")
+    grouped = grouped if isinstance(grouped, dict) else {}
+
+    sources: list[SourceConfig] = []
+    for handler, entries in grouped.items():
+        for raw in entries or []:
+            if not isinstance(raw, dict):
+                continue
+            # Entry values win over defaults; the handler key supplies `type`.
+            merged = {**defaults, **raw}
+            source = _source_from_raw(
+                merged, selected_schema, default_type=str(handler)
+            )
+            if source is not None:
+                sources.append(source)
+    return sources
+
+
+def _parse_sources(config: dict[str, Any], selected_schema: str) -> list[SourceConfig]:
+    """Resolve configured sources, preferring ``corpus:`` over legacy ``sources:``.
+
+    The legacy flat list is still read so existing configs keep working, but a
+    ``corpus:`` block takes precedence outright rather than merging -- silently
+    combining two source lists would make it impossible to tell which file
+    defined a given source.
+    """
+    corpus = _corpus_sources(config, selected_schema)
+    if corpus:
+        return corpus
+
+    legacy = []
+    for raw in config.get("sources", []) or []:
+        if not isinstance(raw, dict):
+            continue
+        source = _source_from_raw(raw, selected_schema, default_type="local")
+        if source is not None:
+            legacy.append(source)
+    return legacy
 
 
 def parse_dedup_config(
@@ -69,6 +205,8 @@ def parse_dedup_config(
     hf = hf if isinstance(hf, dict) else {}
     project = config.get("project", {})
     project = project if isinstance(project, dict) else {}
+    storage = config.get("storage", {})
+    storage = storage if isinstance(storage, dict) else {}
     dedup = config.get("dedup", {})
     dedup = dedup if isinstance(dedup, dict) else {}
     selected_schema = resolve_schema(
@@ -81,33 +219,10 @@ def parse_dedup_config(
     )
     datatrove = dedup.get("datatrove", {})
     datatrove = datatrove if isinstance(datatrove, dict) else {}
+    remote = dedup.get("remote", {})
+    remote = remote if isinstance(remote, dict) else {}
 
-    sources = []
-    for raw in config.get("sources", []) or []:
-        if not isinstance(raw, dict):
-            continue
-        mode = str(raw.get("mode", selected_schema))
-        if mode != selected_schema:
-            continue
-        name = str(raw.get("name") or raw.get("repo") or raw.get("path") or "source")
-        sources.append(
-            SourceConfig(
-                name=name,
-                type=str(raw.get("type", "local")),
-                repo=raw.get("repo"),
-                dataset_config=raw.get("dataset_config") or raw.get("config_name"),
-                split=raw.get("split"),
-                path=raw.get("path"),
-                mode=mode,
-                text_field=raw.get("text_field"),
-                id_field=raw.get("id_field"),
-                url_field=raw.get("url_field"),
-                token_count_field=raw.get("token_count_field"),
-                synthetic=bool(raw.get("synthetic", False)),
-                priority=raw.get("priority"),
-                license=raw.get("license"),
-            )
-        )
+    sources = _parse_sources(config, selected_schema)
 
     return DedupConfig(
         schema_name=selected_schema,
@@ -132,4 +247,13 @@ def parse_dedup_config(
         datatrove_precision=int(datatrove.get("precision", 64)),
         datatrove_tasks=int(datatrove.get("tasks", 1)),
         datatrove_workers=int(datatrove.get("workers", 1)),
+        datatrove_executor=str(datatrove.get("executor", "local")).lower(),
+        tokenizer=str(dedup.get("tokenizer", DEFAULT_TOKENIZER)),
+        len_bins=_parse_len_bins(dedup.get("len_bins")),
+        storage_provider=storage.get("provider"),
+        storage_bucket=storage.get("bucket"),
+        storage_dataset_prefix=storage.get("dataset_prefix"),
+        storage_work_prefix=storage.get("work_prefix"),
+        storage_output_prefix=storage.get("output_prefix"),
+        remote_runner=remote.get("runner"),
     )

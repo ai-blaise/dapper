@@ -347,6 +347,74 @@ The tool is currently optimized for AI conversation datasets but is designed to 
 - **Pluggable transformations** - Optional processing instead of hardcoded Dapper Parser behavior
 - **Additional formats** - Excel/XLSX support
 
+### Corpus sources (TODO)
+
+The pretraining corpus is currently scoped to **FineWeb only**
+(`corpus.sources.huggingface` in `dapper.yaml`). The sources below were vetted
+but deferred — each is a plain HuggingFace dataset path and can be added as a
+one-line config entry when wanted.
+
+Domains listed here are *keyword-inferred* and were never reviewed. Declare the
+real domain when promoting an entry.
+
+**Web / general**
+
+| Path | Domain |
+|---|---|
+| `gair-prox/DCLM-pro` | general_web |
+| `nvidia/Nemotron-ClimbMix` | general_web |
+| `openbmb/Ultra-FineWeb` | general_web |
+| `HuggingFaceFW/finephrase` | general_web |
+| `EssentialAI/essential-web-v1.0` | general_web |
+| `Zyphra/Zyda-2` | general_web |
+| `tiiuae/falcon-refinedweb` | general_web |
+| `opendatalab/AICC` | general_web |
+| `LLM360/TxT360` | general_web |
+| `facebook/recycling_the_web` | general_web |
+| `allenai/c4` | general_web |
+| `SII-GAIR-NLP/davinci-llm-data` | general_web |
+| `nvidia/Nemotron-CC-v2`, `Nemotron-CC-v2.1` | general_web |
+
+**Code / math / specialist**
+
+| Path | Domain |
+|---|---|
+| `HuggingFaceCode/stack-v3-train` | code |
+| `nvidia/Nemotron-Pretraining-Code-v1` … `-v3` | code |
+| `nvidia/Nemotron-CC-Code-v1` | code |
+| `OpenSQZ/AutoMathText-V2` | mathematics |
+| `nvidia/Nemotron-CC-Math-v1` | mathematics |
+| `nvidia/Nemotron-Pretraining-Legal-v1` | legal_government |
+| `HuggingFaceFW/fineweb-2` | multilingual |
+| `PleIAs/SYNTH`, `HuggingFaceTB/cosmopedia` | synthetic |
+
+**PDF / long-form** — `HuggingFaceFW/finepdfs`, `finepdfs-edu`
+
+**Dolma family** — `allenai/dolma`, plus ten `allenai/dolma3_*` variants
+(`_pool`, `mix-10B/50B/100B/150B/6T`, date stamps `1025`/`1125`). These are the
+same corpus at different sizes and blends; archiving all of them downloads the
+same documents repeatedly. Pick one.
+
+**Verify before adding**
+
+- `nvidia/Nemotron-Pretraining-SFT-v1` — SFT data, not pretraining text
+- `HuggingFaceFW/ocr-annotations`, `finepdfs_lang_classification`,
+  `finepdfs_fw_edu_labeled`, `finepdfs_eng_Latn_labeled` — appear to be
+  annotation/label sets rather than document corpora
+- `BLIP3o/BLIP3o-Pretrain` — vision-language; may have no usable text column
+- `nvidia/Nemotron-Pretraining-Dataset-sample` — a sample of a set already listed
+- `nvidia/Nemotron-Pretraining-Specialized-v1` … `-v1.2` — successive releases;
+  probably only the latest is wanted
+
+`dapper dedup --dry-run` samples each configured source and reports whether a
+text field resolves, which settles the questionable entries empirically.
+
+**No loader yet** — not HuggingFace datasets, so they need new handlers:
+`togethercomputer/RedPajama-Data`, `EleutherAI/openwebtext2`,
+`facebookresearch/PhysicsLM4` (GitHub); `common-pile` (space);
+`contrib/Nemotron/Nemotron-CC` (archive);
+`mlfoundations/datasets?search=dclm` (search page).
+
 ## Documentation
 
 For detailed documentation, see the [docs](docs/) directory:

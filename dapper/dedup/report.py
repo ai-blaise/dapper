@@ -6,6 +6,7 @@ from dapper.dedup.schema_inspect import SchemaInspection
 from dapper.dedup.exact import ExactDedupReport
 from dapper.dedup.normalize import NormalizeReport
 from dapper.dedup.datatrove import DataTroveDedupReport
+from dapper.dedup.stage import GcsStagePlan
 
 
 def format_dry_run_report(
@@ -86,6 +87,10 @@ def format_datatrove_report(report: DataTroveDedupReport) -> str:
             f"DataTrove work dir: {report.work_dir}",
             f"Deduplicated output: {report.output_path}",
             f"Removed duplicates: {report.removed_path}",
+            f"Curriculum manifest: {report.manifest_path or 'not built'}",
+            f"Tokenizer: {report.tokenizer}",
+            f"Length bins: {', '.join(str(b) for b in report.len_bins)} "
+            "(last bin unbounded)",
             "MinHash config:",
             f"  n_grams: {report.n_grams}",
             f"  num_buckets: {report.num_buckets}",
@@ -95,3 +100,25 @@ def format_datatrove_report(report: DataTroveDedupReport) -> str:
             f"  workers: {report.workers}",
         ]
     )
+
+
+def format_gcs_stage_plan(plan: GcsStagePlan) -> str:
+    lines = [
+        "Dapper GCS dedup staging plan",
+        "",
+        f"Local input: {plan.local_input_path}",
+        f"Staged input: {plan.staged_input_uri}",
+        f"Cloud work dir: {plan.work_uri}",
+        f"Cloud output: {plan.output_uri}",
+        f"Cloud runner: {plan.runner or 'not configured'}",
+        "",
+        "Commands:",
+    ]
+    for command in plan.commands:
+        lines.append(f"  {command}")
+    if plan.notes:
+        lines.append("")
+        lines.append("Notes:")
+        for note in plan.notes:
+            lines.append(f"  {note}")
+    return "\n".join(lines)

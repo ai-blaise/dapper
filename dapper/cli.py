@@ -34,6 +34,28 @@ def _run_mix(argv: Sequence[str] | None) -> None:
     mixer_main(argv)
 
 
+# Flags that moved to `dapper archive`. Argparse would only report them as
+# unrecognized, which does not say where they went.
+_MOVED_FLAGS: dict[str, str] = {
+    "--ingest": "dapper archive",
+    "--force-ingest": "dapper archive --force",
+    "--ingest-workers": "dapper archive --workers",
+    "--limit": "dapper archive --limit",
+}
+
+
+def _reject_moved_flags(argv: Sequence[str] | None) -> None:
+    for arg in list(argv or []):
+        flag = arg.split("=", 1)[0]
+        replacement = _MOVED_FLAGS.get(flag)
+        if replacement:
+            print(
+                f"Error: {flag} moved to its own command. Use: {replacement}",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+
+
 def _run_dedup(argv: Sequence[str] | None) -> None:
     import argparse
 
@@ -94,6 +116,31 @@ def _run_dedup(argv: Sequence[str] | None) -> None:
         action="store_true",
         help="Run exact dedup using the selected canonical schema.",
     )
+    parser.add_argument(
+        "--stage-to",
+        default=None,
+        help=(
+            "GCS destination prefix for handing normalized local artifacts to "
+            "a cloud-side dedup run, e.g. gs://bucket/dapper/staged-input."
+        ),
+    )
+    parser.add_argument(
+        "--plan-gcs",
+        action="store_true",
+        help=(
+            "Print the local-to-GCS staging plan without normalizing or running "
+            "dedup."
+        ),
+    )
+    parser.add_argument(
+        "--gcs",
+        action="store_true",
+        help=(
+            "Run the full DataTrove dedup against GCS in place, then write the "
+            "curriculum manifest."
+        ),
+    )
+    _reject_moved_flags(argv)
     args = parser.parse_args(list(argv or []))
 
     try:
@@ -105,8 +152,11 @@ def _run_dedup(argv: Sequence[str] | None) -> None:
             normalize=args.normalize,
             output_path=args.output,
             exact=args.exact,
+            stage_to=args.stage_to,
+            plan_gcs=args.plan_gcs,
+            gcs=args.gcs,
         )
-    except (ConfigError, RuntimeError) as exc:
+    except (ConfigError, RuntimeError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
@@ -119,6 +169,24 @@ def _run_split(argv: Sequence[str] | None) -> None:
     splitter_main(argv)
 
 
+def _run_archive(argv: Sequence[str] | None) -> None:
+    from dapper.archive.cli import archive_main
+
+    archive_main(argv)
+
+
+def _run_catalog(argv: Sequence[str] | None) -> None:
+    from dapper.archive.cli import catalog_main
+
+    catalog_main(argv)
+
+
+def _run_sweep(argv: Sequence[str] | None) -> None:
+    from dapper.archive.cli import run_main
+
+    run_main(argv)
+
+
 COMMANDS: dict[str, tuple[str, CommandMain]] = {
     "list": ("List records with a compact summary", _run_dataset_cli),
     "show": ("Show one record or field", _run_dataset_cli),
@@ -127,7 +195,10 @@ COMMANDS: dict[str, tuple[str, CommandMain]] = {
     "view": ("Open the interactive dataset TUI", _run_tui),
     "parse": ("Extract prompts / normalize records", _run_parse),
     "mix": ("Mix datasets into unified Parquet output", _run_mix),
+    "archive": ("Stream the HuggingFace catalog into GCS", _run_archive),
+    "catalog": ("Inspect the HuggingFace source catalog", _run_catalog),
     "dedup": ("Inspect and deduplicate datasets", _run_dedup),
+    "run": ("Archive then dedup in one sweep", _run_sweep),
     "split": ("Split a dataset into multiple parts", _run_split),
 }
 

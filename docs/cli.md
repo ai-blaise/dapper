@@ -35,7 +35,10 @@ The public `dapper` CLI currently exposes the core Dapper workflows:
 | `dapper view` | Open the interactive TUI |
 | `dapper parse` | Parse records under a selected schema |
 | `dapper mix` | Mix supported dataset directories into unified Parquet output |
+| `dapper archive` | Stream the HuggingFace source catalog into GCS |
+| `dapper catalog` | Inspect the HuggingFace source catalog |
 | `dapper dedup` | Inspect, normalize, and deduplicate configured datasets |
+| `dapper run` | Archive then dedup in one sweep |
 | `dapper split` | Split JSONL or Parquet files into parts |
 
 Some repository scripts are still internal or legacy and do not yet have public `dapper` wrappers. This includes the rerollout scripts, upload helpers, filtering helpers, and demo scripts under `scripts/`.
@@ -292,6 +295,83 @@ dapper mix datasets/ -o chunks/distill \
   --num-chunks 8
 ```
 
+## `dapper archive`
+
+Stream the HuggingFace source catalog into the configured GCS bucket. Nothing
+is written to local disk and nothing is tokenized — token counts are computed
+after dedup, so duplicate documents are never paid for.
+
+```bash
+dapper archive [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--config FILE` | Config file override |
+| `--sources a,b` | Comma-separated catalog names or repo refs. Default: whole catalog |
+| `--limit N` | Max records per source. Does **not** mark sources complete |
+| `--force` | Re-archive sources that already completed |
+| `--workers N` | Sources to stream concurrently (default 4) |
+| `--dry-run` | Resolve catalog and bucket layout, print the plan, write nothing |
+
+Exit codes: `0` all targeted sources archived or already complete; `1` config,
+auth, or bucket error; `2` usage error such as an unknown source name; `3`
+partial — some sources archived, at least one failed.
+
+Code `3` matters: a corpus missing sources produces a manifest that
+under-reports capacity with no other signal, so a partial archive must not look
+like success.
+
+```bash
+dapper archive --limit 100                 # cheap test slice
+dapper archive --sources c4,cosmopedia     # just two sources
+dapper archive --sources allenai/c4        # repo refs work too
+dapper archive --dry-run                   # what would happen
+dapper archive                             # full run, resumable
+```
+
+## `dapper catalog`
+
+Inspect the corpus sources configured in `dapper.yaml`. Reads only config —
+never the network.
+
+```bash
+dapper catalog list [--domain D] [--loadable-only] [--config FILE]
+dapper catalog show <name> [--config FILE]
+```
+
+`<name>` matches either the source's `name` or its `repo` path. An unknown name
+exits 2 with the closest matches, because archiving nothing due to a typo is
+otherwise indistinguishable from a successful run.
+
+```bash
+dapper catalog list
+dapper catalog list --domain code
+dapper catalog show fineweb
+dapper catalog show HuggingFaceFW/fineweb    # by repo path
+```
+
+## `dapper run`
+
+Archive the catalog, then dedup it — equivalent to
+`dapper archive && dapper dedup --gcs`.
+
+```bash
+dapper run [--limit N] [--yes] [--sources a,b] [--force] [--workers N]
+```
+
+Two guardrails, both deliberate:
+
+- **`--limit` or `--yes` is required.** An unlimited sweep commits to days of
+  transfer and billable GCS egress; that should not be one keystroke away.
+- **Dedup is skipped if any source failed to archive.** Deduplicating an
+  incomplete corpus silently produces a manifest that under-reports capacity.
+
+```bash
+dapper run --limit 100    # end-to-end smoke test
+dapper run --yes          # the real thing
+```
+
 ## `dapper dedup`
 
 Inspect, normalize, and deduplicate local dataset shards. Pass a local file or directory to stream already-materialized data without downloading anything. If no input path is provided, Dapper reads sources from `dapper.yaml`.
@@ -311,6 +391,13 @@ Options:
 | `--normalize` | Normalize configured local sources to the selected canonical schema |
 | `-o, --output FILE` | Output path for `--normalize` |
 | `--exact` | Run local exact text-hash dedup |
+| `--plan-gcs` | Print a local-to-GCS staging plan without normalizing or running dedup |
+| `--stage-to GS_URI` | Normalize locally, then print a GCS handoff plan for cloud-side dedup |
+| `--gcs` | Run the full DataTrove dedup against GCS in place, then write the curriculum manifest |
+
+> Archiving moved to its own command. `--ingest`, `--limit`, `--force-ingest`,
+> and `--ingest-workers` are now [`dapper archive`](#dapper-archive). Passing
+> them to `dapper dedup` exits 2 with a pointer to the replacement.
 
 Examples:
 
@@ -321,37 +408,163 @@ dapper dedup datasets/ --schema sft --exact
 dapper dedup --schema pretraining --dry-run
 ```
 
+GCS staging examples:
+
+```bash
+# Show the bucket handoff plan only.
+dapper dedup --schema pretraining --plan-gcs
+
+# Normalize manageable local shards, then stage the heavy dedup run to GCS.
+dapper dedup datasets/pretraining \
+  --schema pretraining \
+  -o outputs/pretraining-normalized \
+  --stage-to gs://my-bucket/dapper/pretraining/staged-input
+```
+
+In this workflow Dapper can download or materialize manageable source shards
+locally first. The final expensive DataTrove MinHash stages should run on GCP
+near the bucket, using the staged input, work directory, and output prefix from
+the generated plan.
+
+### Full GCS pipeline
+
+For web-scale corpora, skip local materialization entirely. Authenticate once
+with `gcloud auth application-default login`, then:
+
+```bash
+# 1. Archive the HuggingFace catalog into gs://<bucket>/<dataset_prefix>/.
+#    Nothing touches local disk. Use --limit for a cheap test slice first.
+dapper archive --limit 1000
+
+# 2. Run all four MinHash stages against the bucket in place.
+dapper dedup --gcs
+```
+
+The two halves are fully decoupled: they communicate only through the
+staged-input prefix, so an archive can finish and sit for days before you
+dedup it.
+
+Archiving is resumable. Each source gets a `_SUCCESS` marker when it finishes,
+and a re-run skips finished sources — so a failure partway through a multi-day
+archive is recovered by re-running the same command. Use `--force` to re-pull a
+source anyway. Sources stream concurrently (`--workers`, default 4) since the
+work is network-bound.
+
+> **A `--limit` run does not mark sources complete.** The marker records the
+> limit, so `dapper archive --limit 1000` followed by a full `dapper archive`
+> re-archives everything rather than skipping it as already done.
+
+> **Bandwidth note.** There is no server-side HF-to-GCS transfer: every byte is
+> downloaded to the machine running `dapper archive` and uploaded from it. For
+> a test slice this is irrelevant; for the full corpus your uplink is the
+> ceiling, so run it on a VM in the bucket's region.
+
+Sources come from the `corpus:` block in `dapper.yaml`, grouped by the loader
+that reads them:
+
+```yaml
+corpus:
+  defaults:
+    split: train
+    mode: pretraining
+
+  sources:
+    huggingface:
+      - name: fineweb
+        repo: "HuggingFaceFW/fineweb"
+        dataset_config: sample-10BT
+        domain: general_web
+        license: ODC-By-1.0
+```
+
+The block key supplies the type, so no entry repeats `type: huggingface`.
+`corpus.defaults` is merged beneath every entry, and an entry always wins over
+a default.
+
+`dataset_config` selects a named subset published by the dataset's authors —
+`sample-10BT` is a ~10B-token slice of FineWeb, against `default` at ~15T.
+Scaling up is a one-word edit. The samples are independent draws rather than
+nested subsets, so replace the value instead of adding a second entry.
+
+Set `text_field` / `id_field` on a source only when auto-detection picks the
+wrong column; an explicit value always wins over sniffing.
+
+Additional vetted sources are listed in the README under "Corpus sources
+(TODO)", each promotable as one entry. Use `dapper dedup --dry-run` to check
+that a candidate's text field resolves before committing to a full archive.
+
+Step 2 writes deduplicated Parquet partitioned by domain:
+
+```
+gs://<bucket>/<output_prefix>/domain=code/000_part-00000.parquet
+gs://<bucket>/<output_prefix>/_manifest/manifest.json
+```
+
+Tokenization happens *after* the dedup filter, so duplicate documents are never
+tokenized. Each surviving record gets a `token_count` from the configured
+tokenizer plus a derived `len_bucket`.
+
+`len_bucket` uses inclusive upper bounds from `dedup.len_bins`: a document of
+exactly 8192 tokens lands in the 8192 bin, 8193 moves up, and the final bin is
+unbounded so nothing is dropped. Because bins are a column rather than a
+partition key, changing the edges later only requires rebuilding the manifest.
+
+The manifest is accumulated *during* the filter stage: each task counts the
+documents it writes and emits a partial manifest, and the partials are merged
+at the end. The corpus is never re-read to build it. Task count is scaled
+automatically to the number of ingested shards.
+
+> **Known issue:** `dedup.datatrove.workers` greater than 1 hangs. This
+> reproduces with a bare DataTrove pipeline and no Dapper code involved, so it
+> is upstream. Keep `workers: 1` and scale with `tasks` instead.
+
+The manifest is a small sidecar holding per-`(domain, len_bucket, source)`
+document and token totals. A curriculum planner reads only this file to check a
+token budget is satisfiable, then resolves `uri_prefix` to the actual data.
+Token counts are tokenizer-specific, so `tokenizer_hash` is stamped into the
+manifest — counts are only valid after dedup, since dedup removes documents.
+
 For Hugging Face schema dry runs without materializing full corpora locally, configure sources in `dapper.yaml` and omit `input_path`:
 
 ```yaml
+storage:
+  provider: gcs
+  bucket: my-bucket
+  dataset_prefix: dapper/pretraining/staged-input
+  work_prefix: dapper/pretraining/datatrove-work
+  output_prefix: dapper/pretraining/dedup-output
+
 huggingface:
   download_mode: streaming
   dry_run_sample_records: 2
 
 dedup:
   schema: pretraining
+  remote:
+    runner: null
 
-sources:
-  - name: fineweb
-    type: huggingface
-    repo: HuggingFaceFW/fineweb
-    dataset_config: sample-10BT
+corpus:
+  defaults:
     split: train
     mode: pretraining
-    text_field: text
-    id_field: id
-    url_field: url
-    token_count_field: token_count
 
-  - name: cosmopedia
-    type: huggingface
-    repo: HuggingFaceTB/cosmopedia
-    dataset_config: web_samples_v2
-    split: train
-    mode: pretraining
-    text_field: text
-    id_field: seed_data
+  sources:
+    huggingface:
+      - name: fineweb
+        repo: "HuggingFaceFW/fineweb"
+        dataset_config: sample-10BT
+        domain: general_web
+        license: ODC-By-1.0
+
+    local:
+      - name: staged
+        path: "outputs/pretraining-normalized"
+        domain: general_web
 ```
+
+The legacy flat `sources:` list is still parsed for existing configs, but a
+`corpus:` block takes precedence outright rather than merging — combining two
+lists would make a source's origin untraceable.
 
 ## `dapper split`
 

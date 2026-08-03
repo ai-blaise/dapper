@@ -1,0 +1,153 @@
+"""URI-addressed filesystem access for local paths and ``gs://`` URIs.
+
+fsspec already dispatches on the URI scheme, so callers do not need to branch
+on local-vs-remote. Everything above this module addresses data by URI and
+stays storage-agnostic; this is the only place that resolves what a URI means.
+
+Local writes create parent directories, matching the implicit-prefix behaviour
+of object stores, so a caller can write to either without special-casing.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Iterator
+
+
+def is_remote_uri(uri: str) -> bool:
+    """True for URIs backed by an object store rather than a local path."""
+    return "://" in str(uri)
+
+
+def fs_for(uri: str) -> tuple[Any, str]:
+    """Return the fsspec filesystem for a URI and its filesystem-native path."""
+    try:
+        import fsspec
+    except ImportError as exc:  # pragma: no cover - fsspec is a hard dependency
+        raise RuntimeError(
+            "fsspec is required for corpus access. Install it with `uv sync`."
+        ) from exc
+    return fsspec.core.url_to_fs(str(uri))
+
+
+def _restore_scheme(uri: str, path: str) -> str:
+    """Re-attach the scheme fsspec strips from globbed results.
+
+    fsspec returns bare paths (``bucket/key``), but every consumer here passes
+    results back as URIs, so the scheme has to survive the round trip.
+    """
+    text = str(path)
+    if "://" in text or not is_remote_uri(uri):
+        return text
+    scheme = str(uri).split("://", 1)[0]
+    return f"{scheme}://{text}"
+
+
+def join(base: str, *parts: str) -> str:
+    """Join URI components, tolerating an absolute suffix."""
+    result = str(base).rstrip("/")
+    for part in parts:
+        text = str(part)
+        if "://" in text:
+            result = text.rstrip("/")
+        else:
+            result = f"{result}/{text.strip('/')}"
+    return result
+
+
+def exists(uri: str) -> bool:
+    fs, path = fs_for(uri)
+    return bool(fs.exists(path))
+
+
+def read_text(uri: str) -> str:
+    fs, path = fs_for(uri)
+    with fs.open(path, "r") as handle:
+        payload = handle.read()
+    return payload if isinstance(payload, str) else payload.decode("utf-8")
+
+
+def write_text(uri: str, payload: str) -> str:
+    fs, path = fs_for(uri)
+    if not is_remote_uri(uri):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with fs.open(path, "w") as handle:
+        handle.write(payload)
+    return str(uri)
+
+
+def read_json(uri: str) -> Any:
+    return json.loads(read_text(uri))
+
+
+def write_json(uri: str, payload: Any, *, indent: int | None = None) -> str:
+    return write_text(uri, json.dumps(payload, ensure_ascii=False, indent=indent))
+
+
+def glob(uri: str, pattern: str) -> list[str]:
+    """Glob ``pattern`` under ``uri``, returning fully-qualified URIs.
+
+    A missing prefix yields an empty list -- on an object store a prefix with no
+    objects is indistinguishable from one that was never created. Credential and
+    network failures are *not* swallowed: a caller that cannot tell "no files"
+    from "cannot reach the bucket" will silently do the wrong thing.
+    """
+    fs, path = fs_for(uri)
+    try:
+        matches = fs.glob(f"{path.rstrip('/')}/{pattern}")
+    except FileNotFoundError:
+        return []
+    return sorted(_restore_scheme(uri, match) for match in matches)
+
+
+def open_binary(uri: str):
+    fs, path = fs_for(uri)
+    return fs.open(path, "rb")
+
+
+def open_text(uri: str, mode: str = "r"):
+    fs, path = fs_for(uri)
+    if "w" in mode and not is_remote_uri(uri):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+    return fs.open(path, mode)
+
+
+def iter_jsonl(uri: str) -> Iterator[dict[str, Any]]:
+    """Iterate JSONL records from a single file or a prefix of ``.jsonl`` files."""
+    targets = _targets(uri, "*.jsonl")
+    for target in targets:
+        with open_text(target) as handle:
+            for line in handle:
+                line = line.strip() if isinstance(line, str) else line.decode().strip()
+                if line:
+                    yield json.loads(line)
+
+
+def iter_parquet(uri: str, *, columns: list[str] | None = None) -> Iterator[dict[str, Any]]:
+    """Iterate Parquet rows, optionally projecting to a subset of columns.
+
+    Projection matters: the ``text`` column dominates corpus size, so anything
+    aggregating metadata should never pull it across the wire.
+    """
+    import pyarrow.parquet as pq
+
+    for target in _targets(uri, "*.parquet"):
+        with open_binary(target) as handle:
+            table = pq.read_table(handle)
+            if columns:
+                keep = [name for name in columns if name in table.column_names]
+                if keep:
+                    table = table.select(keep)
+            yield from table.to_pylist()
+
+
+def _targets(uri: str, pattern: str) -> list[str]:
+    """Resolve a URI to a file list, whether it names a file or a prefix."""
+    suffix = pattern.lstrip("*")
+    if str(uri).endswith(suffix):
+        return [str(uri)]
+    # Both patterns are needed because backends differ on whether `**` matches
+    # at depth zero; dedupe so a file matched twice is not read twice.
+    found = set(glob(uri, f"**/{pattern}")) | set(glob(uri, pattern))
+    return sorted(found)

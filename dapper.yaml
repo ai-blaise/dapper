@@ -2,6 +2,13 @@ project:
   name: pretraining-dry-run
   output_dir: outputs
 
+storage:
+  provider: gcs
+  bucket: pretraining-corpus
+  dataset_prefix: dapper/pretraining/staged-input
+  work_prefix: dapper/pretraining/datatrove-work
+  output_prefix: dapper/pretraining/dedup-output
+
 huggingface:
   download_mode: streaming
   dry_run_sample_records: 2
@@ -16,7 +23,18 @@ schemas:
 
 dedup:
   schema: pretraining
+  # Token counts are tokenizer-specific; the hash of this is stamped into the
+  # curriculum manifest so a mismatch is detectable.
+  tokenizer: zai-org/GLM-5.2
+  # Inclusive upper bounds. A document of exactly 8192 tokens lands in the 8192
+  # bin; 8193 moves up. The final bin is unbounded, so nothing is dropped.
+  len_bins: [8192, 65536, 262144]
+  remote:
+    runner: null
   datatrove:
+    # 'local' is single-node and is the ceiling on total throughput.
+    # 'slurm' runs the stages across a cluster for a full-scale corpus.
+    executor: local
     work_dir: .dapper/dedup/datatrove
     n_grams: 5
     num_buckets: 14
@@ -25,26 +43,24 @@ dedup:
     tasks: 1
     workers: 1
 
-sources:
-  - name: fineweb
-    type: huggingface
-    repo: HuggingFaceFW/fineweb
-    dataset_config: sample-10BT
+# The corpus. Sources are grouped by the loader that reads them, so the block
+# key supplies the type -- no `type:` field on every entry.
+#
+# Additional vetted sources are listed in the README under
+# "Corpus sources (TODO)"; each is promotable as one entry here.
+corpus:
+  defaults:
     split: train
     mode: pretraining
-    text_field: text
-    id_field: id
-    url_field: url
-    token_count_field: token_count
-    license: ODC-By-1.0
 
-  - name: cosmopedia
-    type: huggingface
-    repo: HuggingFaceTB/cosmopedia
-    dataset_config: web_samples_v2
-    split: train
-    mode: pretraining
-    text_field: text
-    id_field: seed_data
-    synthetic: true
-    license: Apache-2.0
+  sources:
+    huggingface:
+      # sample-10BT is a ~10B-token subset published by the FineWeb authors.
+      # Swap for sample-100BT, sample-350BT, or `default` (~15T) to scale up.
+      # The samples are independent draws, not nested, so replace this value
+      # rather than adding a second entry.
+      - name: fineweb
+        repo: "HuggingFaceFW/fineweb"
+        dataset_config: sample-10BT
+        domain: general_web
+        license: ODC-By-1.0

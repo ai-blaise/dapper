@@ -40,8 +40,15 @@ def normalize_sources(
             if source.type.lower() == "huggingface" or not source.path:
                 skipped_sources.append(source.name)
                 continue
+            inspection = None
             for record in load_records(source.path):
-                normalized = normalize_pretraining_record(dict(record), source, config)
+                record = dict(record)
+                if inspection is None:
+                    # First record establishes the field mapping for the rest.
+                    inspection = resolve_inspection(source, [record], config)
+                normalized = normalize_pretraining_record(
+                    record, source, config, inspection
+                )
                 handle.write(json.dumps(normalized, ensure_ascii=False) + "\n")
                 total += 1
 
@@ -65,25 +72,49 @@ def _resolve_output_path(
     return path / filename
 
 
+def resolve_inspection(
+    source: SourceConfig,
+    sample: list[dict[str, Any]],
+    config: DedupConfig,
+):
+    """Resolve a source's field mapping once, for reuse across every record.
+
+    Field detection depends only on the source and the shape of its records, so
+    inferring it per record is pure waste on billion-record streams.
+    """
+    return inspect_records(source, sample, config)
+
+
 def normalize_pretraining_record(
     record: dict[str, Any],
     source: SourceConfig,
     config: DedupConfig,
+    inspection=None,
 ) -> dict[str, Any]:
-    """Convert one source record to the canonical pretraining schema."""
-    inspection = inspect_records(source, [record], config)
+    """Convert one source record to the canonical pretraining schema.
+
+    ``inspection`` may be supplied by callers that already resolved the field
+    mapping for this source, avoiding a per-record inference pass.
+    """
+    if inspection is None:
+        inspection = inspect_records(source, [record], config)
     text_field = inspection.text_field
     id_field = inspection.id_field
     url_field = inspection.url_field
     token_count_field = inspection.token_count_field
 
     normalized = {field: None for field in PRETRAINING_FIELDS}
-    normalized["text"] = record_text_for_dedup(record, source, config)
+    normalized["text"] = record_text_for_dedup(record, source, config, inspection)
     normalized["id"] = _string_or_none(_get_field(record, id_field))
     normalized["url"] = _string_or_none(_get_field(record, url_field))
     normalized["token_count"] = _int_or_none(_get_field(record, token_count_field))
     normalized["source_dataset"] = source.name
+    normalized["domain"] = source.domain
     normalized["license"] = source.license
+    # Which named subset of the upstream dataset this came from, e.g.
+    # `sample-10BT`. Without it a 10B-token slice is indistinguishable from a
+    # full-corpus run once the records are in the archive.
+    normalized["subset"] = source.dataset_config
     normalized["synthetic"] = source.synthetic
     normalized["dedup_keep"] = None
 
@@ -103,9 +134,11 @@ def record_text_for_dedup(
     record: dict[str, Any],
     source: SourceConfig,
     config: DedupConfig,
+    inspection=None,
 ) -> str | None:
     """Extract normalized text for the selected canonical dedup schema."""
-    inspection = inspect_records(source, [record], config)
+    if inspection is None:
+        inspection = inspect_records(source, [record], config)
     text_field = inspection.text_field
     value = _get_field(record, text_field)
     if config.schema_name == "sft":

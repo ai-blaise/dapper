@@ -468,6 +468,9 @@ def test_dedup_default_starts_datatrove_path(tmp_path, monkeypatch):
             work_dir=config.datatrove_work_dir,
             output_path=str(tmp_path / "work" / "deduplicated_output"),
             removed_path=str(tmp_path / "work" / "removed"),
+            manifest_path=str(tmp_path / "work" / "deduplicated_output" / "_manifest"),
+            tokenizer=config.tokenizer,
+            len_bins=config.len_bins,
             n_grams=config.datatrove_n_grams,
             num_buckets=config.datatrove_num_buckets,
             hashes_per_bucket=config.datatrove_hashes_per_bucket,
@@ -483,3 +486,54 @@ def test_dedup_default_starts_datatrove_path(tmp_path, monkeypatch):
     assert "DataTrove input:" in output
     assert "Deduplicated output:" in output
     assert "n_grams: 7" in output
+
+
+def test_dedup_plan_gcs_uses_configured_bucket(tmp_path, monkeypatch):
+    (tmp_path / "dapper.yaml").write_text(
+        json.dumps(
+            {
+                "project": {"output_dir": "outputs"},
+                "storage": {
+                    "provider": "gcs",
+                    "bucket": "my-dapper-bucket",
+                    "dataset_prefix": "pretraining/staged",
+                    "work_prefix": "pretraining/work",
+                    "output_prefix": "pretraining/output",
+                },
+                "sources": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    output = run(plan_gcs=True)
+
+    assert "Dapper GCS dedup staging plan" in output
+    assert "Local input: outputs" in output
+    assert "Staged input: gs://my-dapper-bucket/pretraining/staged" in output
+    assert "Cloud work dir: gs://my-dapper-bucket/pretraining/work" in output
+    assert "Cloud output: gs://my-dapper-bucket/pretraining/output" in output
+    assert "gcloud storage cp --recursive outputs" in output
+
+
+def test_dedup_stage_to_normalizes_then_prints_gcs_plan(tmp_path):
+    source_dir = tmp_path / "datasets" / "fineweb-like"
+    source_dir.mkdir(parents=True)
+    (source_dir / "sample.jsonl").write_text(
+        json.dumps({"text": "local text", "id": "1"}) + "\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "normalized"
+
+    output = run(
+        input_path=str(tmp_path / "datasets"),
+        schema="pretraining",
+        output_path=str(output_dir),
+        stage_to="gs://bucket/pretraining/staged",
+    )
+
+    assert "Dapper normalize" in output
+    assert "Dapper GCS dedup staging plan" in output
+    assert f"Local input: {output_dir / 'pretraining_normalized.jsonl'}" in output
+    assert "Staged input: gs://bucket/pretraining/staged" in output
