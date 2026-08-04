@@ -112,6 +112,7 @@ class DedupConfig:
     storage_dataset_prefix: str | None
     storage_work_prefix: str | None
     storage_output_prefix: str | None
+    storage_tokens_prefix: str | None
     remote_runner: str | None
 
 
@@ -255,5 +256,6 @@ def parse_dedup_config(
         storage_dataset_prefix=storage.get("dataset_prefix"),
         storage_work_prefix=storage.get("work_prefix"),
         storage_output_prefix=storage.get("output_prefix"),
+        storage_tokens_prefix=storage.get("tokens_prefix"),
         remote_runner=remote.get("runner"),
     )

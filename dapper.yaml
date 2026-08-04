@@ -8,6 +8,10 @@ storage:
   dataset_prefix: dapper/pretraining/staged-input
   work_prefix: dapper/pretraining/datatrove-work
   output_prefix: dapper/pretraining/dedup-output
+  # Destination for standalone `dapper tokenize <source>`, which tokenizes one
+  # source in isolation. `dapper dedup --tokenize` does NOT write here: it adds
+  # an `input_ids` column to the corpus already being written to output_prefix.
+  tokens_prefix: dapper/pretraining/tokens
 
 huggingface:
   download_mode: streaming
@@ -40,8 +44,15 @@ dedup:
     num_buckets: 14
     hashes_per_bucket: 8
     precision: 64
+    # `tasks` is a floor: both the dedup and tokenize runners raise it to the
+    # input shard count so the work is actually divisible.
     tasks: 1
-    workers: 1
+    # `workers` is NOT auto-scaled -- it caps how many tasks run at once, so
+    # leaving it at 1 serializes the whole run no matter how many tasks exist.
+    # Bounded by RAM, not cores: each worker loads its own tokenizer (~231MB
+    # measured for GLM-5.2), and this host has ~9GB free against 20 cores.
+    # These runs are GCS-read-bound, so this is mostly I/O concurrency.
+    workers: 8
 
 # The corpus. Sources are grouped by the loader that reads them, so the block
 # key supplies the type -- no `type:` field on every entry.

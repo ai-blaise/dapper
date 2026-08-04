@@ -163,6 +163,12 @@ def _run_dedup(argv: Sequence[str] | None) -> None:
     print(output)
 
 
+def _run_tokenize(argv: Sequence[str] | None) -> None:
+    from dapper.tokenize.cli import tokenize_main
+
+    tokenize_main(argv)
+
+
 def _run_split(argv: Sequence[str] | None) -> None:
     from dapper.split.cli import main as splitter_main
 
@@ -198,7 +204,8 @@ COMMANDS: dict[str, tuple[str, CommandMain]] = {
     "archive": ("Stream the HuggingFace catalog into GCS", _run_archive),
     "catalog": ("Inspect the HuggingFace source catalog", _run_catalog),
     "dedup": ("Inspect and deduplicate datasets", _run_dedup),
-    "run": ("Archive then dedup in one sweep", _run_sweep),
+    "tokenize": ("Tokenize a text corpus into Parquet tokens", _run_tokenize),
+    "run": ("Archive, dedup, then tokenize in one sweep", _run_sweep),
     "split": ("Split a dataset into multiple parts", _run_split),
 }
 

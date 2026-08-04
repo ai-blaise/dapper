@@ -116,9 +116,13 @@ def run_datatrove_dedup(
     )
     stage3.run()
 
-    # Stage 4 is the only place every surviving document is touched, so it is
-    # where tokenization belongs: duplicates are dropped first and never paid
-    # for. Token counts are also only valid here, after removal.
+    # Stage 4 is the only place every surviving document is touched, so token
+    # counts are computed here: duplicates are dropped first and never counted.
+    #
+    # Counts only -- this stage does NOT materialize token IDs. Producing the
+    # training tokens is `dapper tokenize`, a separate command over a separate
+    # prefix, so dedup and tokenization stay independently runnable and
+    # re-runnable. `token_count` here exists solely to drive `len_bucket`.
     stage4 = executor(
         pipeline=[
             components["JsonlReader"](input_path),
@@ -263,7 +267,7 @@ def _load_datatrove_components() -> dict[str, object]:
             MinhashDedupCluster,
             MinhashDedupFilter,
         )
-        from datatrove.pipeline.readers import JsonlReader
+        from datatrove.pipeline.readers import JsonlReader, ParquetReader
         from datatrove.pipeline.tokens import TokensCounter
         from datatrove.pipeline.writers.jsonl import JsonlWriter
         from datatrove.pipeline.writers.parquet import ParquetWriter
@@ -284,6 +288,7 @@ def _load_datatrove_components() -> dict[str, object]:
         "MinhashDedupCluster": MinhashDedupCluster,
         "MinhashDedupFilter": MinhashDedupFilter,
         "MinhashDedupSignature": MinhashDedupSignature,
+        "ParquetReader": ParquetReader,
         "ParquetWriter": ParquetWriter,
         "TokensCounter": TokensCounter,
     }

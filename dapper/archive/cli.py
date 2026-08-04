@@ -136,7 +136,7 @@ def catalog_main(argv: Sequence[str] | None = None) -> None:
 
 
 def run_main(argv: Sequence[str] | None = None) -> None:
-    """`dapper run` -- archive, then dedup, in one sweep."""
+    """`dapper run` -- the full pipeline: archive, dedup, then tokenize."""
     from dapper.archive.catalog import CatalogError
     from dapper.archive.runner import run_archive
     from dapper.config import ConfigError
@@ -146,8 +146,10 @@ def run_main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="dapper run",
         description=(
-            "Archive the catalog into GCS, then run dedup against it. "
-            "Equivalent to `dapper archive && dapper dedup --gcs`."
+            "Run the full pretraining pipeline: archive the catalog into "
+            "GCS, deduplicate it, then tokenize the result. Equivalent to "
+            "`dapper archive && dapper dedup --gcs && dapper tokenize "
+            "--deduped` -- each leg is that same independent command."
         ),
     )
     parser.add_argument("--config", default=None, help="Config file override.")
@@ -171,9 +173,9 @@ def run_main(argv: Sequence[str] | None = None) -> None:
     # committing to it deliberate rather than a keystroke away.
     if args.limit is None and not args.yes:
         _fail(
-            "`dapper run` without --limit archives and dedups the entire "
-            "catalog: days of transfer and billable GCS egress. Re-run with "
-            "--limit N to test, or --yes to confirm.",
+            "`dapper run` without --limit archives, dedups, and tokenizes "
+            "the entire catalog: days of transfer and billable GCS egress. "
+            "Re-run with --limit N to test, or --yes to confirm.",
             EXIT_USAGE,
         )
 
@@ -204,5 +206,17 @@ def run_main(argv: Sequence[str] | None = None) -> None:
     print()
     try:
         print(dedup_run(config_path=args.config, gcs=True))
+    except (ConfigError, GcsError, RuntimeError, ValueError) as exc:
+        _fail(str(exc), 1)
+
+    # The third and final stage, over the corpus dedup just wrote. Not
+    # optional: `dapper run` is the whole pipeline, text through tokens. A run
+    # that stopped at dedup would be `dapper archive && dapper dedup`, which is
+    # already expressible by running those two commands.
+    from dapper.tokenize.runner import run_tokenize
+
+    print()
+    try:
+        print(run_tokenize(deduped=True, config_path=args.config))
     except (ConfigError, GcsError, RuntimeError, ValueError) as exc:
         _fail(str(exc), 1)

@@ -19,6 +19,7 @@ from dapper.dedup.config import DedupConfig
 DEFAULT_STAGED_INPUT_PREFIX = "dapper/dedup/staged-input"
 DEFAULT_WORK_PREFIX = "dapper/dedup/work"
 DEFAULT_OUTPUT_PREFIX = "dapper/dedup/output"
+DEFAULT_TOKENS_PREFIX = "dapper/tokens"
 MANIFEST_DIRNAME = "_manifest"
 
 
@@ -34,10 +35,31 @@ class GcsContext:
     staged_input_uri: str
     work_uri: str
     output_uri: str
+    tokens_uri: str
     manifest_uri: str
 
     def source_uri(self, source_name: str) -> str:
         return io.join(self.staged_input_uri, source_name)
+
+    def source_tokens_uri(self, source_name: str) -> str:
+        """Tokens for one staged (NOT deduplicated) source.
+
+        Namespaced under ``staged/`` so the path records which stage produced
+        the input. Tokens of a deduplicated corpus and tokens of raw staged
+        text are not interchangeable, and a bare ``tokens/<source>/`` would not
+        say which one it holds.
+        """
+        return io.join(self.tokens_uri, "staged", source_name)
+
+    def deduped_tokens_uri(self) -> str:
+        """Tokens for the deduplicated corpus.
+
+        Not per-source: dedup is corpus-wide by necessity -- cross-source
+        duplicates cannot be found one source at a time -- so its output is
+        partitioned by ``domain=`` rather than by source name. There is no
+        per-source prefix here to address.
+        """
+        return io.join(self.tokens_uri, "deduped")
 
 
 def get_filesystem() -> Any:
@@ -88,6 +110,9 @@ def init_gcs(config: DedupConfig, *, verify: bool = True) -> GcsContext:
         ),
         work_uri=io.join(root, config.storage_work_prefix or DEFAULT_WORK_PREFIX),
         output_uri=output_uri,
+        tokens_uri=io.join(
+            root, config.storage_tokens_prefix or DEFAULT_TOKENS_PREFIX
+        ),
         manifest_uri=io.join(output_uri, MANIFEST_DIRNAME),
     )
 

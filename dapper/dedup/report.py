@@ -89,6 +89,7 @@ def format_datatrove_report(report: DataTroveDedupReport) -> str:
             f"Removed duplicates: {report.removed_path}",
             f"Curriculum manifest: {report.manifest_path or 'not built'}",
             f"Tokenizer: {report.tokenizer}",
+            "Token IDs: not stored -- run `dapper tokenize` for training tokens",
             f"Length bins: {', '.join(str(b) for b in report.len_bins)} "
             "(last bin unbounded)",
             "MinHash config:",

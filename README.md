@@ -42,6 +42,17 @@ From a Git repository:
 uv tool install "dapper-datasets @ git+ssh://git@github.com/ai-blaise/dataset-parser.git"
 ```
 
+Reinstalling after code changes requires `--force`. A plain `uv tool install .`
+is a no-op when the tool already exists, so the `dapper` on your PATH keeps
+running the previously installed snapshot rather than your working tree:
+
+```bash
+uv tool install --force .
+```
+
+Check which copy you are actually running with `readlink -f "$(which dapper)"`.
+A pipeline run started against a stale install silently uses the old code.
+
 `dapper-datasets` is the package name. `dapper` is the terminal command. After installation, run Dapper from any directory:
 
 ```bash
@@ -237,6 +248,103 @@ dapper mix datasets/ -o output-datasets/custom.parquet \
 dapper mix datasets/ --dry-run --include Nemotron
 ```
 
+### Pretraining corpus pipeline (GCS)
+
+Four independent stages, each reading and writing a GCS prefix declared once in
+`dapper.yaml`. Every stage is separately runnable and re-runnable — none is a
+mode of another.
+
+```
+archive    →  staged-input/     text, JSONL, one dir per source
+dedup      :  staged-input/     →  dedup-output/   text, Parquet, MinHash-deduplicated
+tokenize   :  <any text corpus> →  tokens/         text + input_ids, Parquet
+```
+
+Prefixes are global config — commands take no path flags:
+
+```yaml
+storage:
+  provider: gcs
+  bucket: pretraining-corpus
+  dataset_prefix: dapper/pretraining/staged-input     # archive writes
+  work_prefix:    dapper/pretraining/datatrove-work   # MinHash scratch (deletable)
+  output_prefix:  dapper/pretraining/dedup-output     # dedup writes
+  tokens_prefix:  dapper/pretraining/tokens           # tokenize writes
+```
+
+Auth is Application Default Credentials — run `gcloud auth application-default
+login` first. Dapper never handles a credential itself.
+
+```bash
+# 0. Inspect what is configured before moving any bytes
+dapper catalog list
+dapper catalog show fineweb
+
+# 1. Archive HuggingFace sources into GCS. Streams straight to gs:// --
+#    nothing is written to local disk and nothing is tokenized.
+dapper archive --dry-run              # resolve catalog + bucket, write nothing
+dapper archive --limit 1000           # small slice to prove the path works
+dapper archive                        # full run; resumable via _SUCCESS markers
+
+# 2. Deduplicate. Corpus-wide by necessity: cross-source duplicates cannot be
+#    found one source at a time. Writes Parquet partitioned by domain=.
+dapper dedup --gcs
+
+# 3. Tokenize. Either a single staged source, or the deduplicated corpus.
+dapper tokenize fineweb --dry-run     # resolve corpus + tokenizer, write nothing
+dapper tokenize fineweb               # -> tokens/staged/fineweb/
+dapper tokenize --deduped             # -> tokens/deduped/
+```
+
+`dapper tokenize` takes a source name **or** `--deduped`, never both: the
+deduplicated corpus is partitioned by domain rather than by source, so there is
+no per-source prefix inside it to address.
+
+Run the whole pipeline in one sweep:
+
+```bash
+dapper run --limit 1000               # archive -> dedup -> tokenize
+dapper run --yes                      # full corpus; --yes is required
+```
+
+`--yes` is mandatory for an unlimited `dapper run` because the full catalog
+commits to days of transfer and billable GCS egress.
+
+#### Long runs
+
+These are multi-hour jobs. Run them detached so a closed terminal does not
+SIGHUP the process group:
+
+```bash
+nohup dapper tokenize fineweb > tokenize.log 2>&1 &
+```
+
+Interrupted runs resume. Archive skips sources with a `_SUCCESS` marker, and
+DataTrove records per-task completion markers under the output prefix, so a
+re-run picks up at the first incomplete task rather than restarting.
+
+#### Tuning throughput
+
+Concurrency is config, not flags — both `dedup` and `tokenize` read it:
+
+```yaml
+dedup:
+  datatrove:
+    executor: local   # 'slurm' fans the same tasks across a cluster
+    tasks: 1          # a floor; raised automatically to the input file count
+    workers: 8        # NOT auto-scaled -- caps how many tasks run at once
+```
+
+Leaving `workers: 1` serializes the entire run no matter how many tasks exist.
+Bound it by RAM rather than cores: each worker loads its own tokenizer (~231 MB
+for GLM-5.2).
+
+Before adding workers, find out what you are actually waiting on. These jobs
+are often network-bound rather than CPU-bound — tokenizing ~10B tokens is
+roughly 20 minutes of CPU, while uploading the ~50 GB of resulting Parquet over
+a 20 Mbps uplink is over five hours. When that is the case, more workers buy
+nothing; running the job in the bucket's own region is the fix.
+
 ### Split a dataset into parts
 
 ```bash
@@ -262,9 +370,21 @@ dapper split dataset/conversations.jsonl -n 10 --dry-run
 | `dapper mix <dir> -o <file.parquet>` | Mix datasets into unified Parquet |
 | `dapper split <file> -n <parts>` | Split datasets into parts |
 
+Pretraining corpus pipeline (GCS-backed, driven by `dapper.yaml`):
+
+| Command | Description |
+|---------|-------------|
+| `dapper catalog list` | List configured corpus sources |
+| `dapper catalog show <source>` | Show one source in full |
+| `dapper archive` | Stream the HuggingFace catalog into GCS |
+| `dapper dedup --gcs` | MinHash-deduplicate the archived corpus |
+| `dapper tokenize <source>` | Tokenize one staged source |
+| `dapper tokenize --deduped` | Tokenize the deduplicated corpus |
+| `dapper run` | Archive, dedup, then tokenize in one sweep |
+
 ### Command Coverage Status
 
-The public `dapper` CLI currently exposes the core dataset workflows: exploration, TUI viewing, parsing, mixing, and splitting. Some scripts in `scripts/` are still internal or legacy and do not yet have public `dapper` wrappers, including rerollout variants, upload helpers, filtering helpers, and demo scripts.
+The public `dapper` CLI exposes the core dataset workflows (exploration, TUI viewing, parsing, mixing, splitting) and the pretraining corpus pipeline (archive, dedup, tokenize). Some scripts in `scripts/` are still internal or legacy and do not yet have public `dapper` wrappers, including rerollout variants, upload helpers, filtering helpers, and demo scripts.
 
 ### TUI Keybindings
 
