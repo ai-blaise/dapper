@@ -48,12 +48,15 @@ def run_datatrove_dedup(
     output_dir: str | None = None,
     build_manifest_artifact: bool = True,
     dedup_run_id: str | None = None,
+    progress: bool = True,
 ) -> DataTroveDedupReport:
     """Run the 4-stage MinHash dedup pipeline.
 
     DataTrove is imported at runtime so Dapper can still inspect and normalize
     datasets without it installed.
     """
+    from dapper.progress import Stage, stage_bar
+
     components = _load_datatrove_components()
 
     _require_input(input_path)
@@ -91,7 +94,15 @@ def run_datatrove_dedup(
         workers=config.datatrove_workers,
         logging_dir=_join(logs, "signatures"),
     )
-    stage1.run()
+    with stage_bar(
+        Stage(
+            name="dedup:signatures",
+            total=config.datatrove_tasks,
+            completions_uri=_join(logs, "signatures"),
+        ),
+        enabled=progress,
+    ):
+        stage1.run()
 
     stage2 = executor(
         pipeline=[
@@ -105,7 +116,15 @@ def run_datatrove_dedup(
         workers=config.datatrove_workers,
         logging_dir=_join(logs, "buckets"),
     )
-    stage2.run()
+    with stage_bar(
+        Stage(
+            name="dedup:buckets",
+            total=config.datatrove_num_buckets,
+            completions_uri=_join(logs, "buckets"),
+        ),
+        enabled=progress,
+    ):
+        stage2.run()
 
     stage3 = executor(
         pipeline=[
@@ -119,7 +138,15 @@ def run_datatrove_dedup(
         workers=1,
         logging_dir=_join(logs, "clusters"),
     )
-    stage3.run()
+    with stage_bar(
+        Stage(
+            name="dedup:clusters",
+            total=1,
+            completions_uri=_join(logs, "clusters"),
+        ),
+        enabled=progress,
+    ):
+        stage3.run()
 
     # Stage 4 is the only place every surviving document is touched, so token
     # counts are computed here: duplicates are dropped first and never counted.
@@ -147,7 +174,15 @@ def run_datatrove_dedup(
         workers=config.datatrove_workers,
         logging_dir=_join(logs, "filter"),
     )
-    stage4.run()
+    with stage_bar(
+        Stage(
+            name="dedup:filter",
+            total=config.datatrove_tasks,
+            completions_uri=_join(logs, "filter"),
+        ),
+        enabled=progress,
+    ):
+        stage4.run()
 
     manifest_path = None
     if build_manifest_artifact:

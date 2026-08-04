@@ -140,6 +140,9 @@ def _run_dedup(argv: Sequence[str] | None) -> None:
             "curriculum manifest."
         ),
     )
+    from dapper.progress import add_progress_argument
+
+    add_progress_argument(parser)
     _reject_moved_flags(argv)
     args = parser.parse_args(list(argv or []))
 
@@ -155,6 +158,7 @@ def _run_dedup(argv: Sequence[str] | None) -> None:
             stage_to=args.stage_to,
             plan_gcs=args.plan_gcs,
             gcs=args.gcs,
+            progress=not args.no_progress,
         )
     except (ConfigError, RuntimeError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)

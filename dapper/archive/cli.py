@@ -19,6 +19,7 @@ def archive_main(argv: Sequence[str] | None = None) -> None:
     from dapper.archive.runner import run_archive
     from dapper.config import ConfigError
     from dapper.corpus.gcs import GcsError
+    from dapper.progress import add_progress_argument
 
     parser = argparse.ArgumentParser(
         prog="dapper archive",
@@ -68,6 +69,7 @@ def archive_main(argv: Sequence[str] | None = None) -> None:
         action="store_true",
         help="Resolve the catalog and bucket layout, print the plan, write nothing.",
     )
+    add_progress_argument(parser)
     args = parser.parse_args(list(argv or []))
 
     try:
@@ -78,6 +80,7 @@ def archive_main(argv: Sequence[str] | None = None) -> None:
             force=args.force,
             workers=args.workers,
             dry_run=args.dry_run,
+            progress=not args.no_progress,
         )
     except CatalogError as exc:
         _fail(str(exc), EXIT_USAGE)

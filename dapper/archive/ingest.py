@@ -152,6 +152,7 @@ def ingest_all(
     limit: int | None = None,
     force: bool = False,
     max_workers: int = DEFAULT_WORKERS,
+    progress: bool = True,
 ) -> list[IngestReport]:
     """Archive every targeted source into GCS.
 
@@ -161,6 +162,8 @@ def ingest_all(
     the caller can exit non-zero instead of claiming success.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from dapper.progress import Stage, stage_bar
 
     # Default to every configured source a loader exists for. Types without a
     # loader are excluded here rather than reported per-source, since they are
@@ -180,14 +183,25 @@ def ingest_all(
                 failed=True,
             )
 
-    if max_workers <= 1:
-        reports = [_one(source) for source in targets]
-    else:
-        reports = []
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {pool.submit(_one, source): source for source in targets}
-            for future in as_completed(futures):
-                reports.append(future.result())
+    # Sources, not records: a streamed HuggingFace dataset reports no length,
+    # so a record-denominated bar would have no denominator to show.
+    # This stage runs in the parent's own threads, so it drives the bar
+    # directly instead of polling completion markers.
+    bar_stage = Stage(name="archive", total=len(targets))
+
+    with stage_bar(bar_stage, enabled=progress) as bar:
+        if max_workers <= 1:
+            reports = []
+            for source in targets:
+                reports.append(_one(source))
+                bar.advance()
+        else:
+            reports = []
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = {pool.submit(_one, source): source for source in targets}
+                for future in as_completed(futures):
+                    reports.append(future.result())
+                    bar.advance()
 
     order = {source.name: index for index, source in enumerate(targets)}
     reports.sort(key=lambda report: order.get(report.source_name, 0))

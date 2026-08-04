@@ -18,6 +18,7 @@ def tokenize_main(argv: Sequence[str] | None = None) -> None:
     from dapper.archive.catalog import CatalogError
     from dapper.config import ConfigError
     from dapper.corpus.gcs import GcsError
+    from dapper.progress import add_progress_argument
     from dapper.tokenize.runner import run_tokenize
 
     parser = argparse.ArgumentParser(
@@ -68,6 +69,7 @@ def tokenize_main(argv: Sequence[str] | None = None) -> None:
         default=None,
         help="Config file override. Defaults to dapper.yaml in the current directory.",
     )
+    add_progress_argument(parser)
     args = parser.parse_args(list(argv or []))
 
     try:
@@ -77,6 +79,7 @@ def tokenize_main(argv: Sequence[str] | None = None) -> None:
             config_path=args.config,
             force=args.force,
             dry_run=args.dry_run,
+            progress=not args.no_progress,
         )
     except CatalogError as exc:
         _fail(str(exc), EXIT_USAGE)

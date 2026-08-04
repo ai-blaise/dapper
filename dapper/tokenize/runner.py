@@ -56,6 +56,7 @@ def run_tokenize(
     config_path: str | None = None,
     force: bool = False,
     dry_run: bool = False,
+    progress: bool = True,
 ) -> str:
     """Tokenize one corpus of text and return display text."""
     if deduped and source_name:
@@ -123,7 +124,13 @@ def run_tokenize(
 
     counts_uri = io.join(output_uri, COUNTS_DIRNAME)
     records, tokens = _run_pipeline(
-        config, input_uri, output_uri, counts_uri, template, deduped=deduped
+        config,
+        input_uri,
+        output_uri,
+        counts_uri,
+        template,
+        deduped=deduped,
+        progress=progress,
     )
 
     io.write_json(
@@ -201,6 +208,7 @@ def _run_pipeline(
     output_template: str,
     *,
     deduped: bool,
+    progress: bool = True,
 ) -> tuple[int, int]:
     """Run the single-stage read -> tokenize -> write pipeline.
 
@@ -209,11 +217,13 @@ def _run_pipeline(
     without touching dedup or its MinHash scratch.
     """
     from dapper.dedup.datatrove import _load_datatrove_components, _resolve_executor
+    from dapper.progress import Stage, stage_bar
     from dapper.tokenize.steps import build_tokenizer_step
 
     components = _load_datatrove_components()
     executor = _resolve_executor(config, components)
     reader = components["ParquetReader" if deduped else "JsonlReader"]
+    logging_uri = io.join(output_uri, "_logs")
 
     stage = executor(
         pipeline=[
@@ -233,9 +243,19 @@ def _run_pipeline(
         ],
         tasks=config.datatrove_tasks,
         workers=config.datatrove_workers,
-        logging_dir=io.join(output_uri, "_logs"),
+        logging_dir=logging_uri,
     )
-    stage.run()
+
+    # The bar polls the same completion markers DataTrove uses to decide what
+    # to skip on resume, so what it shows and what a re-run would redo are the
+    # same number by construction.
+    bar_stage = Stage(
+        name="tokenize",
+        total=config.datatrove_tasks,
+        completions_uri=logging_uri,
+    )
+    with stage_bar(bar_stage, enabled=progress):
+        stage.run()
     return _merge_counts(counts_uri)
 
 

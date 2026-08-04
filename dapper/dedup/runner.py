@@ -41,6 +41,7 @@ def run(
     stage_to: str | None = None,
     plan_gcs: bool = False,
     gcs: bool = False,
+    progress: bool = True,
 ) -> str:
     """Run the dedup subsystem and return display text.
 
@@ -54,7 +55,7 @@ def run(
         dedup_config = replace(dedup_config, sources=sources)
 
     if gcs:
-        return _run_gcs_dedup(dedup_config)
+        return _run_gcs_dedup(dedup_config, progress=progress)
 
     if dry_run:
         inspections = (
@@ -99,7 +100,7 @@ def run(
     )
 
 
-def _run_gcs_dedup(config: DedupConfig) -> str:
+def _run_gcs_dedup(config: DedupConfig, *, progress: bool = True) -> str:
     """Run the full DataTrove dedup against GCS, in place."""
     from dapper.corpus.gcs import count_shards, init_gcs
 
@@ -116,6 +117,7 @@ def _run_gcs_dedup(config: DedupConfig) -> str:
         context.staged_input_uri,
         work_dir=context.work_uri,
         output_dir=context.output_uri,
+        progress=progress,
     )
     return format_datatrove_report(report)
 

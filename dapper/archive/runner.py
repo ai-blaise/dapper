@@ -39,6 +39,7 @@ def run_archive(
     force: bool = False,
     workers: int | None = None,
     dry_run: bool = False,
+    progress: bool = True,
 ) -> CommandResult:
     """Stream configured corpus sources into the GCS archive."""
     dedup_config = parse_dedup_config(load_config(config_path))
@@ -61,6 +62,7 @@ def run_archive(
         limit=limit,
         force=force,
         max_workers=workers or DEFAULT_WORKERS,
+        progress=progress,
     )
     failed = any(report.failed for report in reports)
     return CommandResult(
