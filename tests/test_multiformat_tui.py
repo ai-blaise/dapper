@@ -7,10 +7,10 @@ with JSONL, JSON, and Parquet formats.
 from __future__ import annotations
 
 import json
-import pytest
 from pathlib import Path
 from typing import Any
 
+import pytest
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -25,6 +25,8 @@ from dapper.tui.data_loader import (
     set_cached_records,
     clear_cache,
 )
+from dapper.tui.keybindings import BACK_BINDINGS, GLOBAL_BINDINGS, MODAL_BINDINGS
+from dapper.tui.widgets.json_tree_panel import MAX_ARRAY_CHILDREN, JsonTreePanel
 
 
 def create_jsonl_file(filepath: Path, records: list[dict[str, Any]]) -> None:
@@ -146,6 +148,66 @@ class TestLoadRecords:
         result = load_records(str(filepath))
         assert hasattr(result, "__iter__")
         assert hasattr(result, "__next__")
+
+
+class TestJsonTreePanel:
+    """Tests for JSON tree rendering behavior."""
+
+    def test_large_scalar_arrays_render_a_bounded_preview(self):
+        """Token vectors should be inspectable without thousands of tree nodes."""
+        tree = JsonTreePanel()
+        tree.load_json({"input_ids": list(range(MAX_ARRAY_CHILDREN + 1))})
+
+        array_node = tree.root.children[0]
+        assert str(array_node.label) == f"[] input_ids ({MAX_ARRAY_CHILDREN + 1} items)"
+        assert len(array_node.children) == MAX_ARRAY_CHILDREN + 1
+        assert str(array_node.children[0].label) == '"[0]": 0'
+        assert str(array_node.children[MAX_ARRAY_CHILDREN - 1].label) == (
+            f'"[{MAX_ARRAY_CHILDREN - 1}]": {MAX_ARRAY_CHILDREN - 1}'
+        )
+        assert str(array_node.children[-1].label) == "... 1 more scalar items"
+        assert tree.get_node_data(array_node)[1] == list(range(MAX_ARRAY_CHILDREN + 1))
+
+    def test_nested_object_arrays_still_render_children(self):
+        """Conversation arrays stay navigable because their children are records."""
+        tree = JsonTreePanel()
+        tree.load_json({"messages": [{"role": "user"}, {"role": "assistant"}]})
+
+        array_node = tree.root.children[0]
+        assert len(array_node.children) == 2
+
+
+class TestTuiKeybindings:
+    """Tests for global quit/back binding policy."""
+
+    def test_quit_bindings_are_priority(self):
+        bindings = {binding.key: binding for binding in GLOBAL_BINDINGS}
+
+        assert bindings["q"].action == "quit"
+        assert bindings["q"].priority is True
+        assert bindings["escape"].action == "quit"
+        assert bindings["escape"].priority is True
+        assert bindings[":,q"].action == "quit"
+        assert bindings[":,q"].priority is True
+
+    def test_modal_quit_bindings_are_priority_and_b_closes(self):
+        bindings = {binding.key: binding for binding in MODAL_BINDINGS}
+
+        assert bindings["b"].action == "close"
+        assert bindings["b"].priority is True
+        assert "enter" not in bindings
+        assert bindings["q"].action == "quit"
+        assert bindings["q"].priority is True
+        assert bindings["escape"].action == "quit"
+        assert bindings["escape"].priority is True
+        assert bindings[":,q"].action == "quit"
+        assert bindings[":,q"].priority is True
+
+    def test_back_binding_is_priority(self):
+        bindings = {binding.key: binding for binding in BACK_BINDINGS}
+
+        assert bindings["b"].action == "go_back"
+        assert bindings["b"].priority is True
 
 
 class TestLoadAllRecords:

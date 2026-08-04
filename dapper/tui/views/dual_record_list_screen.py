@@ -15,7 +15,8 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
-from utils.detect import discover_data_files, format_file_size
+from dapper.corpus import io
+from utils.detect import discover_data_entries, format_file_size
 from dapper.tui.data_loader import (
     FieldMapping,
     get_field_mapping,
@@ -60,7 +61,7 @@ class DualRecordListScreen(
     }
 
     #dual-header {
-        background: $primary-background;
+        background: $surface-darken-1;
         color: $text;
         padding: 1;
         text-align: center;
@@ -73,14 +74,6 @@ class DualRecordListScreen(
 
     #left-panel, #right-panel {
         height: 100%;
-    }
-
-    #left-panel {
-        background: $primary 10%;
-    }
-
-    #right-panel {
-        background: $success 10%;
     }
 
     .file-table, .record-table {
@@ -108,6 +101,8 @@ class DualRecordListScreen(
         super().__init__(name=name, id=id, classes=classes)
         self._left_dir = left_dir
         self._right_dir = right_dir
+        self._left_dir_history: list[str] = []
+        self._right_dir_history: list[str] = []
 
         # Left pane state
         self._left_state: PaneState = PaneState.FILE_LIST
@@ -137,10 +132,8 @@ class DualRecordListScreen(
         self._loading_side: str = "left"
 
     def compose(self) -> ComposeResult:
-        import os
-
-        left_basename = os.path.basename(self._left_dir)
-        right_basename = os.path.basename(self._right_dir)
+        left_basename = io.basename(self._left_dir)
+        right_basename = io.basename(self._right_dir)
 
         yield Header()
         yield Static("Dataset Comparison - Independent Panes", id="dual-header")
@@ -173,8 +166,8 @@ class DualRecordListScreen(
 
     def on_mount(self) -> None:
         # Load files for both directories
-        self._left_files = discover_data_files(self._left_dir)
-        self._right_files = discover_data_files(self._right_dir)
+        self._left_files = discover_data_entries(self._left_dir)
+        self._right_files = discover_data_entries(self._right_dir)
 
         # Populate file tables
         self._populate_file_table("left")
@@ -191,15 +184,24 @@ class DualRecordListScreen(
         table = self.query_one(f"#{side}-file-table", DataTable)
         files = self._left_files if side == "left" else self._right_files
 
-        table.add_column("FILE NAME", width=40)
+        table.clear(columns=True)
+        table.add_column("NAME", width=40)
+        table.add_column("TYPE", width=10)
         table.add_column("FORMAT", width=10)
         table.add_column("SIZE", width=12)
 
         for file_info in files:
+            display_name = file_info["name"]
+            if file_info.get("kind") == "directory":
+                display_name += "/"
+            display_size = ""
+            if file_info.get("kind") != "directory":
+                display_size = format_file_size(file_info["size"])
             table.add_row(
-                file_info["name"],
+                display_name,
+                file_info.get("kind", "file").upper(),
                 file_info["format"].upper(),
-                format_file_size(file_info["size"]),
+                display_size,
                 key=file_info["path"],
             )
         table.zebra_stripes = True
@@ -220,8 +222,6 @@ class DualRecordListScreen(
 
     def _refresh_pane(self, side: str) -> None:
         """Update visibility based on pane state."""
-        import os
-
         state = self._left_state if side == "left" else self._right_state
 
         file_table = self.query_one(f"#{side}-file-table", DataTable)
@@ -230,7 +230,7 @@ class DualRecordListScreen(
         header = self.query_one(f"#{side}-header", Static)
 
         directory = self._left_dir if side == "left" else self._right_dir
-        dir_basename = os.path.basename(directory)
+        dir_basename = io.basename(directory)
 
         # Hide all first
         file_table.display = False
@@ -247,7 +247,7 @@ class DualRecordListScreen(
                 if side == "left"
                 else self._right_selected_file
             )
-            file_basename = os.path.basename(selected_file) if selected_file else "?"
+            file_basename = io.basename(selected_file) if selected_file else "?"
             if self._is_pane_lazy(side):
                 total = (
                     self._left_total_count
@@ -272,7 +272,7 @@ class DualRecordListScreen(
                 if side == "left"
                 else self._right_selected_file
             )
-            file_basename = os.path.basename(selected_file) if selected_file else "?"
+            file_basename = io.basename(selected_file) if selected_file else "?"
             idx = (
                 self._left_selected_index
                 if side == "left"
@@ -311,10 +311,15 @@ class DualRecordListScreen(
 
         Uses lazy paginated mode for large files to avoid OOM.
         """
-        import os
-
         file_path = str(event.row_key.value)
-        file_basename = os.path.basename(file_path)
+        file_info = self._find_file_entry(side, file_path)
+        if file_info is None:
+            return
+        if file_info.get("kind") == "directory":
+            self._enter_directory(side, file_path)
+            return
+
+        file_basename = io.basename(file_path)
 
         # Store the selected file path
         if side == "left":
@@ -362,6 +367,55 @@ class DualRecordListScreen(
                 self._complete_file_load(side, records)
             except Exception as e:
                 self.notify(f"Error loading: {e}", severity="error")
+
+    def _find_file_entry(self, side: str, path: str) -> dict[str, Any] | None:
+        """Find a visible file-browser entry by path."""
+        files = self._left_files if side == "left" else self._right_files
+        for file_info in files:
+            if file_info["path"] == path:
+                return file_info
+        return None
+
+    def _enter_directory(self, side: str, directory: str) -> None:
+        """Descend one directory/prefix in a pane."""
+        current = self._left_dir if side == "left" else self._right_dir
+        entries = discover_data_entries(directory)
+        if not entries:
+            self.notify(f"No supported files found in {directory}", severity="warning")
+            return
+
+        if side == "left":
+            self._left_dir_history.append(current)
+            self._left_dir = directory
+            self._left_files = entries
+        else:
+            self._right_dir_history.append(current)
+            self._right_dir = directory
+            self._right_files = entries
+
+        self._populate_file_table(side)
+        self._refresh_pane(side)
+        self._focus_active_widget()
+
+    def _go_up_directory(self, side: str) -> bool:
+        """Move one directory/prefix up in a pane, if history is available."""
+        history = self._left_dir_history if side == "left" else self._right_dir_history
+        if not history:
+            return False
+        directory = history.pop()
+        entries = discover_data_entries(directory)
+
+        if side == "left":
+            self._left_dir = directory
+            self._left_files = entries
+        else:
+            self._right_dir = directory
+            self._right_files = entries
+
+        self._populate_file_table(side)
+        self._refresh_pane(side)
+        self._focus_active_widget()
+        return True
 
     def _complete_file_load(self, side: str, records: list[dict[str, Any]]) -> None:
         """Complete the file loading process after records are loaded.
@@ -599,8 +653,9 @@ class DualRecordListScreen(
             self._refresh_pane(side)
             self._focus_active_widget()
         else:
-            # File list → Exit screen
-            self.app.pop_screen()
+            # File list → parent directory, then exit screen at the root
+            if not self._go_up_directory(side):
+                self.app.pop_screen()
 
     def action_quit(self) -> None:
         self.app.exit()

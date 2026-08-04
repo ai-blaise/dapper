@@ -6,15 +6,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dapper.corpus import io
+
 EXTENSION_MAP: dict[str, str] = {
     ".jsonl": "jsonl",
     ".json": "json",
     ".parquet": "parquet",
     ".pq": "parquet",
     ".csv": "csv",
+    ".txt": "text",
+    ".text": "text",
+    ".md": "text",
+    ".log": "text",
 }
 
-SUPPORTED_FORMATS = frozenset(["jsonl", "json", "parquet", "csv"])
+SUPPORTED_FORMATS = frozenset(["jsonl", "json", "parquet", "csv", "text"])
 
 
 def detect_format(filename: str) -> str:
@@ -29,17 +35,21 @@ def detect_format(filename: str) -> str:
     Raises:
         ValueError: If format cannot be determined
     """
-    extension = Path(filename).suffix.lower()
+    extension = Path(str(filename).split("?", 1)[0]).suffix.lower()
 
     if extension in EXTENSION_MAP:
         return EXTENSION_MAP[extension]
+    if not extension:
+        raise ValueError(
+            f"Cannot determine format for '{filename}'. "
+            f"Supported: {', '.join(sorted(EXTENSION_MAP.keys()))}"
+        )
 
     # Content sniffing for ambiguous cases
-    path = Path(filename)
-    if path.exists():
+    if io.exists(filename):
         # Check for Parquet magic bytes
         try:
-            with open(filename, "rb") as f:
+            with io.open_binary(filename) as f:
                 magic = f.read(4)
                 if magic == b"PAR1":
                     return "parquet"
@@ -48,7 +58,7 @@ def detect_format(filename: str) -> str:
 
         # JSON vs JSONL by first non-whitespace char
         try:
-            with open(filename, "r", encoding="utf-8") as f:
+            with io.open_text(filename, "r", encoding="utf-8") as f:
                 first_char = None
                 for char in f.read(1024):
                     if not char.isspace():
@@ -86,39 +96,59 @@ def discover_data_files(directory: str) -> list[dict]:
         - format: detected format (jsonl, json, parquet)
         - size: file size in bytes
     """
-    dir_path = Path(directory)
-    files = []
+    return [
+        entry
+        for entry in discover_data_entries(directory)
+        if entry.get("kind", "file") == "file"
+    ]
 
-    # Iterate all files and check extension case-insensitively
-    # (glob patterns are case-sensitive on Linux)
+
+def discover_data_entries(directory: str) -> list[dict]:
+    """
+    Discover immediate child prefixes and supported data/text files in a directory.
+
+    Args:
+        directory: Path or URI to scan.
+
+    Returns:
+        List of dicts with:
+        - path: absolute path or URI
+        - name: child filename or prefix name
+        - kind: "directory" or "file"
+        - format: detected format, or "dir" for directories
+        - size: file size in bytes, or 0 for directories
+    """
+    entries = []
+
     try:
-        for file_path in dir_path.iterdir():
-            if not file_path.is_file():
-                continue
-
-            # Check extension case-insensitively
-            ext_lower = file_path.suffix.lower()
-            if ext_lower not in EXTENSION_MAP:
-                continue
-
-            try:
-                files.append(
-                    {
-                        "path": str(file_path.absolute()),
-                        "name": file_path.name,
-                        "format": EXTENSION_MAP[ext_lower],
-                        "size": file_path.stat().st_size,
-                    }
-                )
-            except (OSError, PermissionError):
-                # Skip files we can't access
-                continue
+        children = io.list_entries(directory)
     except (OSError, PermissionError):
         # Can't read directory
         return []
 
-    # Sort by name for consistent ordering
-    return sorted(files, key=lambda f: f["name"].lower())
+    for entry in children:
+        if entry["kind"] == "directory":
+            entries.append({**entry, "format": "dir"})
+            continue
+
+        ext_lower = Path(entry["name"]).suffix.lower()
+        if ext_lower not in EXTENSION_MAP:
+            continue
+        entries.append(
+            {
+                "path": entry["path"],
+                "name": entry["name"],
+                "kind": "file",
+                "format": EXTENSION_MAP[ext_lower],
+                "size": entry["size"],
+            }
+        )
+
+    # Directories first, then files, both sorted by name for stable navigation.
+    return sorted(
+        entries,
+        key=lambda item: (item["kind"] != "directory", item["name"].lower()),
+    )
 
 
 def format_file_size(size_bytes: int) -> str:

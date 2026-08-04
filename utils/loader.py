@@ -30,11 +30,11 @@ import csv
 import json
 import re
 import sys
-from pathlib import Path
 from typing import Any, Iterator
 
 import pyarrow.parquet as pq
 
+from dapper.corpus import io
 from utils.detect import detect_format
 
 csv.field_size_limit(sys.maxsize)
@@ -50,7 +50,7 @@ NULL_BYTE_PATTERN = re.compile(r"\x00+")
 
 def _iter_jsonl(filename: str) -> Iterator[dict[str, Any]]:
     """Stream JSONL records line-by-line."""
-    with open(filename, "r", encoding="utf-8", errors="surrogatepass") as f:
+    with io.open_text(filename, "r", encoding="utf-8", errors="surrogatepass") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -65,7 +65,7 @@ def _iter_jsonl(filename: str) -> Iterator[dict[str, Any]]:
 def _count_jsonl(filename: str) -> int:
     """Count JSONL records (single pass, O(1) memory)."""
     count = 0
-    with open(filename, "r", encoding="utf-8", errors="surrogatepass") as f:
+    with io.open_text(filename, "r", encoding="utf-8", errors="surrogatepass") as f:
         for line in f:
             if line.strip():
                 count += 1
@@ -89,7 +89,7 @@ def _at_index_jsonl(filename: str, index: int) -> dict[str, Any]:
 
 def _iter_json(filename: str) -> Iterator[dict[str, Any]]:
     """Load JSON (must load entire file due to JSON parsing requirements)."""
-    with open(filename, "r", encoding="utf-8") as f:
+    with io.open_text(filename, "r", encoding="utf-8") as f:
         data = json.load(f)
     if isinstance(data, list):
         yield from data
@@ -101,7 +101,7 @@ def _iter_json(filename: str) -> Iterator[dict[str, Any]]:
 
 def _count_json(filename: str) -> int:
     """Count JSON records."""
-    with open(filename, "r", encoding="utf-8") as f:
+    with io.open_text(filename, "r", encoding="utf-8") as f:
         data = json.load(f)
     if isinstance(data, list):
         return len(data)
@@ -112,7 +112,7 @@ def _at_index_json(filename: str, index: int) -> dict[str, Any]:
     """Get record at index."""
     if index < 0:
         raise IndexError("Record index cannot be negative")
-    with open(filename, "r", encoding="utf-8") as f:
+    with io.open_text(filename, "r", encoding="utf-8") as f:
         data = json.load(f)
     if isinstance(data, list):
         if index >= len(data):
@@ -148,39 +148,42 @@ def _row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
 
 def _iter_parquet(filename: str) -> Iterator[dict[str, Any]]:
     """Stream Parquet records in batches (O(batch_size) memory)."""
-    pf = pq.ParquetFile(filename)
-    for batch in pf.iter_batches(batch_size=1024):
-        batch_dict = batch.to_pydict()
-        num_rows = len(next(iter(batch_dict.values()))) if batch_dict else 0
-        for i in range(num_rows):
-            row = {key: values[i] for key, values in batch_dict.items()}
-            yield _row_to_dict(row)
+    with io.open_binary(filename) as handle:
+        pf = pq.ParquetFile(handle)
+        for batch in pf.iter_batches(batch_size=1024):
+            batch_dict = batch.to_pydict()
+            num_rows = len(next(iter(batch_dict.values()))) if batch_dict else 0
+            for i in range(num_rows):
+                row = {key: values[i] for key, values in batch_dict.items()}
+                yield _row_to_dict(row)
 
 
 def _count_parquet(filename: str) -> int:
     """Count Parquet records (from metadata, O(1) memory)."""
-    pf = pq.ParquetFile(filename)
-    return pf.metadata.num_rows
+    with io.open_binary(filename) as handle:
+        pf = pq.ParquetFile(handle)
+        return pf.metadata.num_rows
 
 
 def _at_index_parquet(filename: str, index: int) -> dict[str, Any]:
     """Get record at index using row group metadata (O(1) memory)."""
     if index < 0:
         raise IndexError("Record index cannot be negative")
-    pf = pq.ParquetFile(filename)
-    total_rows = pf.metadata.num_rows
-    if index >= total_rows:
-        raise IndexError(f"Record index {index} out of range (0-{total_rows - 1})")
+    with io.open_binary(filename) as handle:
+        pf = pq.ParquetFile(handle)
+        total_rows = pf.metadata.num_rows
+        if index >= total_rows:
+            raise IndexError(f"Record index {index} out of range (0-{total_rows - 1})")
 
-    cumulative = 0
-    for rg_idx in range(pf.metadata.num_row_groups):
-        rg_rows = pf.metadata.row_group(rg_idx).num_rows
-        if cumulative + rg_rows > index:
-            local_offset = index - cumulative
-            table = pf.read_row_group(rg_idx)
-            row = table.slice(local_offset, 1).to_pydict()
-            return _row_to_dict({key: values[0] for key, values in row.items()})
-        cumulative += rg_rows
+        cumulative = 0
+        for rg_idx in range(pf.metadata.num_row_groups):
+            rg_rows = pf.metadata.row_group(rg_idx).num_rows
+            if cumulative + rg_rows > index:
+                local_offset = index - cumulative
+                table = pf.read_row_group(rg_idx)
+                row = table.slice(local_offset, 1).to_pydict()
+                return _row_to_dict({key: values[0] for key, values in row.items()})
+            cumulative += rg_rows
     raise IndexError(f"Record index {index} out of range")
 
 
@@ -188,35 +191,36 @@ def _range_parquet(filename: str, start: int, count: int) -> list[dict[str, Any]
     """Get range of records using row group metadata (efficient seeking)."""
     if start < 0:
         raise IndexError("Start index cannot be negative")
-    pf = pq.ParquetFile(filename)
-    total_rows = pf.metadata.num_rows
-    if start >= total_rows:
-        raise IndexError(f"Start index {start} out of range (0-{total_rows - 1})")
+    with io.open_binary(filename) as handle:
+        pf = pq.ParquetFile(handle)
+        total_rows = pf.metadata.num_rows
+        if start >= total_rows:
+            raise IndexError(f"Start index {start} out of range (0-{total_rows - 1})")
 
-    end = min(start + count, total_rows)
-    records = []
-    cumulative = 0
+        end = min(start + count, total_rows)
+        records = []
+        cumulative = 0
 
-    for rg_idx in range(pf.metadata.num_row_groups):
-        rg_rows = pf.metadata.row_group(rg_idx).num_rows
-        rg_start = cumulative
-        rg_end = cumulative + rg_rows
+        for rg_idx in range(pf.metadata.num_row_groups):
+            rg_rows = pf.metadata.row_group(rg_idx).num_rows
+            rg_start = cumulative
+            rg_end = cumulative + rg_rows
 
-        if rg_end <= start or rg_start >= end:
+            if rg_end <= start or rg_start >= end:
+                cumulative += rg_rows
+                continue
+
+            table = pf.read_row_group(rg_idx)
+            local_start = max(0, start - rg_start)
+            local_end = min(rg_rows, end - rg_start)
+            slice_table = table.slice(local_start, local_end - local_start)
+            batch_dict = slice_table.to_pydict()
+
+            for i in range(local_end - local_start):
+                row = {key: values[i] for key, values in batch_dict.items()}
+                records.append(_row_to_dict(row))
+
             cumulative += rg_rows
-            continue
-
-        table = pf.read_row_group(rg_idx)
-        local_start = max(0, start - rg_start)
-        local_end = min(rg_rows, end - rg_start)
-        slice_table = table.slice(local_start, local_end - local_start)
-        batch_dict = slice_table.to_pydict()
-
-        for i in range(local_end - local_start):
-            row = {key: values[i] for key, values in batch_dict.items()}
-            records.append(_row_to_dict(row))
-
-        cumulative += rg_rows
 
     return records
 
@@ -228,7 +232,7 @@ def _range_parquet(filename: str, start: int, count: int) -> list[dict[str, Any]
 
 def _iter_csv(filename: str) -> Iterator[dict[str, Any]]:
     """Stream CSV records line-by-line."""
-    with open(filename, "r", encoding="utf-8", newline="") as f:
+    with io.open_text(filename, "r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
             yield dict(row)
@@ -237,7 +241,7 @@ def _iter_csv(filename: str) -> Iterator[dict[str, Any]]:
 def _count_csv(filename: str) -> int:
     """Count CSV records (single pass)."""
     count = 0
-    with open(filename, "r", encoding="utf-8", newline="") as f:
+    with io.open_text(filename, "r", encoding="utf-8", newline="") as f:
         reader = csv.reader(f)
         next(reader, None)
         for row in reader:
@@ -251,6 +255,37 @@ def _at_index_csv(filename: str, index: int) -> dict[str, Any]:
     if index < 0:
         raise IndexError("Record index cannot be negative")
     for i, record in enumerate(_iter_csv(filename)):
+        if i == index:
+            return record
+    raise IndexError(f"Record index {index} out of range")
+
+
+# =============================================================================
+# Plain text - Line-by-line records for lightweight previews
+# =============================================================================
+
+
+def _iter_text(filename: str) -> Iterator[dict[str, Any]]:
+    """Stream text files as one record per line."""
+    with io.open_text(filename, "r", encoding="utf-8", errors="replace") as f:
+        for line_number, line in enumerate(f, start=1):
+            yield {"line_number": line_number, "text": line.rstrip("\n")}
+
+
+def _count_text(filename: str) -> int:
+    """Count text lines."""
+    count = 0
+    with io.open_text(filename, "r", encoding="utf-8", errors="replace") as f:
+        for _line in f:
+            count += 1
+    return count
+
+
+def _at_index_text(filename: str, index: int) -> dict[str, Any]:
+    """Get text line record at zero-based index."""
+    if index < 0:
+        raise IndexError("Record index cannot be negative")
+    for i, record in enumerate(_iter_text(filename)):
         if i == index:
             return record
     raise IndexError(f"Record index {index} out of range")
@@ -285,6 +320,8 @@ def load_records(filename: str, fmt: str | None = None) -> Iterator[dict[str, An
             yield from _iter_parquet(filename)
         case "csv":
             yield from _iter_csv(filename)
+        case "text":
+            yield from _iter_text(filename)
         case _:
             raise ValueError(f"Unsupported format: {fmt}")
 
@@ -325,6 +362,8 @@ def get_record_count(filename: str, fmt: str | None = None) -> int:
             return _count_parquet(filename)
         case "csv":
             return _count_csv(filename)
+        case "text":
+            return _count_text(filename)
         case _:
             raise ValueError(f"Unsupported format: {fmt}")
 
@@ -357,6 +396,8 @@ def get_record_at_index(
             return _at_index_parquet(filename, index)
         case "csv":
             return _at_index_csv(filename, index)
+        case "text":
+            return _at_index_text(filename, index)
         case _:
             raise ValueError(f"Unsupported format: {fmt}")
 

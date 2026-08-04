@@ -69,7 +69,7 @@ class RecordListScreen(
     #page-status {
         dock: bottom;
         height: 1;
-        background: $primary-darken-1;
+        background: $surface-darken-1;
         color: $text;
         text-align: center;
         text-style: bold;

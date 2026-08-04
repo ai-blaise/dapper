@@ -309,6 +309,41 @@ def test_force_ingest_overrides_completion_marker(monkeypatch):
     assert report.records == 1
 
 
+def test_ingest_reports_streaming_progress(monkeypatch):
+    from dapper.corpus import io as corpus_io
+    from dapper.archive import ingest as gcp
+
+    source = _hf_source()
+    context = init_gcs(_config(), verify=False)
+    records = [{"text": str(index)} for index in range(gcp.PROGRESS_RECORD_INTERVAL + 1)]
+    updates = []
+
+    monkeypatch.setattr(gcp, "source_is_complete", lambda uri: False)
+    monkeypatch.setattr(gcp, "_stream_hf_records", lambda *a, **k: iter(records))
+    monkeypatch.setattr(gcp, "_mark_complete", lambda uri, payload: None)
+
+    def _fake_open_text(uri, mode="r"):
+        import io as _io
+
+        buf = _io.StringIO()
+        buf.close = lambda: None
+        return buf
+
+    monkeypatch.setattr(corpus_io, "open_text", _fake_open_text)
+
+    report = gcp.ingest_hf(
+        source,
+        context,
+        _config(),
+        progress_callback=lambda records, shards: updates.append((records, shards)),
+    )
+
+    assert report.records == gcp.PROGRESS_RECORD_INTERVAL + 1
+    assert (0, 0) in updates
+    assert (gcp.PROGRESS_RECORD_INTERVAL, 0) in updates
+    assert updates[-1] == (gcp.PROGRESS_RECORD_INTERVAL + 1, 1)
+
+
 def test_limited_ingest_does_not_count_as_complete(tmp_path, monkeypatch):
     """A `--limit` slice must not satisfy the resume check.
 

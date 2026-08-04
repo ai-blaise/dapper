@@ -11,6 +11,7 @@ of object stores, so a caller can write to either without special-casing.
 from __future__ import annotations
 
 import json
+import posixpath
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -58,7 +59,63 @@ def join(base: str, *parts: str) -> str:
 
 def exists(uri: str) -> bool:
     fs, path = fs_for(uri)
-    return bool(fs.exists(path))
+    return bool(fs.exists(path) or fs.isdir(path))
+
+
+def is_dir(uri: str) -> bool:
+    """Return whether ``uri`` names a directory or object-store prefix."""
+    fs, path = fs_for(uri)
+    return bool(fs.isdir(path))
+
+
+def size(uri: str) -> int:
+    """Return the object/file size in bytes, or 0 when unavailable."""
+    fs, path = fs_for(uri)
+    try:
+        info = fs.info(path)
+    except FileNotFoundError:
+        return 0
+    raw_size = info.get("size")
+    return int(raw_size or 0)
+
+
+def basename(uri: str) -> str:
+    """Return the last path component for a local path or URI."""
+    text = str(uri).rstrip("/")
+    if is_remote_uri(text):
+        return posixpath.basename(text.split("://", 1)[1])
+    return Path(text).name
+
+
+def list_files(uri: str) -> list[dict[str, Any]]:
+    """List immediate files under ``uri`` with URI, name, and size metadata."""
+    return [entry for entry in list_entries(uri) if entry["kind"] == "file"]
+
+
+def list_entries(uri: str) -> list[dict[str, Any]]:
+    """List immediate child prefixes/files under ``uri`` with display metadata."""
+    fs, path = fs_for(uri)
+    try:
+        entries = fs.ls(path, detail=True)
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+
+    children: list[dict[str, Any]] = []
+    for entry in entries:
+        kind = "directory" if entry.get("type") == "directory" else "file"
+        if kind not in {"directory", "file"}:
+            continue
+        entry_path = str(entry["name"])
+        full_uri = _restore_scheme(uri, entry_path)
+        children.append(
+            {
+                "path": full_uri,
+                "name": basename(full_uri),
+                "kind": kind,
+                "size": int(entry.get("size") or 0),
+            }
+        )
+    return children
 
 
 def read_text(uri: str) -> str:
@@ -106,11 +163,11 @@ def open_binary(uri: str):
     return fs.open(path, "rb")
 
 
-def open_text(uri: str, mode: str = "r"):
+def open_text(uri: str, mode: str = "r", **kwargs: Any):
     fs, path = fs_for(uri)
     if "w" in mode and not is_remote_uri(uri):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-    return fs.open(path, mode)
+    return fs.open(path, mode, **kwargs)
 
 
 def iter_jsonl(uri: str) -> Iterator[dict[str, Any]]:

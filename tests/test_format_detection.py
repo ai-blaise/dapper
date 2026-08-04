@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import pytest
-import tempfile
-from pathlib import Path
 
+from dapper.corpus import io
 from utils.detect import (
     detect_format,
     EXTENSION_MAP,
     SUPPORTED_FORMATS,
+    discover_data_entries,
     discover_data_files,
     format_file_size,
 )
@@ -104,6 +104,11 @@ class TestExtensionMap:
         assert ".csv" in EXTENSION_MAP
         assert EXTENSION_MAP[".csv"] == "csv"
 
+    def test_extension_map_has_text(self):
+        """Extension map should include plain text renderable formats."""
+        assert EXTENSION_MAP[".txt"] == "text"
+        assert EXTENSION_MAP[".md"] == "text"
+
 
 class TestSupportedFormats:
     """Tests for SUPPORTED_FORMATS constant."""
@@ -114,6 +119,7 @@ class TestSupportedFormats:
         assert "json" in SUPPORTED_FORMATS
         assert "parquet" in SUPPORTED_FORMATS
         assert "csv" in SUPPORTED_FORMATS
+        assert "text" in SUPPORTED_FORMATS
 
     def test_supported_formats_is_frozenset(self):
         """SUPPORTED_FORMATS should be a frozenset for efficient lookup."""
@@ -156,13 +162,14 @@ class TestDiscoverDataFiles:
         assert len(files) == 1
         assert files[0]["format"] == "csv"
 
-    def test_discover_ignores_other_extensions(self, tmp_path):
-        """Should ignore files with unsupported extensions."""
+    def test_discover_ignores_unsupported_extensions(self, tmp_path):
+        """Should ignore unsupported files while keeping renderable text."""
         (tmp_path / "data.txt").write_text("hello")
         (tmp_path / "data.xml").write_text("<root/>")
 
         files = discover_data_files(str(tmp_path))
-        assert len(files) == 0
+        assert [file["name"] for file in files] == ["data.txt"]
+        assert files[0]["format"] == "text"
 
     def test_discover_returns_sorted(self, tmp_path):
         """Should return files sorted by name."""
@@ -185,6 +192,55 @@ class TestDiscoverDataFiles:
         """Should return empty list for empty directory."""
         files = discover_data_files(str(tmp_path))
         assert files == []
+
+    def test_discover_remote_uri_files(self):
+        """Should discover supported files from fsspec-backed object stores."""
+        base = "memory://dapper-format-test"
+        with io.open_text(f"{base}/z.jsonl", "w", encoding="utf-8") as handle:
+            handle.write('{"test": 1}\n')
+        with io.open_text(f"{base}/a.json", "w", encoding="utf-8") as handle:
+            handle.write('[{"test": 1}]')
+        with io.open_text(f"{base}/skip.txt", "w", encoding="utf-8") as handle:
+            handle.write("ignore")
+
+        files = discover_data_files(base)
+
+        assert [file["name"] for file in files] == ["a.json", "skip.txt", "z.jsonl"]
+        assert files[0]["path"].startswith("memory://")
+        assert files[0]["size"] > 0
+
+
+class TestDiscoverDataEntries:
+    """Tests for browsable directory/prefix entries."""
+
+    def test_discovers_directories_and_supported_files(self, tmp_path):
+        (tmp_path / "nested").mkdir()
+        (tmp_path / "nested" / "data.jsonl").write_text('{"test": 1}\n')
+        (tmp_path / "notes.txt").write_text("hello\n")
+        (tmp_path / "ignore.xml").write_text("<root/>")
+
+        entries = discover_data_entries(str(tmp_path))
+
+        found = [(entry["name"], entry["kind"], entry["format"]) for entry in entries]
+        assert found == [
+            ("nested", "directory", "dir"),
+            ("notes.txt", "file", "text"),
+        ]
+
+    def test_discovers_remote_directories(self):
+        base = "memory://dapper-entry-test"
+        with io.open_text(f"{base}/child/data.jsonl", "w", encoding="utf-8") as handle:
+            handle.write('{"test": 1}\n')
+        with io.open_text(f"{base}/root.log", "w", encoding="utf-8") as handle:
+            handle.write("hello\n")
+
+        entries = discover_data_entries(base)
+
+        found = [(entry["name"], entry["kind"], entry["format"]) for entry in entries]
+        assert found == [
+            ("child", "directory", "dir"),
+            ("root.log", "file", "text"),
+        ]
 
 
 class TestFormatFileSize:

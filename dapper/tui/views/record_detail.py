@@ -21,7 +21,7 @@ from dapper.tui.data_loader import (
 )
 from dapper.tui.keybindings import SINGLE_PANE_BINDINGS, TREE_BINDINGS
 from dapper.tui.mixins import VimNavigationMixin
-from dapper.tui.widgets import FieldDetailModal
+from dapper.tui.widgets.field_detail_modal import FieldDetailModal
 from dapper.tui.widgets.json_tree_panel import MAX_TREE_DEPTH, JsonTreePanel
 
 
@@ -134,8 +134,8 @@ class RecordDetailScreen(VimNavigationMixin, Screen):
   ) -> None:
     self.app.push_screen(
       FieldDetailModal(
-        field_key=message.node_key,
-        field_value=message.node_value,
-        panel_label="Record",
+        message.node_key,
+        message.node_value,
+        message.panel_id.upper(),
       )
     )

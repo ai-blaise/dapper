@@ -24,7 +24,7 @@ from __future__ import annotations
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable, Iterator
+from typing import Iterator
 
 from dapper.corpus import io
 
@@ -70,6 +70,27 @@ class _NullBar:
     def set_completed(self, _value: int) -> None:
         return
 
+    def add_task(
+        self,
+        name: str,
+        *,
+        total: int | None = None,
+        status: str = "",
+    ) -> "_NullBar":
+        return self
+
+    def update(
+        self,
+        *,
+        completed: int | None = None,
+        total: int | None = None,
+        status: str | None = None,
+    ) -> None:
+        return
+
+    def finish(self, status: str | None = None) -> None:
+        return
+
 
 @contextmanager
 def stage_bar(stage: Stage, *, enabled: bool = True) -> Iterator[_NullBar]:
@@ -105,22 +126,65 @@ def stage_bar(stage: Stage, *, enabled: bool = True) -> Iterator[_NullBar]:
         BarColumn(),
         TaskProgressColumn(),
         MofNCompleteColumn(),
+        TextColumn("{task.fields[status]}"),
         TimeElapsedColumn(),
         TimeRemainingColumn(),
         transient=False,
     )
 
     with progress:
-        task_id = progress.add_task(stage.name, total=stage.total)
+        task_id = progress.add_task(stage.name, total=stage.total, status="sources")
+        lock = threading.Lock()
 
         class _Bar:
+            def __init__(self, current_task_id):
+                self._task_id = current_task_id
+
             def advance(self, amount: int = 1) -> None:
-                progress.advance(task_id, amount)
+                with lock:
+                    progress.advance(self._task_id, amount)
 
             def set_completed(self, value: int) -> None:
-                progress.update(task_id, completed=value)
+                with lock:
+                    progress.update(self._task_id, completed=value)
 
-        bar = _Bar()
+            def add_task(
+                self,
+                name: str,
+                *,
+                total: int | None = None,
+                status: str = "",
+            ) -> "_Bar":
+                with lock:
+                    child_id = progress.add_task(name, total=total, status=status)
+                return _Bar(child_id)
+
+            def update(
+                self,
+                *,
+                completed: int | None = None,
+                total: int | None = None,
+                status: str | None = None,
+            ) -> None:
+                fields = {}
+                values = {}
+                if completed is not None:
+                    values["completed"] = completed
+                if total is not None:
+                    values["total"] = total
+                if status is not None:
+                    fields["status"] = status
+                with lock:
+                    progress.update(self._task_id, **values, **fields)
+
+            def finish(self, status: str | None = None) -> None:
+                update = {}
+                if status is not None:
+                    update["status"] = status
+                with lock:
+                    progress.update(self._task_id, **update)
+
+        bar = _Bar(task_id)
         if stage.completions_uri is None:
             yield bar
             return

@@ -167,7 +167,7 @@ dapper stats dataset/conversations.parquet -v
 
 ## `dapper view`
 
-Open the interactive terminal UI for a file or directory.
+Open the interactive terminal UI for a local file/directory or a GCS URI.
 
 ```bash
 dapper view <path> [options]
@@ -178,6 +178,8 @@ Options:
 | Option | Description |
 |--------|-------------|
 | `-O, --output-dir DIR` | Output directory for export operations |
+| `--config PATH` | Config file override for `--gcs` shortcuts |
+| `--gcs [TARGET]` | Open a configured GCS prefix from `dapper.yaml`; target is `output`, `staged`, `tokens`, or `deduped-tokens` |
 | `-c, --compare PATH` | Compare against a second file or directory |
 | `-x, --export` | Enable parser/export comparison mode |
 | `--app-theme THEME` | Textual app theme |
@@ -191,7 +193,27 @@ dapper view dataset/conversations.parquet
 dapper view dataset/
 dapper view dataset_a/ --compare dataset_b/
 dapper view dataset/conversations.jsonl -x
+
+# GCS-backed viewing
+dapper view gs://my-bucket/path/to/conversations.jsonl
+dapper view gs://my-bucket/path/to/parquet-prefix/
+dapper view gs://my-bucket/dataset_a/ --compare gs://my-bucket/dataset_b/
+dapper view gs://my-bucket/path/to/conversations.jsonl -x
+
+# Configured GCS prefixes from dapper.yaml
+dapper view --gcs                    # storage.output_prefix
+dapper view --gcs staged             # storage.dataset_prefix
+dapper view --gcs tokens             # storage.tokens_prefix
+dapper view --gcs deduped-tokens     # storage.tokens_prefix/deduped
+dapper view --config prod.yaml --gcs output
 ```
+
+GCS access uses Application Default Credentials through `gcsfs`. Locally, run
+`gcloud auth application-default login` before opening `gs://` paths.
+
+Directory and GCS prefix paths open a browser first. Select a child prefix to
+descend or a supported file to render. JSONL, JSON, Parquet, CSV, and text files
+are supported; text files render one line per record.
 
 ## `dapper parse`
 

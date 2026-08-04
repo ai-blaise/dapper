@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 import pytest
-from pathlib import Path
-from typing import Any
 
+from dapper.corpus import io
 from utils.loader import load_records, get_record_count, get_record_at_index
 
 
@@ -317,3 +316,38 @@ class TestJSONLoaderWithFormattedJSON:
 
         loaded = list(load_records(str(filepath)))
         assert len(loaded) == 1
+
+
+class TestRemoteJsonlLoader:
+    """Tests for URI-backed JSONL loading."""
+
+    def test_load_count_and_index_remote_jsonl(self):
+        uri = "memory://dapper-json-loader/data.jsonl"
+        with io.open_text(uri, "w", encoding="utf-8") as handle:
+            handle.write('{"id": 1, "text": "hello"}\n')
+            handle.write('{"id": 2, "text": "world"}\n')
+
+        assert get_record_count(uri) == 2
+        assert get_record_at_index(uri, 1)["text"] == "world"
+        assert list(load_records(uri)) == [
+            {"id": 1, "text": "hello"},
+            {"id": 2, "text": "world"},
+        ]
+
+
+class TestTextLoader:
+    """Tests for plain text loading as line records."""
+
+    def test_load_count_and_index_text(self, tmp_path):
+        filepath = tmp_path / "notes.txt"
+        filepath.write_text("first\nsecond\n")
+
+        assert get_record_count(str(filepath)) == 2
+        assert get_record_at_index(str(filepath), 0) == {
+            "line_number": 1,
+            "text": "first",
+        }
+        assert list(load_records(str(filepath))) == [
+            {"line_number": 1, "text": "first"},
+            {"line_number": 2, "text": "second"},
+        ]

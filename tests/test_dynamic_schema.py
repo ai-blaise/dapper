@@ -639,6 +639,11 @@ class TestDataTableMixin:
 class TestPaginatedRecordsMixin:
     """Tests for pagination helper logic without launching the TUI."""
 
+    def test_default_page_size_is_small(self):
+        from dapper.tui.mixins.paginated_records import DEFAULT_PAGE_SIZE
+
+        assert DEFAULT_PAGE_SIZE == 50
+
     def test_record_total_pages(self):
         from dapper.tui.mixins.paginated_records import PaginatedRecordsMixin
 

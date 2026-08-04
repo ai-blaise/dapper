@@ -18,7 +18,9 @@ from typing import Any
 
 from textual.app import App
 
-from utils.detect import detect_format, discover_data_files
+from dapper.config import ConfigError, load_config
+from dapper.corpus import io
+from utils.detect import detect_format, discover_data_entries
 from dapper.tui.data_loader import (
     get_record_count,
     load_all_records,
@@ -32,7 +34,7 @@ from dapper.tui.views.comparison_screen import ComparisonScreen
 from dapper.tui.views.file_list import FileListScreen
 from dapper.tui.views.record_detail import RecordDetailScreen
 from dapper.tui.views.record_list import RecordListScreen
-from dapper.tui.widgets import FieldDetailModal
+from dapper.tui.widgets.field_detail_modal import FieldDetailModal
 from dapper.tui.widgets.json_tree_panel import JsonTreePanel
 
 # Import config module for theme management
@@ -45,6 +47,34 @@ class AppMode(Enum):
     SINGLE_FILE = "single_file"
     DIRECTORY = "directory"
     COMPARISON = "comparison"
+
+
+def resolve_configured_gcs_path(config_path: str | None, target: str) -> str:
+    """Resolve a named GCS viewer target from dapper.yaml storage config."""
+    from dapper.corpus.gcs import bucket_root
+    from dapper.dedup.config import parse_dedup_config
+
+    config = parse_dedup_config(load_config(config_path))
+    context = _init_gcs_context(config)
+    match target:
+        case "root":
+            return bucket_root(context.bucket)
+        case "staged":
+            return context.staged_input_uri
+        case "output":
+            return context.output_uri
+        case "tokens":
+            return context.tokens_uri
+        case "deduped-tokens":
+            return context.deduped_tokens_uri()
+        case _:
+            raise ValueError(f"Unknown GCS view target: {target}")
+
+
+def _init_gcs_context(config: Any) -> Any:
+    from dapper.corpus.gcs import init_gcs
+
+    return init_gcs(config)
 
 
 class JsonComparisonApp(BackgroundTaskMixin, App):
@@ -242,17 +272,17 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
             self.notify("No comparison path specified", severity="error")
             return
 
-        if not os.path.isdir(self._path):
+        if not io.is_dir(self._path):
             self.notify(f"Left path is not a directory: {self._path}", severity="error")
             return
-        if not os.path.isdir(self._compare_path):
+        if not io.is_dir(self._compare_path):
             self.notify(
                 f"Right path is not a directory: {self._compare_path}", severity="error"
             )
             return
 
-        left_basename = os.path.basename(self._path)
-        right_basename = os.path.basename(self._compare_path)
+        left_basename = io.basename(self._path)
+        right_basename = io.basename(self._compare_path)
         self.title = f"Dataset Comparison - {left_basename} ↔ {right_basename}"
 
         self.push_screen(DualRecordListScreen(self._path, self._compare_path))
@@ -269,6 +299,12 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
         """Handle file selection from directory listing."""
         self._current_file = event.file_path
         self._load_single_file(event.file_path)
+
+    def on_file_list_screen_directory_selected(
+        self, event: FileListScreen.DirectorySelected
+    ) -> None:
+        """Handle directory selection from the browser."""
+        self._push_directory_browser(event.directory, can_go_back=True)
 
     def action_show_detail(self) -> None:
         """Global handler for m key — show detail modal for focused JsonTreePanel."""
@@ -287,16 +323,9 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
             pass
 
     def action_change_app_theme(self, theme_name: str | None = None) -> None:
-        """Change the app theme.
-
-        Args:
-            theme_name: Theme name (textual-dark, nord, gruvbox, tokyo-night,
-                       atom-one-dark, atom-one-light, solarized-light, solarized-dark).
-                       If None, cycles through available themes.
-        """
+        """Change the app theme."""
         from utils.config import set_app_theme
 
-        # Available Textual app themes
         available_themes = [
             "textual-dark",
             "nord",
@@ -314,24 +343,16 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
                 if self.theme in available_themes
                 else 0
             )
-            next_index = (current_index + 1) % len(available_themes)
-            theme_name = available_themes[next_index]
+            theme_name = available_themes[(current_index + 1) % len(available_themes)]
 
         self.theme = theme_name
         set_app_theme(theme_name)
         self.notify(f"App theme changed to: {theme_name}")
 
     def action_change_syntax_theme(self, theme_name: str | None = None) -> None:
-        """Change the syntax highlighting theme for JSON display.
-
-        Args:
-            theme_name: Pygments theme name (monokai, dracula, nord, gruvbox-dark,
-                       solarized-dark, solarized-light).
-                       If None, cycles through available themes.
-        """
+        """Change the syntax highlighting theme for JSON display."""
         from utils.config import set_syntax_theme
 
-        # Available Pygments themes for syntax highlighting
         available_themes = [
             "monokai",
             "dracula",
@@ -347,8 +368,7 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
                 if self._syntax_theme in available_themes
                 else 0
             )
-            next_index = (current_index + 1) % len(available_themes)
-            theme_name = available_themes[next_index]
+            theme_name = available_themes[(current_index + 1) % len(available_themes)]
 
         self._syntax_theme = theme_name
         set_syntax_theme(theme_name)
@@ -357,12 +377,12 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
     def on_json_tree_panel_node_selected(
         self, message: JsonTreePanel.NodeSelected
     ) -> None:
-        """Global handler for node selection — show field detail modal."""
+        """Global handler for node selection: open the full value in-app."""
         self.push_screen(
             FieldDetailModal(
-                field_key=message.node_key,
-                field_value=message.node_value,
-                panel_label="Record",
+                message.node_key,
+                message.node_value,
+                message.panel_id.upper(),
             )
         )
 
@@ -376,13 +396,22 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
 
     def _load_directory(self) -> None:
         """Load directory and show file list."""
-        files = discover_data_files(self._path)
-        if not files:
+        if not self._push_directory_browser(self._path, can_go_back=False):
             self.exit(message=f"No supported files found in {self._path}")
-            return
 
-        self.title = f"Dataset Viewer - {os.path.basename(self._path)}/"
-        self.push_screen(FileListScreen(self._path, files))
+    def _push_directory_browser(self, directory: str, *, can_go_back: bool) -> bool:
+        """Push a file browser screen for one directory or object-store prefix."""
+        entries = discover_data_entries(directory)
+        if not entries:
+            self.notify(f"No supported files found in {directory}", severity="warning")
+            return False
+
+        if not can_go_back:
+            self.title = f"Dataset Viewer - {io.basename(directory)}/"
+        self.push_screen(
+            FileListScreen(directory, entries, can_go_back=can_go_back)
+        )
+        return True
 
     def _load_single_file(self, filepath: str) -> None:
         """Load a single file and show record list.
@@ -401,7 +430,7 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
             self.notify(f"Unsupported file format: {e}", severity="error")
             return
 
-        basename = os.path.basename(filepath)
+        basename = io.basename(filepath)
         self.title = f"Dataset Viewer - {basename} ({self._file_format})"
 
         if self.should_load_async(filepath):
@@ -477,7 +506,24 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "path",
-        help="Path to data file or directory of data files (JSONL, JSON, or Parquet)",
+        nargs="?",
+        help="Path or URI to a data file or directory (JSONL, JSON, or Parquet)",
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Config file override for --gcs shortcuts.",
+    )
+    parser.add_argument(
+        "--gcs",
+        nargs="?",
+        const="root",
+        choices=["root", "output", "staged", "tokens", "deduped-tokens"],
+        default=None,
+        help=(
+            "Open a configured GCS prefix from dapper.yaml. Defaults to the "
+            "bucket root when no target is provided."
+        ),
     )
     parser.add_argument(
         "-O",
@@ -511,24 +557,36 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
+    if args.gcs:
+        try:
+            args.path = resolve_configured_gcs_path(args.config, args.gcs)
+        except (ConfigError, RuntimeError, ValueError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    if not args.path:
+        parser.error("path is required unless --gcs is used")
+
     # Verify the path exists
-    if not os.path.exists(args.path):
+    if not io.exists(args.path):
         print(f"Error: Path not found: {args.path}", file=sys.stderr)
         sys.exit(1)
 
-    if not os.access(args.path, os.R_OK):
+    if not io.is_remote_uri(args.path) and not os.access(args.path, os.R_OK):
         print(f"Error: Permission denied: {args.path}", file=sys.stderr)
         sys.exit(1)
 
     # Verify compare path exists if provided
     if args.compare_path:
-        if not os.path.exists(args.compare_path):
+        if not io.exists(args.compare_path):
             print(
                 f"Error: Compare path not found: {args.compare_path}", file=sys.stderr
             )
             sys.exit(1)
 
-        if not os.access(args.compare_path, os.R_OK):
+        if not io.is_remote_uri(args.compare_path) and not os.access(
+            args.compare_path, os.R_OK
+        ):
             print(
                 f"Error: Compare path permission denied: {args.compare_path}",
                 file=sys.stderr,
@@ -536,9 +594,9 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
 
     # Determine if path is file or directory
-    is_directory = os.path.isdir(args.path)
+    is_directory = io.is_dir(args.path)
     is_compare_directory = (
-        os.path.isdir(args.compare_path) if args.compare_path else False
+        io.is_dir(args.compare_path) if args.compare_path else False
     )
 
     app = JsonComparisonApp(

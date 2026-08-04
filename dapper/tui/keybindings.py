@@ -6,7 +6,7 @@ inline in individual views — import from here instead.
 
 Binding groups:
     GLOBAL_BINDINGS:     Always present (quit)
-    BACK_BINDINGS:       Non-root screens (escape/b → go_back)
+    BACK_BINDINGS:       Non-root screens (b → go_back)
     VIM_NAV_BINDINGS:    Vim-style j/k/g/G navigation
     PANEL_BINDINGS:      Dual-pane panel switching (h/l/tab/arrows)
     TREE_BINDINGS:       Tree view actions (expand/collapse/detail)
@@ -23,7 +23,9 @@ from textual.binding import Binding
 
 # ── Always present ──────────────────────────────────────────────────
 GLOBAL_BINDINGS = [
-    Binding("q", "quit", "Quit", show=False),
+    Binding("q", "quit", "Quit", show=True, priority=True),
+    Binding(":,q", "quit", "Quit", show=False, priority=True, key_display=":q"),
+    Binding("escape", "quit", "Quit", show=False, priority=True),
     Binding("m", "show_detail", "Detail", show=True),
     Binding("ctrl+t", "change_app_theme", "App Theme", show=True),
     Binding("ctrl+y", "change_syntax_theme", "Syntax", show=True),
@@ -31,8 +33,7 @@ GLOBAL_BINDINGS = [
 
 # ── Non-root screens ────────────────────────────────────────────────
 BACK_BINDINGS = [
-    Binding("escape", "go_back", "Back", show=True),
-    Binding("b", "go_back", "Back", show=False),
+    Binding("b", "go_back", "Back", show=True, priority=True),
 ]
 
 # ── Vim-style navigation (j/k/g/G) ─────────────────────────────────
@@ -66,9 +67,10 @@ PAGE_BINDINGS = [
 
 # ── Modal bindings ─────────────────────────────────────────────────
 MODAL_BINDINGS = [
-    Binding("escape", "close", "Close"),
-    Binding("enter", "close", "Close"),
-    Binding("q", "quit", "Quit App"),
+    Binding("b", "close", "Close", priority=True),
+    Binding("escape", "quit", "Quit App", show=False, priority=True),
+    Binding("q", "quit", "Quit App", priority=True),
+    Binding(":,q", "quit", "Quit App", show=False, priority=True, key_display=":q"),
     Binding("j", "scroll_down", "Down", show=True),
     Binding("k", "scroll_up", "Up", show=True),
     Binding("g", "scroll_home", "Top", show=True),

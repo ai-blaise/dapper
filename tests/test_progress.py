@@ -48,6 +48,9 @@ def test_disabled_bar_is_a_noop(tmp_path):
     with stage_bar(stage, enabled=False) as bar:
         bar.advance(2)
         bar.set_completed(4)
+        child = bar.add_task("source", status="starting")
+        child.update(completed=1000, status="1,000 records")
+        child.finish(status="done")
 
 
 def test_bar_tracks_markers_written_during_the_run(tmp_path):

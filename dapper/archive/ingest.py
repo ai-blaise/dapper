@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import batched
-from typing import Any, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 from dapper.archive.catalog import archivable_sources, is_supported
 from dapper.corpus import io
@@ -27,6 +27,11 @@ SUCCESS_MARKER = "_SUCCESS"
 
 # Archiving is network-bound, so several sources stream in parallel.
 DEFAULT_WORKERS = 4
+
+# Keep live progress cheap while still proving that a long HF stream is moving.
+PROGRESS_RECORD_INTERVAL = 1_000
+
+ProgressCallback = Callable[[int, int], None]
 
 
 @dataclass(frozen=True)
@@ -77,6 +82,7 @@ def ingest_hf(
     *,
     limit: int | None = None,
     force: bool = False,
+    progress_callback: ProgressCallback | None = None,
 ) -> IngestReport:
     """Stream one HuggingFace dataset into GCS as normalized JSONL shards."""
     destination = context.source_uri(source.name)
@@ -108,6 +114,8 @@ def ingest_hf(
     total = 0
     shards = 0
     inspection = None
+    if progress_callback is not None:
+        progress_callback(total, shards)
     for shard_index, batch in enumerate(batched(records, INGEST_SHARD_RECORDS)):
         if inspection is None and batch:
             # Field detection depends on the source, not the record, so resolve
@@ -123,7 +131,14 @@ def ingest_hf(
                     normalized["domain"] = source.domain
                 handle.write(_json_line(normalized))
                 total += 1
+                if (
+                    progress_callback is not None
+                    and total % PROGRESS_RECORD_INTERVAL == 0
+                ):
+                    progress_callback(total, shards)
         shards += 1
+        if progress_callback is not None:
+            progress_callback(total, shards)
 
     _mark_complete(
         destination,
@@ -171,9 +186,32 @@ def ingest_all(
     targets = list(sources) if sources is not None else archivable_sources(config)
 
     def _one(source: SourceConfig) -> IngestReport:
+        progress_task = bar.add_task(source.name, total=limit, status="starting")
+
+        def _update(records: int, shards: int) -> None:
+            progress_task.update(
+                completed=records,
+                status=f"{records:,} records, {shards:,} shards",
+            )
+
         try:
-            return ingest_hf(source, context, config, limit=limit, force=force)
+            report = ingest_hf(
+                source,
+                context,
+                config,
+                limit=limit,
+                force=force,
+                progress_callback=_update,
+            )
+            if report.skipped:
+                progress_task.finish(f"skipped: {report.skipped_reason}")
+            else:
+                progress_task.finish(
+                    f"done: {report.records:,} records, {report.shards:,} shards"
+                )
+            return report
         except Exception as exc:
+            progress_task.finish(f"failed: {type(exc).__name__}: {exc}")
             return IngestReport(
                 source_name=source.name,
                 destination_uri=context.source_uri(source.name),

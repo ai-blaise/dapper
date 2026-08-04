@@ -21,6 +21,15 @@ MAX_TREE_DEPTH = 100
 # Maximum string length to process before truncation (prevents memory issues with huge strings)
 MAX_STRING_PROCESS_LENGTH = 10000
 
+# Rendering every item in large scalar arrays makes the terminal UI do huge
+# layout work. Keep a visible preview and summarize the rest.
+MAX_ARRAY_CHILDREN = 200
+
+
+def _is_primitive_array(data: list[Any]) -> bool:
+    """True when an array is scalar-only and expensive to render as tree rows."""
+    return all(not isinstance(item, (dict, list)) for item in data)
+
 
 class JsonTreePanel(Tree[str]):
     """
@@ -405,9 +414,17 @@ class JsonTreePanel(Tree[str]):
         self._node_paths[child] = json_path
         self._node_data[child] = data
 
-        for idx, item in enumerate(data):
+        items = data
+        if len(data) > MAX_ARRAY_CHILDREN and _is_primitive_array(data):
+            items = data[:MAX_ARRAY_CHILDREN]
+
+        for idx, item in enumerate(items):
             child_path = f"{json_path}[{idx}]"
             self._add_json_recursive(child, item, f"[{idx}]", child_path, depth + 1)
+
+        remaining = len(data) - len(items)
+        if remaining > 0:
+            child.add_leaf(f"... {remaining:,} more scalar items")
 
     def _add_primitive(
         self,

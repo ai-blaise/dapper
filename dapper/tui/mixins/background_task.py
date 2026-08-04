@@ -288,12 +288,12 @@ class BackgroundTaskMixin:
         Returns:
             True if file is larger than threshold.
         """
-        import os
+        from dapper.corpus import io
 
         if threshold is None:
             threshold = BackgroundTaskMixin.LARGE_FILE_THRESHOLD
 
         try:
-            return os.path.getsize(file_path) > threshold
+            return io.size(file_path) > threshold
         except OSError:
             return False

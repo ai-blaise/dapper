@@ -8,9 +8,19 @@ from textual.containers import ScrollableContainer, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Label, Static
 
-from rich.syntax import Syntax
-
 from dapper.tui.keybindings import MODAL_BINDINGS
+
+
+def format_field_value(value: Any) -> str:
+    """Format a field value for external viewing."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list)):
+        try:
+            return json.dumps(value, indent=2, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return str(value)
+    return str(value)
 
 
 class FieldDetailModal(ModalScreen[None]):
@@ -60,6 +70,7 @@ class FieldDetailModal(ModalScreen[None]):
     FieldDetailModal .field-content {
         width: 100%;
         height: auto;
+        color: $text;
     }
 
     FieldDetailModal .close-hint {
@@ -104,39 +115,19 @@ class FieldDetailModal(ModalScreen[None]):
         Returns:
             A formatted string representation.
         """
-        if isinstance(value, str):
-            # For strings, show the full content as-is
-            return value
-        elif isinstance(value, (dict, list)):
-            # For dicts and lists, pretty-print as JSON
-            try:
-                return json.dumps(value, indent=2, ensure_ascii=False)
-            except (TypeError, ValueError):
-                return str(value)
-        else:
-            # For other types, convert to string
-            return str(value)
+        return format_field_value(value)
 
     def compose(self) -> ComposeResult:
         """Compose the modal content."""
         formatted_value = self._format_value(self.field_value)
-        syntax_theme = self.app._syntax_theme
-
-        syntax = Syntax(
-            formatted_value,
-            "json",
-            theme=syntax_theme,
-            line_numbers=False,
-            word_wrap=True,
-        )
 
         with Vertical():
             yield Label(self.panel_label, classes="modal-header")
             yield Label(f'Field: "{self.field_key}"', classes="field-key-label")
             with ScrollableContainer(classes="content-container", id="modal-content"):
-                yield Static(syntax, classes="field-content")
+                yield Static(formatted_value, classes="field-content")
             yield Label(
-                "Press [ESC] to close | j/k/g/G/h/l scroll",
+                "b closes | q quits",
                 classes="close-hint",
             )
 

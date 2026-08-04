@@ -90,7 +90,22 @@ dapper view dataset/conversations.jsonl -x
 
 # Open a directory (shows file picker)
 dapper view dataset/
+
+# Open data directly from GCS
+dapper view gs://my-bucket/path/to/conversations.jsonl
+dapper view gs://my-bucket/path/to/parquet-prefix/
+
+# Open the configured GCS output prefix from dapper.yaml
+dapper view --gcs
+
+# Compare two GCS prefixes
+dapper view gs://my-bucket/dataset-a/ --compare gs://my-bucket/dataset-b/
 ```
+
+When a path or configured GCS prefix contains subdirectories, the TUI opens a
+browser first. Select a child prefix to descend or a supported file to render.
+JSONL, JSON, Parquet, CSV, and text files are supported; text files render one
+line per record.
 
 ### Extract prompts (remove assistant responses)
 
@@ -365,7 +380,7 @@ dapper split dataset/conversations.jsonl -n 10 --dry-run
 | `dapper show <file> <index>` | View record or specific field |
 | `dapper search <file> <query>` | Search text across records |
 | `dapper stats <file>` | Dataset statistics |
-| `dapper view <file-or-dir>` | Interactive TUI for local datasets |
+| `dapper view <file-or-dir>` | Interactive TUI for local or GCS datasets |
 | `dapper parse <file>` | Extract prompts / normalize records |
 | `dapper mix <dir> -o <file.parquet>` | Mix datasets into unified Parquet |
 | `dapper split <file> -n <parts>` | Split datasets into parts |

@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from dapper.corpus import io
 from utils.detect import detect_format
 from utils.loader import get_record_count as _get_record_count
 from utils.loader import (
@@ -373,7 +374,7 @@ def load_jsonl(filename: str) -> Iterator[dict[str, Any]]:
         >>> for record in load_jsonl("data.jsonl"):
         ...     print(record["uuid"])
     """
-    with open(filename, "r", encoding="utf-8") as f:
+    with io.open_text(filename, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:

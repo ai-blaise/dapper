@@ -1,8 +1,8 @@
 """
 File List Screen for JSON Comparison Viewer.
 
-Displays a list of supported data files in a directory.
-Select a file with Enter to open the record list view.
+Displays child directories/prefixes and supported data files.
+Select a directory to descend or a file to open the record list view.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ class FileListScreen(ExportMixin, DataTableMixin, VimNavigationMixin, Screen):
     }
 
     #dir-header {
-        background: $primary-background;
+        background: $surface-darken-1;
         color: $text;
         padding: 1;
         text-align: center;
@@ -63,16 +63,31 @@ class FileListScreen(ExportMixin, DataTableMixin, VimNavigationMixin, Screen):
             self.file_name = file_name
             super().__init__()
 
-    def __init__(self, directory: str, files: list[dict]) -> None:
+    class DirectorySelected(Message):
+        """Posted when a directory/prefix is selected."""
+
+        def __init__(self, directory: str) -> None:
+            self.directory = directory
+            super().__init__()
+
+    def __init__(
+        self,
+        directory: str,
+        entries: list[dict],
+        *,
+        can_go_back: bool = False,
+    ) -> None:
         """Initialize the FileListScreen.
 
         Args:
             directory: Path to the directory being displayed.
-            files: List of file info dicts with path, name, format, size.
+            entries: List of directory/file info dicts.
+            can_go_back: Whether back should return to the previous browser level.
         """
         super().__init__()
         self._directory = directory
-        self._files = files
+        self._entries = entries
+        self._can_go_back = can_go_back
 
     def compose(self) -> ComposeResult:
         """Compose the screen layout."""
@@ -88,19 +103,27 @@ class FileListScreen(ExportMixin, DataTableMixin, VimNavigationMixin, Screen):
         table = self._setup_table(
             "file-table",
             [
-                ("FILE NAME", 50),
+                ("NAME", 50),
+                ("TYPE", 10),
                 ("FORMAT", 10),
                 ("SIZE", 12),
             ],
         )
 
         # Add rows
-        for file_info in self._files:
+        for entry in self._entries:
+            display_name = entry["name"]
+            if entry.get("kind") == "directory":
+                display_name += "/"
+            display_size = ""
+            if entry.get("kind") != "directory":
+                display_size = format_file_size(entry["size"])
             table.add_row(
-                file_info["name"],
-                file_info["format"].upper(),
-                format_file_size(file_info["size"]),
-                key=file_info["path"],  # Use path as row key
+                display_name,
+                entry.get("kind", "file").upper(),
+                entry["format"].upper(),
+                display_size,
+                key=entry["path"],
             )
 
         table.focus()
@@ -110,12 +133,16 @@ class FileListScreen(ExportMixin, DataTableMixin, VimNavigationMixin, Screen):
         self.app.exit()
 
     def action_go_back(self) -> None:
-        """Go back — quits since this is the root screen."""
-        self.app.exit()
+        """Go back to the previous directory, or quit from the root screen."""
+        if self._can_go_back:
+            self.app.pop_screen()
+        else:
+            self.app.exit()
 
     def action_export_all_files(self) -> None:
         """Export all files in the directory (processed) to the output directory."""
-        if not self._files:
+        files = [entry for entry in self._entries if entry.get("kind") == "file"]
+        if not files:
             self.notify("No files to export", severity="warning")
             return
 
@@ -135,9 +162,9 @@ class FileListScreen(ExportMixin, DataTableMixin, VimNavigationMixin, Screen):
         output_dir = self._get_output_dir()
         exported_count = 0
         error_count = 0
-        total_files = len(self._files)
+        total_files = len(files)
 
-        for i, file_info in enumerate(self._files):
+        for i, file_info in enumerate(files):
             file_path = file_info["path"]
             file_name = file_info["name"]
 
@@ -185,11 +212,12 @@ class FileListScreen(ExportMixin, DataTableMixin, VimNavigationMixin, Screen):
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle file selection."""
-        file_path = str(event.row_key.value)
-        # Find file_name by matching the path
-        file_name = ""
-        for file_info in self._files:
-            if file_info["path"] == file_path:
-                file_name = file_info["name"]
-                break
-        self.post_message(self.FileSelected(file_path, file_name))
+        selected_path = str(event.row_key.value)
+        for entry in self._entries:
+            if entry["path"] != selected_path:
+                continue
+            if entry.get("kind") == "directory":
+                self.post_message(self.DirectorySelected(selected_path))
+            else:
+                self.post_message(self.FileSelected(selected_path, entry["name"]))
+            break

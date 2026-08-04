@@ -129,20 +129,19 @@ class DualPaneMixin:
             pass  # No tree found or not in JSON view
 
     def on_json_tree_panel_node_selected(self, message) -> None:
-        """Handle node selection from JsonTreePanel - show field detail modal.
+        """Handle node selection from JsonTreePanel by opening it in-app.
 
         Args:
             message: JsonTreePanel.NodeSelected message with node_key,
                      node_value, and panel_id.
         """
-        from dapper.tui.widgets import FieldDetailModal
+        from dapper.tui.widgets.field_detail_modal import FieldDetailModal
 
-        panel_label = "Left" if message.panel_id == "left-tree" else "Right"
         self.app.push_screen(
             FieldDetailModal(
-                field_key=message.node_key,
-                field_value=message.node_value,
-                panel_label=panel_label,
+                message.node_key,
+                message.node_value,
+                message.panel_id.upper(),
             )
         )
 

@@ -13,7 +13,7 @@ from dapper.tui.data_loader import (
     load_records_range,
 )
 
-DEFAULT_PAGE_SIZE = 200
+DEFAULT_PAGE_SIZE = 50
 
 
 class PaginatedRecordsMixin:

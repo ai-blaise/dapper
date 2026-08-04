@@ -25,7 +25,7 @@ from dapper.tui.data_loader import (
 )
 from dapper.tui.keybindings import DUAL_PANE_BINDINGS, TREE_BINDINGS
 from dapper.tui.mixins import DualPaneMixin, ExportMixin, VimNavigationMixin
-from dapper.tui.widgets import FieldDetailModal
+from dapper.tui.widgets.field_detail_modal import FieldDetailModal
 from dapper.tui.widgets.diff_indicator import calculate_diff
 from dapper.tui.widgets.json_tree_panel import MAX_TREE_DEPTH, JsonTreePanel
 
@@ -362,26 +362,16 @@ class ComparisonScreen(ExportMixin, DualPaneMixin, VimNavigationMixin, Screen):
     def on_json_tree_panel_node_selected(
         self, message: JsonTreePanel.NodeSelected
     ) -> None:
-        """Handle node selection to show field detail modal.
-
-        When a node is selected (Enter pressed), display the full content
-        in a modal dialog.
+        """Handle node selection by opening the full value in-app.
 
         Args:
             message: The NodeSelected message from a JsonTreePanel.
         """
-        # Determine which panel the message came from
-        if message.panel_id == "left-tree":
-            panel_label = "Original Record"
-        else:
-            panel_label = "Parsed Output"
-
-        # Push the field detail modal with the node information
         self.app.push_screen(
             FieldDetailModal(
-                field_key=message.node_key,
-                field_value=message.node_value,
-                panel_label=panel_label,
+                message.node_key,
+                message.node_value,
+                message.panel_id.upper(),
             )
         )
 
