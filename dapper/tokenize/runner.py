@@ -43,6 +43,11 @@ DEDUPED_OUTPUT_TEMPLATE = "domain=${domain}/part-${rank}.parquet"
 # MinHash scratch -- the two stages share no mutable state.
 COUNTS_DIRNAME = "_counts"
 
+# What counts as an input file, keyed by whether the corpus is deduplicated.
+# Must stay in step with `_count_inputs`: the reader's file list and the task
+# count are derived separately, and a mismatch silently misassigns shards.
+INPUT_GLOB = {False: "**/*.jsonl", True: "**/*.parquet"}
+
 
 def run_tokenize(
     source_name: str | None = None,
@@ -212,7 +217,13 @@ def _run_pipeline(
 
     stage = executor(
         pipeline=[
-            reader(input_uri),
+            # Scoped to data files. A bare prefix makes the reader ingest the
+            # sidecars that live alongside the shards -- `_SUCCESS`, `_manifest/`
+            # -- as if they were documents. They are skipped for lacking a
+            # `text` key, but only by luck, and they still inflate the file
+            # count past what `_count_inputs` reported, shifting every shard's
+            # task assignment by one.
+            reader(input_uri, glob_pattern=INPUT_GLOB[deduped]),
             build_tokenizer_step(config.tokenizer, counts_uri=counts_uri),
             components["ParquetWriter"](
                 output_uri,

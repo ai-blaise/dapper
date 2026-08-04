@@ -17,6 +17,11 @@ from dapper.corpus.io import is_remote_uri
 # giving a Hive-style partition layout the curriculum can address by prefix.
 PARQUET_OUTPUT_TEMPLATE = "domain=${domain}/part-${rank}.parquet"
 
+# Restricts the reader to actual shards. The staged-input prefix also holds one
+# `_SUCCESS` marker per source; without this the reader ingests each as a
+# document, and the resulting file count no longer matches `count_shards`.
+INPUT_GLOB = "**/*.jsonl"
+
 
 @dataclass(frozen=True)
 class DataTroveDedupReport:
@@ -76,7 +81,7 @@ def run_datatrove_dedup(
 
     stage1 = executor(
         pipeline=[
-            components["JsonlReader"](input_path),
+            components["JsonlReader"](input_path, glob_pattern=INPUT_GLOB),
             components["MinhashDedupSignature"](
                 output_folder=signatures,
                 config=minhash_config,
@@ -125,7 +130,7 @@ def run_datatrove_dedup(
     # re-runnable. `token_count` here exists solely to drive `len_bucket`.
     stage4 = executor(
         pipeline=[
-            components["JsonlReader"](input_path),
+            components["JsonlReader"](input_path, glob_pattern=INPUT_GLOB),
             components["MinhashDedupFilter"](
                 input_folder=remove_ids,
                 exclusion_writer=components["JsonlWriter"](removed),

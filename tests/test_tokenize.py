@@ -192,6 +192,68 @@ def test_merging_no_partials_yields_zero(tmp_path):
     assert _merge_counts(str(tmp_path)) == (0, 0)
 
 
+# --- input file scoping ---------------------------------------------------
+
+
+def _staged_fixture(tmp_path):
+    """A staged source as `dapper archive` leaves it: shards plus a marker."""
+    d = tmp_path / "fineweb"
+    d.mkdir()
+    (d / "part-00000.jsonl").write_text('{"text":"a","id":"1"}\n')
+    (d / "part-00001.jsonl").write_text('{"text":"b","id":"2"}\n')
+    (d / "_SUCCESS").write_text('{"source":"fineweb","records":2,"limit":null}\n')
+    return str(tmp_path)
+
+
+def test_reader_ignores_the_success_marker(tmp_path):
+    """`_SUCCESS` is a sidecar, not a document.
+
+    Unscoped, the reader ingests it and only drops it for lacking a `text`
+    key -- a filter that works by luck, not by design.
+    """
+    pytest.importorskip("datatrove")
+    from datatrove.pipeline.readers import JsonlReader
+
+    from dapper.dedup.datatrove import INPUT_GLOB
+
+    root = _staged_fixture(tmp_path)
+    files = JsonlReader(root, glob_pattern=INPUT_GLOB).data_folder.get_shard(
+        0, 1, glob_pattern=INPUT_GLOB
+    )
+    assert [f.split("/")[-1] for f in files] == [
+        "part-00000.jsonl",
+        "part-00001.jsonl",
+    ]
+
+
+def test_reader_file_count_matches_the_task_count(tmp_path):
+    """The two are derived separately; a mismatch misassigns shards to tasks.
+
+    `count_shards` sets `tasks`, while the reader builds its own file list.
+    When they disagree, one task reads two shards and every later shard's
+    output filename is offset from its input.
+    """
+    pytest.importorskip("datatrove")
+    from datatrove.pipeline.readers import JsonlReader
+
+    from dapper.corpus.gcs import count_shards
+    from dapper.dedup.datatrove import INPUT_GLOB
+
+    root = _staged_fixture(tmp_path)
+    files = JsonlReader(root, glob_pattern=INPUT_GLOB).data_folder.get_shard(
+        0, 1, glob_pattern=INPUT_GLOB
+    )
+    assert len(files) == count_shards(root)
+
+
+def test_tokenize_globs_match_the_counting_globs():
+    """`INPUT_GLOB` and `_count_inputs` must agree for both corpora."""
+    from dapper.tokenize.runner import INPUT_GLOB as TOKENIZE_GLOB
+
+    assert TOKENIZE_GLOB[False] == "**/*.jsonl"
+    assert TOKENIZE_GLOB[True] == "**/*.parquet"
+
+
 # --- stage separation ------------------------------------------------------
 
 
