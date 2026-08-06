@@ -42,14 +42,15 @@ From a Git repository:
 uv tool install "dapper-datasets @ git+ssh://git@github.com/ai-blaise/dataset-parser.git"
 ```
 
-Reinstalling after code changes requires `--force`. A plain `uv tool install .`
-is a no-op when the tool already exists, so the `dapper` on your PATH keeps
-running the previously installed snapshot rather than your working tree:
+For development, install the checkout as an editable uv tool so the `dapper`
+on your PATH follows local source changes:
 
 ```bash
-uv tool install --force .
+uv tool install --force --reinstall --editable --python 3.12 .
 ```
 
+The `--editable .` flag is the important part. Without it, the installed tool
+can keep running a previously built snapshot instead of the working tree.
 Check which copy you are actually running with `readlink -f "$(which dapper)"`.
 A pipeline run started against a stale install silently uses the old code.
 
