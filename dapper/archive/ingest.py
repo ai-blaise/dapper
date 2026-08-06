@@ -8,6 +8,8 @@ computed after dedup, in the DataTrove filter stage.
 
 from __future__ import annotations
 
+import sys
+
 from dataclasses import dataclass
 from itertools import batched
 from typing import Any, Callable, Iterable, Iterator
@@ -331,19 +333,46 @@ def _stream_hf_records(
     *,
     limit: int | None = None,
 ) -> Iterator[dict[str, Any]]:
+    """Stream one HuggingFace dataset, surviving transient network failures.
+
+    A source can stream for hours, and HuggingFace's default read timeout is
+    10 seconds -- so without recovery a single blip discards everything read so
+    far. Streams cannot be rewound, so a break is handled by reopening and
+    skipping what was already delivered.
+    """
     try:
         from datasets import load_dataset
     except ImportError as exc:
         raise GcsError("`datasets` is required for HuggingFace archiving.") from exc
 
-    dataset = load_dataset(
-        source.repo,
-        source.dataset_config,
-        split=source.split,
-        streaming=True,
-        trust_remote_code=config.hf_trust_remote_code,
-    )
-    for index, record in enumerate(dataset):
-        if limit is not None and index >= limit:
-            return
-        yield dict(record)
+    from dapper.archive.retry import configure_hf_timeouts, retrying_iter
+
+    configure_hf_timeouts()
+
+    def _open(skip: int) -> Iterator[dict[str, Any]]:
+        dataset = load_dataset(
+            source.repo,
+            source.dataset_config,
+            split=source.split,
+            streaming=True,
+            trust_remote_code=config.hf_trust_remote_code,
+        )
+        for index, record in enumerate(dataset):
+            if limit is not None and index >= limit:
+                return
+            # Fast-forward past what a previous attempt already yielded, so a
+            # resumed stream does not duplicate records.
+            if index < skip:
+                continue
+            yield dict(record)
+
+    def _note(attempt: int, exc: BaseException, delay: float) -> None:
+        # Printed rather than swallowed: a run that silently retried for an
+        # hour looks identical to one that was merely slow.
+        print(
+            f"  {source.name}: retry {attempt} after "
+            f"{type(exc).__name__}: {exc} (waiting {delay:.0f}s)",
+            file=sys.stderr,
+        )
+
+    yield from retrying_iter(_open, on_retry=_note)
