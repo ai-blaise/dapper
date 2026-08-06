@@ -158,9 +158,11 @@ def glob(uri: str, pattern: str) -> list[str]:
     return sorted(_restore_scheme(uri, match) for match in matches)
 
 
-def open_binary(uri: str):
+def open_binary(uri: str, mode: str = "rb"):
     fs, path = fs_for(uri)
-    return fs.open(path, "rb")
+    if any(flag in mode for flag in ("w", "a", "x")) and not is_remote_uri(uri):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+    return fs.open(path, mode)
 
 
 def open_text(uri: str, mode: str = "r", **kwargs: Any):

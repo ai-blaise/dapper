@@ -14,6 +14,10 @@ dependencies = [
     "aiohttp>=3.13.3",
     "aiofiles>=25.1.0",
     "datatrove[processing]>=0.6.0",
+    # Writes the tar shards `dapper tokenize` produces. Pure Python
+    # (braceexpand, numpy, pyyaml) -- the format is defined by this library, so
+    # it should be produced by it rather than by our reading of the spec.
+    "webdataset>=0.2.0",
     "orjson>=3.10.0",
     "spacy>=3.7.0",
     "transformers>=4.44.0",

@@ -21,6 +21,10 @@ DEFAULT_TOKENIZER = "zai-org/GLM-5.2"
 # last edge is assigned to it rather than being dropped.
 DEFAULT_LEN_BINS = (8192, 65536, 262144)
 
+# Roll a shard once it exceeds this. 250 MiB puts the dominant bin at roughly
+# one shard per task, which is already well sized; see the tokenize spec.
+DEFAULT_SHARD_BYTES = 268_435_456
+
 
 class DedupConfigError(ValueError):
     """Raised for malformed dedup configuration."""
@@ -80,6 +84,9 @@ class SourceConfig:
     priority: int | None = None
     license: str | None = None
     domain: str | None = None
+    # Second tag axis, e.g. code/repo_connected. Declared per source exactly
+    # like `domain`; never inferred from content.
+    subdomain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -114,6 +121,11 @@ class DedupConfig:
     storage_output_prefix: str | None
     storage_tokens_prefix: str | None
     remote_runner: str | None
+    shard_bytes: int
+    shard_bytes_by_bin: dict[int, int]
+    shuffle: bool
+    shuffle_seed: int
+    shuffle_buffer: int
 
 
 def _source_from_raw(
@@ -140,6 +152,7 @@ def _source_from_raw(
         priority=raw.get("priority"),
         license=raw.get("license"),
         domain=raw.get("domain"),
+        subdomain=raw.get("subdomain"),
     )
 
 
@@ -222,6 +235,14 @@ def parse_dedup_config(
     datatrove = datatrove if isinstance(datatrove, dict) else {}
     remote = dedup.get("remote", {})
     remote = remote if isinstance(remote, dict) else {}
+    tokenize = config.get("tokenize", {})
+    tokenize = tokenize if isinstance(tokenize, dict) else {}
+    by_bin_raw = tokenize.get("shard_bytes_by_bin") or {}
+    by_bin = (
+        {int(k): int(v) for k, v in by_bin_raw.items()}
+        if isinstance(by_bin_raw, dict)
+        else {}
+    )
 
     sources = _parse_sources(config, selected_schema)
 
@@ -258,4 +279,11 @@ def parse_dedup_config(
         storage_output_prefix=storage.get("output_prefix"),
         storage_tokens_prefix=storage.get("tokens_prefix"),
         remote_runner=remote.get("runner"),
+        shard_bytes=int(tokenize.get("shard_bytes", DEFAULT_SHARD_BYTES)),
+        shard_bytes_by_bin=by_bin,
+        shuffle=bool(tokenize.get("shuffle", True)),
+        shuffle_seed=int(tokenize.get("shuffle_seed", 0)),
+        # 0 = buffer the whole task, which is a full shuffle of everything a
+        # task can see. >0 bounds memory for sources with larger input shards.
+        shuffle_buffer=int(tokenize.get("shuffle_buffer", 0)),
     )

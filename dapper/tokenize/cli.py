@@ -24,10 +24,12 @@ def tokenize_main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="dapper tokenize",
         description=(
-            "Tokenize a corpus of text into Parquet with an `input_ids` "
-            "column. Input, output, and tokenizer all come from dapper.yaml. "
-            "Tokenization is independent of dedup: name a staged source, or "
-            "pass --deduped to tokenize the deduplicated corpus."
+            "Tokenize a corpus of text into bin-partitioned WebDataset "
+            "shards: tokens/<bin>/shard-<source>-*.tar, plus a manifest of "
+            "capacities per (bin, domain, subdomain). Input, output, and "
+            "tokenizer all come from dapper.yaml. Tokenization is independent "
+            "of dedup: name a staged source, or pass --deduped for the "
+            "deduplicated corpus."
         ),
     )
     # Positional and singular, unlike `dapper archive --sources a,b`. This
@@ -54,9 +56,9 @@ def tokenize_main(argv: Sequence[str] | None = None) -> None:
         "--force",
         action="store_true",
         help=(
-            "Re-tokenize a source that already has a _SUCCESS marker. By "
-            "default a finished source is skipped so a failed run can be "
-            "resumed by re-invoking."
+            "Discard run state and start over. Without it a finished corpus "
+            "is skipped, and a run whose tokenizer or len_bins changed is "
+            "refused rather than silently mixed."
         ),
     )
     parser.add_argument(

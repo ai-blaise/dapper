@@ -110,6 +110,8 @@ def normalize_pretraining_record(
     normalized["token_count"] = _int_or_none(_get_field(record, token_count_field))
     normalized["source_dataset"] = source.name
     normalized["domain"] = source.domain
+    # Source-level assertion, like `domain` -- not a content classification.
+    normalized["subdomain"] = source.subdomain
     normalized["license"] = source.license
     # Which named subset of the upstream dataset this came from, e.g.
     # `sample-10BT`. Without it a 10B-token slice is indistinguishable from a

@@ -1,0 +1,72 @@
+# Target training mixture — what we WANT.
+#
+# Dapper never writes this file. It lives in the repo beside dapper.yaml
+# because a mixture is a reviewable decision, not an artifact of the corpus;
+# it *populates* the bucket rather than living in it.
+#
+# The counterpart is tokens/_manifest/manifest.json, which records what
+# actually EXISTS. `dapper mixture check` resolves one against the other and
+# reports, per cell, whether the plan is satisfiable.
+#
+# Shares at each level must sum to 1.0. Subdomain shares are *of their domain*,
+# so code 0.16 with repo_connected 0.55 means 8.8% of the bin.
+#
+# Bin keys must match dedup.len_bins. Each names that bin's inclusive upper
+# edge; the last bin is unbounded and absorbs everything above it.
+
+bins:
+  # ~8k context. Holds the overwhelming majority of web documents.
+  8192:
+    share: 0.90
+    domains:
+      general_web:         0.42
+      education_reference: 0.12
+      code:                0.16
+      mathematics:         0.07
+      science_technical:   0.07
+      legal_government:    0.03
+      books_longform:      0.06
+      conversation_forum:  0.06
+      other:               0.01
+
+  # ~64k context. Long-form and structured material is weighted up here.
+  65536:
+    share: 0.075
+    domains:
+      general_web:         0.10
+      education_reference: 0.10
+      code:
+        share: 0.30
+        subdomains:
+          repo_connected:      0.55
+          docs_tests_examples: 0.20
+          agent_success:       0.15
+          agent_failure:       0.05
+          other:               0.05
+      mathematics:         0.07
+      science_technical:   0.20
+      legal_government:    0.05
+      books_longform:      0.16
+      conversation_forum:  0.01
+      other:               0.01
+
+  # ~256k context, unbounded overflow. Whole repositories, books, long traces.
+  262144:
+    share: 0.025
+    domains:
+      general_web:         0.05
+      education_reference: 0.06
+      code:
+        share: 0.38
+        subdomains:
+          repo_connected:      0.45
+          docs_tests_examples: 0.20
+          agent_success:       0.20
+          agent_failure:       0.075
+          other:               0.075
+      mathematics:         0.05
+      science_technical:   0.18
+      legal_government:    0.08
+      books_longform:      0.18
+      conversation_forum:  0.01
+      other:               0.01

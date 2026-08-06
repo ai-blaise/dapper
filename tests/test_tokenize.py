@@ -64,23 +64,20 @@ def test_tokens_prefix_resolves_from_storage_block():
     )
 
 
-def test_tokenize_writes_per_source_subprefix():
-    """Staged tokens are namespaced by stage, then by source."""
-    context = _context()
-    assert (
-        context.source_tokens_uri("fineweb")
-        == "gs://pretraining-corpus/dapper/pretraining/tokens/staged/fineweb"
-    )
+def test_tokens_prefix_is_the_only_token_path():
+    """Shards are addressed by bin, not by source.
 
-
-def test_deduped_tokens_have_their_own_prefix():
-    """Tokens of deduped text and of raw staged text are not interchangeable."""
+    `tokens/<bin>/` with the source in each filename; per-source run state
+    lives under `tokens/_runs/<source>/`. A per-source *token* directory would
+    make a bin unaddressable without walking every source.
+    """
     context = _context()
+    assert not hasattr(context, "source_tokens_uri")
+    assert not hasattr(context, "deduped_tokens_uri")
     assert (
-        context.deduped_tokens_uri()
-        == "gs://pretraining-corpus/dapper/pretraining/tokens/deduped"
+        context.tokens_uri
+        == "gs://pretraining-corpus/dapper/pretraining/tokens"
     )
-    assert context.deduped_tokens_uri() != context.source_tokens_uri("deduped")
 
 
 def test_tokens_prefix_has_a_default():
@@ -174,22 +171,68 @@ def test_unparseable_marker_is_treated_as_complete(tmp_path):
     assert _skip_reason(str(tmp_path), _config(), force=False) is not None
 
 
-# --- count merging --------------------------------------------------------
+# --- run guard -------------------------------------------------------------
 
 
-def test_counts_merge_across_tasks(tmp_path):
-    """Each task writes a partial; the marker records the total."""
-    from dapper.tokenize.runner import _merge_counts
-
-    (tmp_path / "00000.json").write_text(json.dumps({"records": 3, "tokens": 30}))
-    (tmp_path / "00001.json").write_text(json.dumps({"records": 4, "tokens": 44}))
-    assert _merge_counts(str(tmp_path)) == (7, 74)
+def _run_marker(tmp_path, payload):
+    (tmp_path / "_RUN.json").write_text(json.dumps(payload), encoding="utf-8")
+    return str(tmp_path)
 
 
-def test_merging_no_partials_yields_zero(tmp_path):
-    from dapper.tokenize.runner import _merge_counts
+def _marker_payload(**overrides):
+    payload = {
+        "tokenizer": "zai-org/GLM-5.2",
+        "len_bins": [8192, 65536, 262144],
+        "shuffle_seed": 0,
+    }
+    payload.update(overrides)
+    return payload
 
-    assert _merge_counts(str(tmp_path)) == (0, 0)
+
+def test_guard_allows_a_matching_resume(tmp_path):
+    from dapper.tokenize.runner import _guard_run
+
+    run = _run_marker(tmp_path, _marker_payload())
+    _guard_run(run, _config(), force=False)  # does not raise
+
+
+def test_guard_refuses_a_changed_tokenizer(tmp_path):
+    """The interrupted case: no _SUCCESS, so _skip_reason never sees it."""
+    from dapper.tokenize.runner import TokenizeRunError, _guard_run
+
+    run = _run_marker(tmp_path, _marker_payload(tokenizer="other/tokenizer"))
+    with pytest.raises(TokenizeRunError, match="tokenizer"):
+        _guard_run(run, _config(), force=False)
+
+
+def test_guard_refuses_changed_bin_edges(tmp_path):
+    """A bin edge IS a token count, so moving edges re-bins the corpus."""
+    from dapper.tokenize.runner import TokenizeRunError, _guard_run
+
+    run = _run_marker(tmp_path, _marker_payload(len_bins=[1024, 8192]))
+    with pytest.raises(TokenizeRunError, match="len_bins"):
+        _guard_run(run, _config(), force=False)
+
+
+def test_guard_ignores_a_changed_seed(tmp_path):
+    """A differently seeded resume is differently ordered but equally valid."""
+    from dapper.tokenize.runner import _guard_run
+
+    run = _run_marker(tmp_path, _marker_payload(shuffle_seed=99))
+    _guard_run(run, _config(), force=False)  # does not raise
+
+
+def test_force_bypasses_the_guard(tmp_path):
+    from dapper.tokenize.runner import _guard_run
+
+    run = _run_marker(tmp_path, _marker_payload(tokenizer="other/tokenizer"))
+    _guard_run(run, _config(), force=True)  # does not raise
+
+
+def test_guard_is_a_noop_before_the_first_run(tmp_path):
+    from dapper.tokenize.runner import _guard_run
+
+    _guard_run(str(tmp_path), _config(), force=False)  # does not raise
 
 
 # --- input file scoping ---------------------------------------------------

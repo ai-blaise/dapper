@@ -8,10 +8,27 @@ storage:
   dataset_prefix: dapper/pretraining/staged-input
   work_prefix: dapper/pretraining/datatrove-work
   output_prefix: dapper/pretraining/dedup-output
-  # Destination for standalone `dapper tokenize <source>`, which tokenizes one
-  # source in isolation. `dapper dedup --tokenize` does NOT write here: it adds
-  # an `input_ids` column to the corpus already being written to output_prefix.
+  # THE token artifact. `dapper tokenize` writes bin-partitioned WebDataset
+  # shards here in one pass: tokens/<bin>/shard-<source>-<rank>-<seq>.tar,
+  # plus tokens/_manifest/ (capacities) and tokens/_runs/<source>/ (run state).
+  # There is no Parquet intermediate and no second regrouping stage.
   tokens_prefix: dapper/pretraining/tokens
+
+tokenize:
+  # Roll a shard past this many bytes, per task per bin. 250 MiB puts the
+  # dominant bin at ~1 shard per task, which is already well sized.
+  shard_bytes: 268435456
+  # Per-bin overrides. WebDataset assigns whole shards to DataLoader workers,
+  # so a bin with fewer shards than workers leaves workers idle -- rare bins
+  # want a smaller threshold than the dominant one.
+  shard_bytes_by_bin:
+    262144: 20971520
+  # Without this, shards inherit CommonCrawl crawl order and each holds ~150k
+  # correlated documents. 0 buffers the whole task, which is a full shuffle of
+  # everything one task can see.
+  shuffle: true
+  shuffle_seed: 0
+  shuffle_buffer: 0
 
 huggingface:
   download_mode: streaming

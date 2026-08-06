@@ -22,6 +22,7 @@ PRETRAINING_FIELDS = (
     "synthetic_parent_id",
     "quality_score",
     "domain",
+    "subdomain",
     "dedup_cluster_id",
     "dedup_keep",
 )
@@ -45,6 +46,7 @@ PRETRAINING_ARROW_SCHEMA = pa.schema(
         pa.field("synthetic_parent_id", pa.string()),
         pa.field("quality_score", pa.float64()),
         pa.field("domain", pa.string()),
+        pa.field("subdomain", pa.string()),
         pa.field("dedup_cluster_id", pa.string()),
         pa.field("dedup_keep", pa.bool_()),
     ]

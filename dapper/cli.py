@@ -173,6 +173,12 @@ def _run_tokenize(argv: Sequence[str] | None) -> None:
     tokenize_main(argv)
 
 
+def _run_mixture(argv: Sequence[str] | None) -> None:
+    from dapper.mixture.cli import mixture_main
+
+    mixture_main(argv)
+
+
 def _run_split(argv: Sequence[str] | None) -> None:
     from dapper.split.cli import main as splitter_main
 
@@ -208,7 +214,8 @@ COMMANDS: dict[str, tuple[str, CommandMain]] = {
     "archive": ("Stream the HuggingFace catalog into GCS", _run_archive),
     "catalog": ("Inspect the HuggingFace source catalog", _run_catalog),
     "dedup": ("Inspect and deduplicate datasets", _run_dedup),
-    "tokenize": ("Tokenize a text corpus into Parquet tokens", _run_tokenize),
+    "tokenize": ("Tokenize a text corpus into binned WebDataset shards", _run_tokenize),
+    "mixture": ("Check a target mixture against the token manifest", _run_mixture),
     "run": ("Archive, dedup, then tokenize in one sweep", _run_sweep),
     "split": ("Split a dataset into multiple parts", _run_split),
 }

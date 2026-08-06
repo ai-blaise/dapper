@@ -41,25 +41,12 @@ class GcsContext:
     def source_uri(self, source_name: str) -> str:
         return io.join(self.staged_input_uri, source_name)
 
-    def source_tokens_uri(self, source_name: str) -> str:
-        """Tokens for one staged (NOT deduplicated) source.
-
-        Namespaced under ``staged/`` so the path records which stage produced
-        the input. Tokens of a deduplicated corpus and tokens of raw staged
-        text are not interchangeable, and a bare ``tokens/<source>/`` would not
-        say which one it holds.
-        """
-        return io.join(self.tokens_uri, "staged", source_name)
-
-    def deduped_tokens_uri(self) -> str:
-        """Tokens for the deduplicated corpus.
-
-        Not per-source: dedup is corpus-wide by necessity -- cross-source
-        duplicates cannot be found one source at a time -- so its output is
-        partitioned by ``domain=`` rather than by source name. There is no
-        per-source prefix here to address.
-        """
-        return io.join(self.tokens_uri, "deduped")
+    # Token shards are addressed by bin, not by source: `tokens/<bin>/`, with
+    # the source in each shard's filename. Bin is the coarsest training
+    # decision, so it is the coarsest directory.
+    #
+    # Per-source run state (markers, counts, logs) lives under
+    # `tokens/_runs/<source>/` -- see dapper.tokenize.runner.
 
 
 def get_filesystem() -> Any:

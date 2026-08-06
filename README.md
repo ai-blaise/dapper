@@ -305,11 +305,30 @@ dapper archive                        # full run; resumable via _SUCCESS markers
 #    found one source at a time. Writes Parquet partitioned by domain=.
 dapper dedup --gcs
 
-# 3. Tokenize. Either a single staged source, or the deduplicated corpus.
+# 3. Tokenize into bin-partitioned WebDataset shards, in one pass.
 dapper tokenize fineweb --dry-run     # resolve corpus + tokenizer, write nothing
-dapper tokenize fineweb               # -> tokens/staged/fineweb/
-dapper tokenize --deduped             # -> tokens/deduped/
+dapper tokenize fineweb               # -> tokens/<bin>/shard-fineweb-*.tar
+dapper tokenize --deduped             # -> tokens/<bin>/shard-deduped-*.tar
+
+# 4. Check a target mixture against what the corpus actually holds.
+dapper mixture check                  # exits 3 if any cell is unsatisfiable
 ```
+
+Tokenize output is the token artifact -- there is no Parquet intermediate:
+
+```
+tokens/8192/    shard-fineweb-00000-0000.tar    documents up to 8,192 tokens
+     65536/     …                               8,193 - 65,536
+     262144/    …                               overflow, unbounded
+     _manifest/manifest.json                    capacities per bin/domain/subdomain
+     _runs/<source>/                            markers, counts, logs
+```
+
+Each sample is `<key>.npy` (int32 token ids) plus `<key>.json` (id, url,
+`domain`, `subdomain`, `token_count`, …). Bins come from `dedup.len_bins`; the
+directory is the bin's inclusive upper edge, and the last bin absorbs
+everything above it. Shards are tag-pure, so a trainer picks whole shards by
+domain from the manifest rather than reading and discarding samples.
 
 `dapper tokenize` takes a source name **or** `--deduped`, never both: the
 deduplicated corpus is partitioned by domain rather than by source, so there is
@@ -393,8 +412,9 @@ Pretraining corpus pipeline (GCS-backed, driven by `dapper.yaml`):
 | `dapper catalog show <source>` | Show one source in full |
 | `dapper archive` | Stream the HuggingFace catalog into GCS |
 | `dapper dedup --gcs` | MinHash-deduplicate the archived corpus |
-| `dapper tokenize <source>` | Tokenize one staged source |
+| `dapper tokenize <source>` | Tokenize one staged source into binned shards |
 | `dapper tokenize --deduped` | Tokenize the deduplicated corpus |
+| `dapper mixture check` | Check a target mixture against the token manifest |
 | `dapper run` | Archive, dedup, then tokenize in one sweep |
 
 ### Command Coverage Status
