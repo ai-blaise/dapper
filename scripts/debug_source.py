@@ -30,6 +30,21 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Write to a temp dir instead of GCS, to isolate the storage layer.",
     )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help=(
+            "Call init_gcs(verify=True), as `dapper archive` does. That probes "
+            "the bucket first, which populates the gcsfs metadata cache; this "
+            "flag exists to test whether that is what breaks the later write."
+        ),
+    )
+    parser.add_argument(
+        "--threaded",
+        action="store_true",
+        help="Run via ingest_all (thread pool + progress callback) instead of "
+        "ingest_hf directly, matching `dapper archive` exactly.",
+    )
     args = parser.parse_args(argv)
 
     from dapper.config import load_config
@@ -51,11 +66,31 @@ def main(argv: list[str] | None = None) -> int:
 
     from dapper.archive import ingest as ing
 
-    context, where = _context(config, args.local)
-    print(f"destination: {where}")
+    context, where = _context(config, args.local, args.verify)
+    print(f"destination : {where}")
+    print(f"verify      : {args.verify}")
+    print(f"threaded    : {args.threaded}")
     print()
     try:
-        report = ing.ingest_hf(source, context, config, limit=args.limit, force=True)
+        if args.threaded:
+            reports = ing.ingest_all(
+                context,
+                config,
+                sources=[source],
+                limit=args.limit,
+                force=True,
+                max_workers=4,
+                progress=False,
+            )
+            report = reports[0]
+            if report.failed:
+                print("--- TRACEBACK (captured in report) ---")
+                print(report.traceback or "(none captured)")
+                return 1
+        else:
+            report = ing.ingest_hf(
+                source, context, config, limit=args.limit, force=True
+            )
     except Exception:
         print("--- TRACEBACK (unfiltered) ---")
         traceback.print_exc()
@@ -111,11 +146,11 @@ def _dump_schema(source, config) -> None:
     print()
 
 
-def _context(config, local: bool):
+def _context(config, local: bool, verify: bool = False):
     from dapper.corpus.gcs import GcsContext, init_gcs
 
     if not local:
-        context = init_gcs(config, verify=False)
+        context = init_gcs(config, verify=verify)
         return context, context.staged_input_uri
 
     import tempfile
