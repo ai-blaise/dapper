@@ -5,14 +5,14 @@ project:
 storage:
   provider: gcs
   bucket: pretraining-corpus
-  dataset_prefix: dapper/pretraining/staged-input
-  work_prefix: dapper/pretraining/datatrove-work
-  output_prefix: dapper/pretraining/dedup-output
+  dataset_prefix: pretraining/staged-input
+  work_prefix: pretraining/datatrove-work
+  output_prefix: pretraining/dedup-output
   # THE token artifact. `dapper tokenize` writes bin-partitioned WebDataset
   # shards here in one pass: tokens/<bin>/shard-<source>-<rank>-<seq>.tar,
   # plus tokens/_manifest/ (capacities) and tokens/_runs/<source>/ (run state).
   # There is no Parquet intermediate and no second regrouping stage.
-  tokens_prefix: dapper/pretraining/tokens
+  tokens_prefix: pretraining/tokens
 
 tokenize:
   # Roll a shard past this many bytes, per task per bin. 250 MiB puts the
