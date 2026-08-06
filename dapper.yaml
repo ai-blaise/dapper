@@ -162,12 +162,18 @@ corpus:
         repo: "allenai/c4"
         dataset_config: en
         domain: general_web
-      - name: davinci-llm-data
-        repo: "SII-GAIR-NLP/davinci-llm-data"
-        domain: general_web
-      - name: nemotron-cc-v2.1
-        repo: "nvidia/Nemotron-CC-v2.1"
-        domain: general_web
+      # Requires Terms & Conditions (gated=auto): accept the terms on the dataset page.
+      # https://huggingface.co/datasets/SII-GAIR-NLP/davinci-llm-data
+      # Then uncomment. Left active, it fails every run and forces exit 3.
+      # - name: davinci-llm-data
+      #   repo: "SII-GAIR-NLP/davinci-llm-data"
+      #   domain: general_web
+      # Requires Terms & Conditions (gated=manual): request access; the author approves manually.
+      # https://huggingface.co/datasets/nvidia/Nemotron-CC-v2.1
+      # Then uncomment. Left active, it fails every run and forces exit 3.
+      # - name: nemotron-cc-v2.1
+      #   repo: "nvidia/Nemotron-CC-v2.1"
+      #   domain: general_web
       # Dolma 3. The ten `dolma3_*` pool/mix variants are the same corpus at
       # different sizes and blends -- archiving several re-downloads the same
       # documents. The 6T mix is the primary pretraining set.
@@ -205,22 +211,31 @@ corpus:
         repo: "HuggingFaceCode/stack-v3-train"
         domain: code
         subdomain: repo_connected
-      - name: nemotron-code-v1
-        repo: "nvidia/Nemotron-Pretraining-Code-v1"
-        domain: code
-        subdomain: repo_connected
-      - name: nemotron-code-v2
-        repo: "nvidia/Nemotron-Pretraining-Code-v2"
-        domain: code
-        subdomain: repo_connected
+      # Requires Terms & Conditions (gated=manual): request access; the author approves manually.
+      # https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v1
+      # Then uncomment. Left active, it fails every run and forces exit 3.
+      # - name: nemotron-code-v1
+      #   repo: "nvidia/Nemotron-Pretraining-Code-v1"
+      #   domain: code
+      #   subdomain: repo_connected
+      # Requires Terms & Conditions (gated=manual): request access; the author approves manually.
+      # https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v2
+      # Then uncomment. Left active, it fails every run and forces exit 3.
+      # - name: nemotron-code-v2
+      #   repo: "nvidia/Nemotron-Pretraining-Code-v2"
+      #   domain: code
+      #   subdomain: repo_connected
       - name: nemotron-code-v3
         repo: "nvidia/Nemotron-Pretraining-Code-v3"
         domain: code
         subdomain: repo_connected
-      - name: nemotron-cc-code
-        repo: "nvidia/Nemotron-CC-Code-v1"
-        domain: code
-        subdomain: other
+      # Requires Terms & Conditions (gated=manual): request access; the author approves manually.
+      # https://huggingface.co/datasets/nvidia/Nemotron-CC-Code-v1
+      # Then uncomment. Left active, it fails every run and forces exit 3.
+      # - name: nemotron-cc-code
+      #   repo: "nvidia/Nemotron-CC-Code-v1"
+      #   domain: code
+      #   subdomain: other
       # Openly licensed subset of The Stack v2.
       - name: common-pile-stackv2
         repo: "common-pile/stackv2"
@@ -231,9 +246,12 @@ corpus:
       - name: automathtext-v2
         repo: "OpenSQZ/AutoMathText-V2"
         domain: mathematics
-      - name: nemotron-cc-math
-        repo: "nvidia/Nemotron-CC-Math-v1"
-        domain: mathematics
+      # Requires Terms & Conditions (gated=auto): accept the terms on the dataset page.
+      # https://huggingface.co/datasets/nvidia/Nemotron-CC-Math-v1
+      # Then uncomment. Left active, it fails every run and forces exit 3.
+      # - name: nemotron-cc-math
+      #   repo: "nvidia/Nemotron-CC-Math-v1"
+      #   domain: mathematics
       - name: finephrase-math
         repo: "HuggingFaceFW/finephrase"
         dataset_config: math

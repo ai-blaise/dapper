@@ -204,14 +204,16 @@ def ingest_all(
                 progress_callback=_update,
             )
             if report.skipped:
-                progress_task.finish(f"skipped: {report.skipped_reason}")
+                progress_task.complete(f"skipped: {report.skipped_reason}")
             else:
-                progress_task.finish(
+                progress_task.complete(
                     f"done: {report.records:,} records, {report.shards:,} shards"
                 )
             return report
         except Exception as exc:
-            progress_task.finish(f"failed: {type(exc).__name__}: {exc}")
+            progress_task.complete(
+                f"failed: {type(exc).__name__}: {exc}", ok=False
+            )
             return IngestReport(
                 source_name=source.name,
                 destination_uri=context.source_uri(source.name),

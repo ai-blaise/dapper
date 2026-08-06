@@ -36,6 +36,16 @@ POLL_SECONDS = 2.0
 COMPLETIONS_DIRNAME = "completions"
 
 
+def _mark(status: str) -> str:
+    """Outcome glyph. A failed source must not read as a success."""
+    lowered = status.lower()
+    if "failed" in lowered:
+        return "[red]x[/red]"
+    if "skipped" in lowered:
+        return "[yellow]-[/yellow]"
+    return "[green]v[/green]"
+
+
 def quiet_third_party_progress() -> None:
     """Silence tqdm bars owned by `datasets` and `huggingface_hub`.
 
@@ -119,6 +129,9 @@ class _NullBar:
     def finish(self, status: str | None = None) -> None:
         return
 
+    def complete(self, status: str = "") -> None:
+        return
+
 
 @contextmanager
 def stage_bar(stage: Stage, *, enabled: bool = True) -> Iterator[_NullBar]:
@@ -170,14 +183,20 @@ def stage_bar(stage: Stage, *, enabled: bool = True) -> Iterator[_NullBar]:
         lock = threading.Lock()
 
         class _Bar:
-            def __init__(self, current_task_id):
+            def __init__(self, current_task_id, total=None):
                 self._task_id = current_task_id
+                # Tracked locally rather than read back off the Progress: rich
+                # exposes tasks as a list, and looking one up by id on every
+                # update would be O(tasks) inside the render lock.
+                self._total = total
+                self._completed = 0
 
             def advance(self, amount: int = 1) -> None:
                 with lock:
                     progress.advance(self._task_id, amount)
 
             def set_completed(self, value: int) -> None:
+                self._completed = value
                 with lock:
                     progress.update(self._task_id, completed=value)
 
@@ -190,7 +209,7 @@ def stage_bar(stage: Stage, *, enabled: bool = True) -> Iterator[_NullBar]:
             ) -> "_Bar":
                 with lock:
                     child_id = progress.add_task(name, total=total, status=status)
-                return _Bar(child_id)
+                return _Bar(child_id, total)
 
             def update(
                 self,
@@ -203,8 +222,10 @@ def stage_bar(stage: Stage, *, enabled: bool = True) -> Iterator[_NullBar]:
                 values = {}
                 if completed is not None:
                     values["completed"] = completed
+                    self._completed = completed
                 if total is not None:
                     values["total"] = total
+                    self._total = total
                 if status is not None:
                     fields["status"] = status
                 with lock:
@@ -217,7 +238,54 @@ def stage_bar(stage: Stage, *, enabled: bool = True) -> Iterator[_NullBar]:
                 with lock:
                     progress.update(self._task_id, **update)
 
-        bar = _Bar(task_id)
+            def complete(self, status: str = "", *, ok: bool = True) -> None:
+                """Land at 100%, echo a permanent line, release the live row.
+
+                Live rows are a fixed budget: `rich` abandons live rendering
+                once the frame exceeds the terminal height, degrading to
+                printing every frame. With one row per source that ceiling is
+                crossed long before the run ends, so a finished row has to
+                become static history instead of staying live.
+
+                A stream has no length until it ends, so an unlimited run
+                arrives here with `total=None`. Adopting the final count as the
+                total is what makes the bar read 100% n/n rather than sitting
+                unresolved.
+                """
+                # A failure did not finish its work, so it keeps the count it
+                # actually reached; forcing the bar to 100% would report a
+                # success that never happened.
+                total = self._total if self._total is not None else self._completed
+                reached = total if ok else self._completed
+                with lock:
+                    progress.update(
+                        self._task_id,
+                        total=total,
+                        completed=reached,
+                        status=status,
+                    )
+                    # Printing through the Progress console puts this above the
+                    # live area rather than fighting it for the cursor.
+                    label = self._label()
+                    # Kept to one line: this is scrolling history, and a wrapped
+                    # entry is harder to scan than a truncated one.
+                    pct = "100%" if ok else "   -"
+                    progress.console.print(
+                        f"  {_mark(status)} {label[:22]:<22} "
+                        f"{pct} {reached:>8,}  {status[:34]}",
+                        highlight=False,
+                        soft_wrap=False,
+                        crop=True,
+                    )
+                    progress.remove_task(self._task_id)
+
+            def _label(self) -> str:
+                for task in progress.tasks:
+                    if task.id == self._task_id:
+                        return str(task.description)
+                return ""
+
+        bar = _Bar(task_id, stage.total)
         if stage.completions_uri is None:
             yield bar
             return
