@@ -182,14 +182,6 @@ corpus:
         domain: general_web
 
       # ---- education_reference --------------------------------------------
-      - name: fineweb-edu
-        repo: "HuggingFaceFW/fineweb-edu"
-        domain: education_reference
-        license: ODC-By-1.0
-      - name: fineweb-edu-score-2
-        repo: "HuggingFaceFW/fineweb-edu-score-2"
-        domain: education_reference
-        license: ODC-By-1.0
       - name: finepdfs-edu
         repo: "HuggingFaceFW/finepdfs-edu"
         domain: education_reference

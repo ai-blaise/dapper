@@ -62,6 +62,15 @@ def exists(uri: str) -> bool:
     return bool(fs.exists(path) or fs.isdir(path))
 
 
+def delete(uri: str, *, recursive: bool = True) -> bool:
+    """Delete a URI or prefix. Returns False when nothing existed."""
+    if not exists(uri):
+        return False
+    fs, path = fs_for(uri)
+    fs.rm(path, recursive=recursive)
+    return True
+
+
 def is_dir(uri: str) -> bool:
     """Return whether ``uri`` names a directory or object-store prefix."""
     fs, path = fs_for(uri)

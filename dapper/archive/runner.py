@@ -13,6 +13,7 @@ from dapper.archive.report import (
     format_catalog_show,
 )
 from dapper.config import load_config
+from dapper.corpus import io
 from dapper.corpus.gcs import init_gcs
 from dapper.dedup.config import parse_dedup_config
 
@@ -69,6 +70,25 @@ def run_archive(
         format_archive_report(context, reports),
         EXIT_PARTIAL if failed else EXIT_OK,
     )
+
+
+def run_archive_delete(
+    name: str,
+    *,
+    config_path: str | None = None,
+) -> CommandResult:
+    """Delete one configured source from the GCS archive."""
+    dedup_config = parse_dedup_config(load_config(config_path))
+    targets = resolve_sources([name], dedup_config)
+    context = init_gcs(dedup_config)
+    source = targets[0]
+    uri = context.source_uri(source.name)
+    deleted = io.delete(uri, recursive=True)
+    if deleted:
+        message = f"Deleted archived dataset {source.name}: {uri}"
+    else:
+        message = f"No archived dataset found for {source.name}: {uri}"
+    return CommandResult(message)
 
 
 def run_catalog_list(

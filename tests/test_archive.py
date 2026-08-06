@@ -233,6 +233,44 @@ def test_report_lists_passed_datasets_without_gcs_paths():
     assert "gs://b/c4" not in output
 
 
+def test_archive_delete_removes_configured_source(monkeypatch):
+    import dapper.archive.runner as runner
+
+    deleted = []
+    monkeypatch.setattr(runner, "load_config", lambda path=None: CORPUS)
+    monkeypatch.setattr(runner, "init_gcs", lambda config: _context())
+    monkeypatch.setattr(
+        runner.io,
+        "delete",
+        lambda uri, recursive=True: deleted.append((uri, recursive)) or True,
+    )
+
+    result = runner.run_archive_delete("fineweb")
+
+    assert deleted == [
+        ("gs://pretraining-corpus/dapper/dedup/staged-input/fineweb", True)
+    ]
+    assert result.output == (
+        "Deleted archived dataset fineweb: "
+        "gs://pretraining-corpus/dapper/dedup/staged-input/fineweb"
+    )
+
+
+def test_archive_delete_is_noop_when_source_prefix_missing(monkeypatch):
+    import dapper.archive.runner as runner
+
+    monkeypatch.setattr(runner, "load_config", lambda path=None: CORPUS)
+    monkeypatch.setattr(runner, "init_gcs", lambda config: _context())
+    monkeypatch.setattr(runner.io, "delete", lambda uri, recursive=True: False)
+
+    result = runner.run_archive_delete("fineweb")
+
+    assert result.output == (
+        "No archived dataset found for fineweb: "
+        "gs://pretraining-corpus/dapper/dedup/staged-input/fineweb"
+    )
+
+
 # --- dry run --------------------------------------------------------------
 
 

@@ -16,10 +16,35 @@ def _fail(message: str, code: int) -> None:
 
 def archive_main(argv: Sequence[str] | None = None) -> None:
     from dapper.archive.catalog import CatalogError
-    from dapper.archive.runner import run_archive
+    from dapper.archive.runner import run_archive, run_archive_delete
     from dapper.config import ConfigError
     from dapper.corpus.gcs import GcsError
     from dapper.progress import add_progress_argument
+
+    raw_args = list(argv or [])
+    if raw_args and raw_args[0] == "delete":
+        parser = argparse.ArgumentParser(
+            prog="dapper archive delete",
+            description="Delete one configured dataset from the GCS archive.",
+        )
+        parser.add_argument("name", help="Dataset source name or repo path.")
+        parser.add_argument(
+            "--config",
+            default=None,
+            help=(
+                "Config file override. Defaults to dapper.yaml in the current "
+                "directory."
+            ),
+        )
+        args = parser.parse_args(raw_args[1:])
+        try:
+            result = run_archive_delete(args.name, config_path=args.config)
+        except CatalogError as exc:
+            _fail(str(exc), EXIT_USAGE)
+        except (ConfigError, GcsError, RuntimeError, ValueError) as exc:
+            _fail(str(exc), 1)
+        print(result.output)
+        return
 
     parser = argparse.ArgumentParser(
         prog="dapper archive",
@@ -70,7 +95,7 @@ def archive_main(argv: Sequence[str] | None = None) -> None:
         help="Resolve the catalog and bucket layout, print the plan, write nothing.",
     )
     add_progress_argument(parser)
-    args = parser.parse_args(list(argv or []))
+    args = parser.parse_args(raw_args)
 
     try:
         result = run_archive(
