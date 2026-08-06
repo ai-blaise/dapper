@@ -44,6 +44,10 @@ class IngestReport:
     shards: int
     skipped_reason: str | None = None
     failed: bool = False
+    # Full traceback for a failure. A bare "TypeError: ..." names the symptom
+    # but not the line, which makes a failure in one source out of sixty
+    # effectively undebuggable.
+    traceback: str | None = None
 
     @property
     def skipped(self) -> bool:
@@ -211,6 +215,8 @@ def ingest_all(
                 )
             return report
         except Exception as exc:
+            import traceback as _tb
+
             progress_task.complete(
                 f"failed: {type(exc).__name__}: {exc}", ok=False
             )
@@ -221,6 +227,7 @@ def ingest_all(
                 shards=0,
                 skipped_reason=f"{type(exc).__name__}: {exc}",
                 failed=True,
+                traceback=_tb.format_exc(),
             )
 
     # Sources, not records: a streamed HuggingFace dataset reports no length,

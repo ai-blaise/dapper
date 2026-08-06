@@ -49,12 +49,33 @@ def format_archive_report(context: GcsContext, reports: Iterable[IngestReport]) 
         lines.append(f"FAILED sources: {len(failed)}")
         for report in failed:
             lines.append(f"  {report.source_name}: {report.skipped_reason}")
+            # The frames that name our own code. A message without a location
+            # is not actionable when one source of sixty fails.
+            for frame in _dapper_frames(report.traceback):
+                lines.append(f"      {frame}")
         lines.append("")
         lines.append(
             "The archive is incomplete. Re-run to retry only the failed "
             "sources, or use --sources to target them."
         )
     return "\n".join(lines)
+
+
+def _dapper_frames(text: str | None, limit: int = 4) -> list[str]:
+    """Pull the Dapper frames out of a traceback.
+
+    Library frames dominate a deep stack -- gcsfs and datasets bury the one
+    line that matters -- so this keeps only frames inside the package, which is
+    where a fix would go.
+    """
+    if not text:
+        return []
+    frames = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip().startswith('File "') and "/dapper/" in line
+    ]
+    return frames[-limit:]
 
 
 def format_archive_plan(context: GcsContext, reports: Iterable[IngestReport]) -> str:
