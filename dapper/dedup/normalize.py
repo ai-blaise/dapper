@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import re
 import unicodedata
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from dapper.corpus import io
 from dapper.dedup.config import DedupConfig, SourceConfig
 from dapper.dedup.schema import PRETRAINING_FIELDS
 from dapper.dedup.schema_inspect import inspect_records
@@ -49,7 +49,7 @@ def normalize_sources(
                 normalized = normalize_pretraining_record(
                     record, source, config, inspection
                 )
-                handle.write(json.dumps(normalized, ensure_ascii=False) + "\n")
+                handle.write(io.json_dumps(normalized) + "\n")
                 total += 1
 
     return NormalizeReport(

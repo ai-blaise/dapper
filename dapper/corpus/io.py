@@ -138,16 +138,18 @@ def read_json(uri: str) -> Any:
     return json.loads(read_text(uri))
 
 
-def write_json(uri: str, payload: Any, *, indent: int | None = None) -> str:
-    return write_text(
-        uri,
-        json.dumps(
-            payload,
-            ensure_ascii=False,
-            indent=indent,
-            default=_json_safe,
-        ),
+def json_dumps(payload: Any, *, indent: int | None = None) -> str:
+    """Serialize JSON with Dapper's dataset-value fallback policy."""
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=indent,
+        default=_json_safe,
     )
+
+
+def write_json(uri: str, payload: Any, *, indent: int | None = None) -> str:
+    return write_text(uri, json_dumps(payload, indent=indent))
 
 
 def _json_safe(value: Any) -> Any:
