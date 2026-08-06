@@ -26,27 +26,26 @@ def format_archive_report(context: GcsContext, reports: Iterable[IngestReport]) 
         "Dapper archive",
         "",
         f"Bucket: {context.bucket}",
-        f"Staged input: {context.staged_input_uri}",
         "",
-        f"Sources archived: {len(archived)}",
+        f"Passed datasets: {len(archived)}",
         f"Total records: {sum(r.records for r in archived):,}",
         f"Total shards: {sum(r.shards for r in archived):,}",
     ]
     if archived:
-        lines.append("")
         for report in archived:
+            shard_word = "shard" if report.shards == 1 else "shards"
             lines.append(
-                f"  {report.source_name}: {report.records:,} records "
-                f"in {report.shards} shards -> {report.destination_uri}"
+                f"  {report.source_name}: {report.records:,} records, "
+                f"{report.shards:,} {shard_word}"
             )
     if skipped:
         lines.append("")
-        lines.append(f"Skipped sources: {len(skipped)}")
+        lines.append(f"Skipped datasets: {len(skipped)}")
         for report in skipped:
             lines.append(f"  {report.source_name}: {report.skipped_reason}")
     if failed:
         lines.append("")
-        lines.append(f"FAILED sources: {len(failed)}")
+        lines.append(f"FAILED datasets: {len(failed)}")
         for report in failed:
             lines.append(f"  {report.source_name}: {report.skipped_reason}")
             # The frames that name our own code. A message without a location

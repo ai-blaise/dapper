@@ -210,14 +210,27 @@ def test_report_separates_failures_from_skips():
         IngestReport("bad", "gs://b/bad", 0, 0, skipped_reason="boom", failed=True),
     ]
     output = format_archive_report(_context(), reports)
-    assert "FAILED sources: 1" in output
-    assert "Skipped sources: 1" in output
+    assert "FAILED datasets: 1" in output
+    assert "Skipped datasets: 1" in output
     assert "archive is incomplete" in output
 
 
 def test_report_omits_failure_section_when_clean():
     output = format_archive_report(_context(), [IngestReport("ok", "gs://b/ok", 10, 1)])
     assert "FAILED" not in output
+
+
+def test_report_lists_passed_datasets_without_gcs_paths():
+    reports = [
+        IngestReport("fineweb", "gs://b/fineweb", 10, 1),
+        IngestReport("c4", "gs://b/c4", 20, 2),
+    ]
+    output = format_archive_report(_context(), reports)
+    assert "Passed datasets: 2" in output
+    assert "  fineweb: 10 records, 1 shard" in output
+    assert "  c4: 20 records, 2 shards" in output
+    assert "gs://b/fineweb" not in output
+    assert "gs://b/c4" not in output
 
 
 # --- dry run --------------------------------------------------------------
@@ -329,3 +342,30 @@ def test_every_line_is_valid_json_and_newline_terminated():
     parsed = json.loads(line)
     # Sets have no JSON form; sorting keeps the output stable across runs.
     assert parsed["tags"] == ["a", "b"]
+
+
+def test_json_sidecars_accept_dataset_native_values(tmp_path):
+    import datetime
+    import decimal
+    import json
+
+    from dapper.corpus import io
+
+    target = tmp_path / "sidecar.json"
+    io.write_json(
+        str(target),
+        {
+            "date": datetime.datetime(2026, 8, 6, 3, 42),
+            "score": decimal.Decimal("2.5"),
+            "blob": b"caf\xc3\xa9",
+            "tags": {"b", "a"},
+        },
+    )
+
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert payload == {
+        "date": "2026-08-06T03:42:00",
+        "score": 2.5,
+        "blob": "café",
+        "tags": ["a", "b"],
+    }

@@ -139,7 +139,31 @@ def read_json(uri: str) -> Any:
 
 
 def write_json(uri: str, payload: Any, *, indent: int | None = None) -> str:
-    return write_text(uri, json.dumps(payload, ensure_ascii=False, indent=indent))
+    return write_text(
+        uri,
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            indent=indent,
+            default=_json_safe,
+        ),
+    )
+
+
+def _json_safe(value: Any) -> Any:
+    """Coerce common dataset values into JSON-compatible sidecar values."""
+    import datetime
+    import decimal
+
+    if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+        return value.isoformat()
+    if isinstance(value, decimal.Decimal):
+        return float(value)
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode("utf-8", "replace")
+    if isinstance(value, set):
+        return sorted(value, key=str)
+    return str(value)
 
 
 def glob(uri: str, pattern: str) -> list[str]:
