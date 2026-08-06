@@ -36,6 +36,34 @@ POLL_SECONDS = 2.0
 COMPLETIONS_DIRNAME = "completions"
 
 
+def quiet_third_party_progress() -> None:
+    """Silence tqdm bars owned by `datasets` and `huggingface_hub`.
+
+    `rich` reprints its live display whenever anything else writes to the
+    stream. HuggingFace emits thousands of tqdm updates while resolving data
+    files -- 282k files for one source -- so the bar re-renders faster than a
+    terminal can redraw and leaks a fresh line each time. The result is our bar
+    repeated dozens of times, interleaved with `Resolving data files` noise.
+
+    Silencing them is safe: their progress duplicates information our own bar
+    already reports at the granularity that matters (sources, then records).
+    Failures are swallowed because a missing API in some future version must
+    not stop a pipeline run.
+    """
+    try:
+        import datasets
+
+        datasets.disable_progress_bars()
+    except Exception:
+        pass
+    try:
+        from huggingface_hub.utils import disable_progress_bars
+
+        disable_progress_bars()
+    except Exception:
+        pass
+
+
 @dataclass(frozen=True)
 class Stage:
     """One bar: a name, a denominator, and where to count progress."""
@@ -106,8 +134,13 @@ def stage_bar(stage: Stage, *, enabled: bool = True) -> Iterator[_NullBar]:
     per-task stats blocks, which are worth reading, without losing the bar.
     """
     if not enabled:
+        # --no-progress keeps third-party bars: raw logs are the point there.
         yield _NullBar()
         return
+
+    # Must happen before the live display starts, or HF's tqdm handles are
+    # already bound to the un-proxied stream.
+    quiet_third_party_progress()
 
     from rich.progress import (
         BarColumn,
@@ -133,7 +166,7 @@ def stage_bar(stage: Stage, *, enabled: bool = True) -> Iterator[_NullBar]:
     )
 
     with progress:
-        task_id = progress.add_task(stage.name, total=stage.total, status="sources")
+        task_id = progress.add_task(stage.name, total=stage.total, status="")
         lock = threading.Lock()
 
         class _Bar:

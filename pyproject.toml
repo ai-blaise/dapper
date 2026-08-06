@@ -18,6 +18,10 @@ dependencies = [
     # (braceexpand, numpy, pyyaml) -- the format is defined by this library, so
     # it should be produced by it rather than by our reading of the spec.
     "webdataset>=0.2.0",
+    # Several sources ship zstd-compressed shards (DCLM baseline, dolma3,
+    # recycling_the_web). Without this, `datasets` raises
+    # "Compression type zstd not supported" at load time.
+    "zstandard>=0.22.0",
     "orjson>=3.10.0",
     "spacy>=3.7.0",
     "transformers>=4.44.0",

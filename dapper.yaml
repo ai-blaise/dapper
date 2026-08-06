@@ -116,12 +116,27 @@ corpus:
       - name: nemotron-climbmix
         repo: "nvidia/Nemotron-ClimbMix"
         domain: general_web
+      # Splits are languages (`en`, `zh`), not train/test, so the
+      # corpus.defaults `split: train` has to be overridden here.
       - name: ultra-fineweb
         repo: "openbmb/Ultra-FineWeb"
+        split: en
         domain: general_web
-      - name: finephrase
+      # Configs: all | faq | math | table | tutorial. Taken individually
+      # rather than as `all`, because `math` belongs in the mathematics domain
+      # and `all` would bury it under general_web.
+      - name: finephrase-faq
         repo: "HuggingFaceFW/finephrase"
+        dataset_config: faq
         domain: general_web
+      - name: finephrase-table
+        repo: "HuggingFaceFW/finephrase"
+        dataset_config: table
+        domain: general_web
+      - name: finephrase-tutorial
+        repo: "HuggingFaceFW/finephrase"
+        dataset_config: tutorial
+        domain: education_reference
       - name: essential-web
         repo: "EssentialAI/essential-web-v1.0"
         domain: general_web
@@ -140,8 +155,12 @@ corpus:
       - name: recycling-the-web
         repo: "facebook/recycling_the_web"
         domain: general_web
+      # 113 configs. `en` is the cleaned English split; `en.noclean` and
+      # `en.noblocklist` are deliberately *less* filtered, so this is a data
+      # quality choice, not a formality.
       - name: c4
         repo: "allenai/c4"
+        dataset_config: en
         domain: general_web
       - name: davinci-llm-data
         repo: "SII-GAIR-NLP/davinci-llm-data"
@@ -215,6 +234,10 @@ corpus:
       - name: nemotron-cc-math
         repo: "nvidia/Nemotron-CC-Math-v1"
         domain: mathematics
+      - name: finephrase-math
+        repo: "HuggingFaceFW/finephrase"
+        dataset_config: math
+        domain: mathematics
 
       # ---- science_technical ----------------------------------------------
       - name: arxiv-papers
@@ -223,9 +246,25 @@ corpus:
       - name: arxiv-abstracts
         repo: "common-pile/arxiv_abstracts_filtered"
         domain: science_technical
-      - name: nemotron-specialized-v1.2
+      # Four topic configs, each a distinct sub-dataset. A single entry would
+      # have to pick one, so they are listed separately and domain-mapped.
+      - name: nemotron-fact-seeking
         repo: "nvidia/Nemotron-Pretraining-Specialized-v1.2"
+        dataset_config: Nemotron-Pretraining-Fact-Seeking
         domain: science_technical
+      - name: nemotron-generative
+        repo: "nvidia/Nemotron-Pretraining-Specialized-v1.2"
+        dataset_config: Nemotron-Pretraining-Generative
+        domain: science_technical
+      - name: nemotron-multiple-choice
+        repo: "nvidia/Nemotron-Pretraining-Specialized-v1.2"
+        dataset_config: Nemotron-Pretraining-Multiple-Choice
+        domain: education_reference
+      # Moral scenarios are ethics prompts, not science.
+      - name: nemotron-moral-scenarios
+        repo: "nvidia/Nemotron-Pretraining-Specialized-v1.2"
+        dataset_config: Nemotron-Pretraining-Moral-Scenarios
+        domain: other
       # Semantic Scholar open research corpus.
       - name: pes2o
         repo: "common-pile/peS2o"
