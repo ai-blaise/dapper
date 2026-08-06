@@ -254,3 +254,78 @@ def test_catalog_list_shows_dataset_config():
 
 def test_catalog_list_handles_empty_corpus():
     assert "No sources configured" in format_catalog_list([])
+
+
+# --- record serialization --------------------------------------------------
+
+
+def test_datetime_fields_serialize_as_iso8601():
+    """A source with a timestamp column must not die on it.
+
+    The normalizer copies unrecognized record values through verbatim, so a
+    `datetime` reaches the writer. `usgpo` failed on exactly this, losing the
+    whole source to one field.
+    """
+    import datetime
+
+    from dapper.archive.ingest import _json_line
+
+    line = _json_line({"text": "x", "date": datetime.datetime(2026, 8, 6, 3, 42)})
+    assert '"date": "2026-08-06T03:42:00"' in line
+
+
+def test_dates_and_times_serialize():
+    import datetime
+
+    from dapper.archive.ingest import _json_line
+
+    line = _json_line(
+        {"d": datetime.date(2026, 8, 6), "t": datetime.time(3, 42)}
+    )
+    assert '"2026-08-06"' in line and '"03:42:00"' in line
+
+
+def test_decimal_becomes_a_number_not_a_string():
+    """A score kept as text would silently break numeric comparisons."""
+    import decimal
+
+    from dapper.archive.ingest import _json_line
+
+    assert '"score": 1.5' in _json_line({"score": decimal.Decimal("1.5")})
+
+
+def test_bytes_are_decoded_lossily_rather_than_dropped():
+    """A mangled character beats discarding the document."""
+    from dapper.archive.ingest import _json_line
+
+    line = _json_line({"b": "café".encode("utf-8"), "bad": b"\xff\xfe"})
+    assert "café" in line
+    assert '"bad"' in line
+
+
+def test_unknown_types_fall_back_to_str():
+    """Information survives even when its shape does not."""
+    from dapper.archive.ingest import _json_line
+
+    assert "object at" in _json_line({"o": object()})
+
+
+def test_every_line_is_valid_json_and_newline_terminated():
+    import datetime
+    import decimal
+    import json
+
+    from dapper.archive.ingest import _json_line
+
+    line = _json_line(
+        {
+            "text": "hi",
+            "date": datetime.datetime(2026, 8, 6),
+            "dec": decimal.Decimal("2.25"),
+            "tags": {"b", "a"},
+        }
+    )
+    assert line.endswith("\n")
+    parsed = json.loads(line)
+    # Sets have no JSON form; sorting keeps the output stable across runs.
+    assert parsed["tags"] == ["a", "b"]

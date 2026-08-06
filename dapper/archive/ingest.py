@@ -283,9 +283,39 @@ def plan_ingest(
 
 
 def _json_line(record: dict[str, Any]) -> str:
+    """Serialize one normalized record as a JSONL line.
+
+    ``default`` matters: the normalizer copies unrecognized record values
+    through verbatim [dapper/dedup/normalize.py], so a source with a
+    ``datetime``, ``Decimal``, or bytes column reaches here holding a type
+    ``json`` refuses. Without a fallback the whole source dies on one field --
+    which is how `usgpo` failed, on a ``date`` column.
+    """
     import json
 
-    return json.dumps(record, ensure_ascii=False) + "\n"
+    return json.dumps(record, ensure_ascii=False, default=_json_safe) + "\n"
+
+
+def _json_safe(value: Any) -> Any:
+    """Coerce a value ``json`` cannot encode into something it can.
+
+    Dates become ISO-8601 so they stay machine-readable and sortable. Bytes are
+    decoded lossily rather than dropped: a mangled character in a metadata field
+    beats discarding the document. Anything else falls back to ``str`` so the
+    information survives even if its shape does not.
+    """
+    import datetime
+    import decimal
+
+    if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+        return value.isoformat()
+    if isinstance(value, decimal.Decimal):
+        return float(value)
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode("utf-8", "replace")
+    if isinstance(value, set):
+        return sorted(value, key=str)
+    return str(value)
 
 
 def _stream_hf_records(

@@ -292,8 +292,28 @@ corpus:
         domain: science_technical
 
       # ---- legal_government -----------------------------------------------
-      - name: nemotron-legal
+      # 13 configs. Taken as the ones that are legal *text*; the rest
+      # (CaseHOLD, *-QA, *-Classification) are evaluation tasks rather than
+      # pretraining prose.
+      - name: nemotron-legal-ecfr
         repo: "nvidia/Nemotron-Pretraining-Legal-v1"
+        dataset_config: Nemotron-Pretraining-Legal-eCFR
+        domain: legal_government
+      - name: nemotron-legal-ca-regs
+        repo: "nvidia/Nemotron-Pretraining-Legal-v1"
+        dataset_config: Nemotron-Pretraining-Legal-California-Code-Of-Regulations
+        domain: legal_government
+      - name: nemotron-legal-case-summary
+        repo: "nvidia/Nemotron-Pretraining-Legal-v1"
+        dataset_config: Nemotron-Pretraining-Legal-Case-Law-Summary
+        domain: legal_government
+      - name: nemotron-legal-globalcit
+        repo: "nvidia/Nemotron-Pretraining-Legal-v1"
+        dataset_config: Nemotron-Pretraining-Legal-GlobalCit
+        domain: legal_government
+      - name: nemotron-legal-judicial-ethics
+        repo: "nvidia/Nemotron-Pretraining-Legal-v1"
+        dataset_config: Nemotron-Pretraining-Legal-NYCourts-Judicial-Ethics-Opinions
         domain: legal_government
       - name: caselaw-access-project
         repo: "common-pile/caselaw_access_project"
@@ -352,13 +372,44 @@ corpus:
         repo: "PleIAs/SYNTH"
         domain: other
         synthetic: true
-      - name: cosmopedia
+      # 8 configs, and they span domains -- one entry would have buried
+      # auto_math_text under `other`.
+      - name: cosmopedia-math
         repo: "HuggingFaceTB/cosmopedia"
-        domain: other
+        dataset_config: auto_math_text
+        domain: mathematics
         synthetic: true
-      # Multilingual. mixture.yaml has no multilingual domain yet, so this sits
-      # in `other` until one is added.
-      - name: fineweb-2
-        repo: "HuggingFaceFW/fineweb-2"
-        domain: other
-        license: ODC-By-1.0
+      - name: cosmopedia-khanacademy
+        repo: "HuggingFaceTB/cosmopedia"
+        dataset_config: khanacademy
+        domain: education_reference
+        synthetic: true
+      - name: cosmopedia-openstax
+        repo: "HuggingFaceTB/cosmopedia"
+        dataset_config: openstax
+        domain: education_reference
+        synthetic: true
+      - name: cosmopedia-stanford
+        repo: "HuggingFaceTB/cosmopedia"
+        dataset_config: stanford
+        domain: education_reference
+        synthetic: true
+      - name: cosmopedia-wikihow
+        repo: "HuggingFaceTB/cosmopedia"
+        dataset_config: wikihow
+        domain: education_reference
+        synthetic: true
+      - name: cosmopedia-stories
+        repo: "HuggingFaceTB/cosmopedia"
+        dataset_config: stories
+        domain: books_longform
+        synthetic: true
+      - name: cosmopedia-web-v2
+        repo: "HuggingFaceTB/cosmopedia"
+        dataset_config: web_samples_v2
+        domain: general_web
+        synthetic: true
+      # HuggingFaceFW/fineweb-2 removed: it is the NON-English companion to
+      # FineWeb and publishes no English config among its 1,870 languages.
+      # English web text comes from `fineweb` above. Revisit only if the
+      # mixture gains a multilingual domain.
