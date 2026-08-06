@@ -81,8 +81,21 @@ corpus:
     split: train
     mode: pretraining
 
+  # `domain` and `subdomain` are SOURCE-LEVEL assertions, not content
+  # classification -- there is no classifier in Dapper. A label means "this
+  # source is declared to be X", so a heterogeneous crawl tagged general_web
+  # still contains code, math, and reference material internally.
+  #
+  # Domains must match the keys in mixture.yaml or `dapper mixture check`
+  # reports the cell as having zero capacity.
+  #
+  # `dataset_config` is left unset where the config name is unknown; run
+  # `dapper dedup --dry-run` to sample each source and confirm the text field
+  # and real config before committing to a full archive.
   sources:
     huggingface:
+
+      # ---- general_web ----------------------------------------------------
       # sample-10BT is a ~10B-token subset published by the FineWeb authors.
       # Swap for sample-100BT, sample-350BT, or `default` (~15T) to scale up.
       # The samples are independent draws, not nested, so replace this value
@@ -91,4 +104,204 @@ corpus:
         repo: "HuggingFaceFW/fineweb"
         dataset_config: sample-10BT
         domain: general_web
+        license: ODC-By-1.0
+      - name: dclm-pro
+        repo: "gair-prox/DCLM-pro"
+        domain: general_web
+      # DCLM baseline. The `dclm-pool-*` variants are the same pool at
+      # different scales -- one entry, not seven.
+      - name: dclm-baseline
+        repo: "mlfoundations/dclm-baseline-1.0"
+        domain: general_web
+      - name: nemotron-climbmix
+        repo: "nvidia/Nemotron-ClimbMix"
+        domain: general_web
+      - name: ultra-fineweb
+        repo: "openbmb/Ultra-FineWeb"
+        domain: general_web
+      - name: finephrase
+        repo: "HuggingFaceFW/finephrase"
+        domain: general_web
+      - name: essential-web
+        repo: "EssentialAI/essential-web-v1.0"
+        domain: general_web
+      - name: zyda-2
+        repo: "Zyphra/Zyda-2"
+        domain: general_web
+      - name: falcon-refinedweb
+        repo: "tiiuae/falcon-refinedweb"
+        domain: general_web
+      - name: aicc
+        repo: "opendatalab/AICC"
+        domain: general_web
+      - name: txt360
+        repo: "LLM360/TxT360"
+        domain: general_web
+      - name: recycling-the-web
+        repo: "facebook/recycling_the_web"
+        domain: general_web
+      - name: c4
+        repo: "allenai/c4"
+        domain: general_web
+      - name: davinci-llm-data
+        repo: "SII-GAIR-NLP/davinci-llm-data"
+        domain: general_web
+      - name: nemotron-cc-v2.1
+        repo: "nvidia/Nemotron-CC-v2.1"
+        domain: general_web
+      # Dolma 3. The ten `dolma3_*` pool/mix variants are the same corpus at
+      # different sizes and blends -- archiving several re-downloads the same
+      # documents. The 6T mix is the primary pretraining set.
+      - name: dolma3-mix-6t
+        repo: "allenai/dolma3_mix-6T-1025-7B"
+        domain: general_web
+
+      # ---- education_reference --------------------------------------------
+      - name: fineweb-edu
+        repo: "HuggingFaceFW/fineweb-edu"
+        domain: education_reference
+        license: ODC-By-1.0
+      - name: fineweb-edu-score-2
+        repo: "HuggingFaceFW/fineweb-edu-score-2"
+        domain: education_reference
+        license: ODC-By-1.0
+      - name: finepdfs-edu
+        repo: "HuggingFaceFW/finepdfs-edu"
+        domain: education_reference
+      - name: common-pile-wikimedia
+        repo: "common-pile/wikimedia"
+        domain: education_reference
+      - name: libretexts
+        repo: "common-pile/libretexts"
+        domain: education_reference
+      - name: oercommons
+        repo: "common-pile/oercommons"
+        domain: education_reference
+
+      # ---- code -----------------------------------------------------------
+      # Subdomains are declared per source. A single source cannot split
+      # itself, so repo_connected vs docs/tests vs agent traces each need
+      # their own entry -- see the mixture.yaml code breakdown.
+      - name: stack-v3
+        repo: "HuggingFaceCode/stack-v3-train"
+        domain: code
+        subdomain: repo_connected
+      - name: nemotron-code-v1
+        repo: "nvidia/Nemotron-Pretraining-Code-v1"
+        domain: code
+        subdomain: repo_connected
+      - name: nemotron-code-v2
+        repo: "nvidia/Nemotron-Pretraining-Code-v2"
+        domain: code
+        subdomain: repo_connected
+      - name: nemotron-code-v3
+        repo: "nvidia/Nemotron-Pretraining-Code-v3"
+        domain: code
+        subdomain: repo_connected
+      - name: nemotron-cc-code
+        repo: "nvidia/Nemotron-CC-Code-v1"
+        domain: code
+        subdomain: other
+      # Openly licensed subset of The Stack v2.
+      - name: common-pile-stackv2
+        repo: "common-pile/stackv2"
+        domain: code
+        subdomain: repo_connected
+
+      # ---- mathematics ----------------------------------------------------
+      - name: automathtext-v2
+        repo: "OpenSQZ/AutoMathText-V2"
+        domain: mathematics
+      - name: nemotron-cc-math
+        repo: "nvidia/Nemotron-CC-Math-v1"
+        domain: mathematics
+
+      # ---- science_technical ----------------------------------------------
+      - name: arxiv-papers
+        repo: "common-pile/arxiv_papers"
+        domain: science_technical
+      - name: arxiv-abstracts
+        repo: "common-pile/arxiv_abstracts_filtered"
+        domain: science_technical
+      - name: nemotron-specialized-v1.2
+        repo: "nvidia/Nemotron-Pretraining-Specialized-v1.2"
+        domain: science_technical
+      # Semantic Scholar open research corpus.
+      - name: pes2o
+        repo: "common-pile/peS2o"
+        domain: science_technical
+      - name: pubmed
+        repo: "common-pile/pubmed"
+        domain: science_technical
+
+      # ---- legal_government -----------------------------------------------
+      - name: nemotron-legal
+        repo: "nvidia/Nemotron-Pretraining-Legal-v1"
+        domain: legal_government
+      - name: caselaw-access-project
+        repo: "common-pile/caselaw_access_project"
+        domain: legal_government
+      - name: library-of-congress
+        repo: "common-pile/library_of_congress"
+        domain: legal_government
+      # US Government Publishing Office.
+      - name: usgpo
+        repo: "common-pile/usgpo_filtered"
+        domain: legal_government
+      - name: regulations
+        repo: "common-pile/regulations"
+        domain: legal_government
+
+      # ---- books_longform -------------------------------------------------
+      # Openly licensed and public domain only. common-pile's remit is
+      # "openly licensed and public domain text".
+      - name: finepdfs
+        repo: "HuggingFaceFW/finepdfs"
+        domain: books_longform
+      - name: biodiversity-heritage-library
+        repo: "common-pile/biodiversity_heritage_library_filtered"
+        domain: books_longform
+      - name: project-gutenberg
+        repo: "common-pile/project_gutenberg"
+        domain: books_longform
+      - name: pre-1929-books
+        repo: "common-pile/pre_1929_books"
+        domain: books_longform
+      # Directory of Open Access Books.
+      - name: doab
+        repo: "common-pile/doab_filtered"
+        domain: books_longform
+
+      # ---- conversation_forum ---------------------------------------------
+      # Threaded dialogue. StackExchange (CC-BY-SA) is the volume here;
+      # transcripts are largely monologue and sit last for that reason.
+      - name: stackexchange
+        repo: "common-pile/stackexchange"
+        domain: conversation_forum
+      - name: ubuntu-irc
+        repo: "common-pile/ubuntu_irc"
+        domain: conversation_forum
+      - name: hn-pep-discussions
+        repo: "common-pile/python_enhancement_proposals"
+        domain: conversation_forum
+      - name: youtube-transcripts
+        repo: "common-pile/youtube_filtered"
+        domain: conversation_forum
+
+      # ---- other ----------------------------------------------------------
+      # `synthetic: true` marks generated text, which the schema tracks
+      # separately from domain.
+      - name: pleias-synth
+        repo: "PleIAs/SYNTH"
+        domain: other
+        synthetic: true
+      - name: cosmopedia
+        repo: "HuggingFaceTB/cosmopedia"
+        domain: other
+        synthetic: true
+      # Multilingual. mixture.yaml has no multilingual domain yet, so this sits
+      # in `other` until one is added.
+      - name: fineweb-2
+        repo: "HuggingFaceFW/fineweb-2"
+        domain: other
         license: ODC-By-1.0
