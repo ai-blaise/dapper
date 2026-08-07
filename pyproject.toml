@@ -5,6 +5,7 @@ description = "Dapper - Dataset Absurdly Powerful Parser Engineered Recklessly"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "rich>=14.0.0",
     "textual>=7.3.0",
     "pyarrow>=15.0.0",
     "PyYAML>=6.0.0",

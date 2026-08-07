@@ -6,6 +6,11 @@ import argparse
 import sys
 from typing import Sequence
 
+from rich.console import Console
+
+console = Console(force_terminal=True, highlight=False)
+err_console = Console(stderr=True)
+
 EXIT_USAGE = 2
 # Distinct from a crash: an unsatisfiable mixture is a valid, successful
 # analysis with a negative answer, and a caller gating a build wants to tell
@@ -14,7 +19,7 @@ EXIT_UNSATISFIABLE = 3
 
 
 def _fail(message: str, code: int) -> None:
-    print(f"Error: {message}", file=sys.stderr)
+    err_console.print(f"[bold red]Error:[/] {message}")
     raise SystemExit(code)
 
 
@@ -76,6 +81,6 @@ def mixture_main(argv: Sequence[str] | None = None) -> None:
     except (ConfigError, GcsError, RuntimeError, ValueError) as exc:
         _fail(str(exc), 1)
 
-    print(format_check(result))
+    console.print(format_check(result))
     if not result.satisfiable:
         raise SystemExit(EXIT_UNSATISFIABLE)

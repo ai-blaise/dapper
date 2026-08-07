@@ -23,9 +23,17 @@ import re
 import sys
 from typing import Any, Iterator
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.rule import Rule
+from rich.syntax import Syntax
+from rich.table import Table
+
 from utils.detect import detect_format
 from utils.loader import load_records as _load_records
 from utils.normalize import normalize_record
+
+console = Console(force_terminal=True, highlight=False)
 
 
 def iter_normalized_records(filename: str, input_format: str = "auto") -> Iterator[dict]:
@@ -135,18 +143,35 @@ def get_record_summary(record: dict, idx: int) -> dict:
     }
 
 
+ROLE_COLORS = {
+    "user": "bright_cyan",
+    "assistant": "bright_green",
+    "system": "bright_yellow",
+    "tool": "bright_magenta",
+    "unknown": "white",
+}
+
+
 # ============== Commands ==============
 
 
 def cmd_list(args):
     """List all records with summary information."""
-    print(f"Loading {args.file}...")
+    console.print(f"[dim]Loading {args.file}...[/dim]")
 
-    # Print header
-    header = f"{'IDX':<6} {'UUID':<15} {'MSGS':<5} {'TOOLS':<5} {'LICENSE':<12} {'USED_IN':<10} {'RSN':<4} {'PREVIEW'}"
-    print("-" * len(header))
-    print(header)
-    print("-" * len(header))
+    table = Table(
+        show_header=True,
+        header_style="bold white",
+        show_lines=False,
+    )
+    table.add_column("IDX", justify="right", style="dim", width=6)
+    table.add_column("UUID", style="dim")
+    table.add_column("MSGS", justify="right", style="green")
+    table.add_column("TOOLS", justify="right", style="green")
+    table.add_column("LICENSE")
+    table.add_column("USED_IN")
+    table.add_column("RSN")
+    table.add_column("PREVIEW")
 
     count = 0
     for idx, record in enumerate(iter_normalized_records(args.file, args.input_format)):
@@ -166,19 +191,24 @@ def cmd_list(args):
             summary["reasoning"][:3] if summary["reasoning"] != "-" else "-"
         )
 
-        print(
-            f"{summary['index']:<6} {summary['uuid']:<15} {summary['msg_count']:<5} "
-            f"{summary['tool_count']:<5} {license_short:<12} {used_in_short:<10} "
-            f"{reasoning_short:<4} {summary['preview']}"
+        table.add_row(
+            str(summary["index"]),
+            summary["uuid"],
+            str(summary["msg_count"]),
+            str(summary["tool_count"]),
+            license_short,
+            used_in_short,
+            reasoning_short,
+            summary["preview"],
         )
 
         count += 1
         if args.limit and count >= args.limit:
-            print(f"\n... (limited to {args.limit} records)")
+            console.print(f"\n[dim]... (limited to {args.limit} records)[/dim]")
             break
 
-    print("-" * len(header))
-    print(f"Displayed {count} records")
+    console.print(table)
+    console.print(f"[dim]Displayed {count} records[/dim]")
 
 
 def cmd_show(args):
@@ -197,20 +227,21 @@ def cmd_show(args):
         if value is None:
             print(f"Field '{args.field}' not found")
             sys.exit(1)
-        print(json.dumps(value, indent=2))
+        console.print(json.dumps(value, indent=2))
     else:
         # Show full record
-        print(f"Record {args.index}:")
-        print("=" * 60)
-        print(json.dumps(record, indent=2))
+        console.print(Rule(f"Record {args.index}", style="bold white"))
+        record_str = json.dumps(record, indent=2)
+        syntax = Syntax(record_str, "json", theme="monokai", line_numbers=False)
+        console.print(syntax)
 
 
 def cmd_search(args):
     """Search for text within records."""
     query = args.query.lower() if not args.case_sensitive else args.query
 
-    print(f"Searching for '{args.query}' in {args.file}...")
-    print("-" * 60)
+    console.print(f"[dim]Searching for '{args.query}' in {args.file}...[/dim]")
+    console.print(Rule(style="dim"))
 
     matches = 0
     for idx, record in enumerate(iter_normalized_records(args.file, args.input_format)):
@@ -229,21 +260,23 @@ def cmd_search(args):
                 end = min(len(record_str), pos + len(query) + 30)
                 context = f"...{record_str[start:end]}..."
 
-            print(f"[{idx}] {summary['uuid']} - {summary['msg_count']} msgs")
+            panel_content = f"[dim]{summary['uuid']}[/dim] — [green]{summary['msg_count']} msgs[/green]"
             if context:
-                print(f"    Context: {context}")
+                panel_content += f"\n[dim]Context:[/dim] {context}"
+
+            console.print(Panel(panel_content, title=f"[bold][{idx}][/bold]", border_style="dim"))
 
             if args.limit and matches >= args.limit:
-                print(f"\n... (limited to {args.limit} matches)")
+                console.print(f"\n[dim]... (limited to {args.limit} matches)[/dim]")
                 break
 
-    print("-" * 60)
-    print(f"Found {matches} matching records")
+    console.print(Rule(style="dim"))
+    console.print(f"[dim]Found {matches} matching records[/dim]")
 
 
 def cmd_stats(args):
     """Show dataset statistics."""
-    print(f"Analyzing {args.file}...")
+    console.print(f"[dim]Analyzing {args.file}...[/dim]")
 
     total_records = 0
     total_messages = 0
@@ -275,37 +308,63 @@ def cmd_stats(args):
                 records_with_reasoning += 1
                 break
 
-    print("\n" + "=" * 60)
-    print("DATASET STATISTICS")
-    print("=" * 60)
+    console.print(Panel.fit("DATASET STATISTICS", style="bold white", border_style="white"))
 
-    print(f"\nRecords:")
-    print(f"  Total records:           {total_records:,}")
-    print(
-        f"  Records with tools:      {records_with_tools:,} ({100 * records_with_tools / max(1, total_records):.1f}%)"
+    # Records table
+    records_table = Table(show_header=False, show_lines=False, box=None)
+    records_table.add_column("Metric", style="bold")
+    records_table.add_column("Value")
+    records_table.add_row("Total records", f"[green]{total_records:,}[/green]")
+    records_table.add_row(
+        "Records with tools",
+        f"[green]{records_with_tools:,}[/green] ([dim]{100 * records_with_tools / max(1, total_records):.1f}%[/dim])",
     )
-    print(
-        f"  Records with reasoning:  {records_with_reasoning:,} ({100 * records_with_reasoning / max(1, total_records):.1f}%)"
+    records_table.add_row(
+        "Records with reasoning",
+        f"[green]{records_with_reasoning:,}[/green] ([dim]{100 * records_with_reasoning / max(1, total_records):.1f}%[/dim])",
     )
 
-    print(f"\nMessages:")
-    print(f"  Total messages:          {total_messages:,}")
-    print(f"  Avg per record:          {total_messages / max(1, total_records):.1f}")
+    console.print(Panel(records_table, title="Records", border_style="dim"))
 
-    print(f"\nMessage roles:")
+    # Messages table
+    messages_table = Table(show_header=False, show_lines=False, box=None)
+    messages_table.add_column("Metric", style="bold")
+    messages_table.add_column("Value")
+    messages_table.add_row("Total messages", f"[green]{total_messages:,}[/green]")
+    messages_table.add_row(
+        "Avg per record",
+        f"[green]{total_messages / max(1, total_records):.1f}[/green]",
+    )
+
+    console.print(Panel(messages_table, title="Messages", border_style="dim"))
+
+    # Roles table
+    roles_table = Table(show_header=False, show_lines=False, box=None)
+    roles_table.add_column("Role")
+    roles_table.add_column("Count", justify="right")
     for role, count in sorted(role_counts.items(), key=lambda x: -x[1]):
-        print(f"  {role:<20} {count:>10,}")
+        color = ROLE_COLORS.get(role, "white")
+        roles_table.add_row(f"[{color}]{role}[/{color}]", f"[green]{count:,}[/green]")
 
-    print(f"\nTools:")
-    print(f"  Total tool definitions:  {total_tools:,}")
-    print(f"  Unique tool names:       {len(tool_names):,}")
+    console.print(Panel(roles_table, title="Message Roles", border_style="dim"))
+
+    # Tools table
+    tools_table = Table(show_header=False, show_lines=False, box=None)
+    tools_table.add_column("Metric", style="bold")
+    tools_table.add_column("Value")
+    tools_table.add_row("Total tool definitions", f"[green]{total_tools:,}[/green]")
+    tools_table.add_row("Unique tool names", f"[green]{len(tool_names):,}[/green]")
+
+    console.print(Panel(tools_table, title="Tools", border_style="dim"))
 
     if args.verbose and tool_names:
-        print(f"\nTop 10 tool names:")
+        tools_verbose_table = Table(show_header=False, show_lines=False, box=None)
+        tools_verbose_table.add_column("Tool")
+        tools_verbose_table.add_column("Count", justify="right")
         for name, count in sorted(tool_names.items(), key=lambda x: -x[1])[:10]:
-            print(f"  {truncate(name, 40):<42} {count:>6,}")
+            tools_verbose_table.add_row(truncate(name, 40), f"[green]{count:,}[/green]")
 
-    print("=" * 60)
+        console.print(Panel(tools_verbose_table, title="Top 10 Tool Names", border_style="dim"))
 
 
 def main(argv: list[str] | None = None):

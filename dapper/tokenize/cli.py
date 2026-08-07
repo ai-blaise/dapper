@@ -6,11 +6,16 @@ import argparse
 import sys
 from typing import Sequence
 
+from rich.console import Console
+
+console = Console(force_terminal=True, highlight=False)
+err_console = Console(stderr=True)
+
 EXIT_USAGE = 2
 
 
 def _fail(message: str, code: int) -> None:
-    print(f"Error: {message}", file=sys.stderr)
+    err_console.print(f"[bold red]Error:[/] {message}")
     raise SystemExit(code)
 
 
@@ -88,4 +93,4 @@ def tokenize_main(argv: Sequence[str] | None = None) -> None:
     except (ConfigError, GcsError, RuntimeError, ValueError) as exc:
         _fail(str(exc), 1)
 
-    print(output)
+    console.print(output)

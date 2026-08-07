@@ -15,6 +15,9 @@ from typing import Iterator
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from utils.detect import detect_format
 from utils.loader import load_records
@@ -319,9 +322,11 @@ def recombine_parts(parts_paths: list[Path], output_path: Path) -> int:
 
 
 def main(argv: list[str] | None = None):
+    console = Console(force_terminal=True, highlight=False)
+
     parser = argparse.ArgumentParser(
         prog="dapper split",
-        description="Split JSONL datasets into N equal (or near-equal) parts."
+        description="Split JSONL datasets into N equal (or near-equal) parts.",
     )
     parser.add_argument("input_file", type=Path, help="Input JSONL file")
     parser.add_argument(
@@ -378,10 +383,17 @@ def main(argv: list[str] | None = None):
 
     # Count records
     total = count_records(args.input_file)
-    print(f"Input: {args.input_file}")
-    print(f"Total records: {total:,}")
-    print(f"Splitting into: {args.parts} parts")
-    print()
+
+    # Input summary panel
+    summary_text = "\n".join(
+        [
+            f"[bold]Input:[/bold] {args.input_file}",
+            f"[bold]Total records:[/bold] [green]{total:,}[/green]",
+            f"[bold]Splitting into:[/bold] [bold cyan]{args.parts}[/bold cyan] parts",
+        ]
+    )
+    console.print(Panel(summary_text, title="[bold]Data Splitter[/bold]", border_style="cyan"))
+    console.print()
 
     # Check if split is possible
     if args.parts > total:
@@ -402,21 +414,34 @@ def main(argv: list[str] | None = None):
         shuffle_seed=args.shuffle_seed,
     )
 
-    # Display results
-    print("Split Plan:")
-    print("-" * 60)
+    # Display results table
+    table = Table(title="Split Plan", header_style="bold cyan", border_style="cyan")
+    table.add_column("Part #", justify="right", style="bold cyan")
+    table.add_column("Records", justify="right", style="green")
+    table.add_column("Indices", style="dim")
+    table.add_column("Status")
+    table.add_column("Path", style="dim")
+
     for part in parts_info:
-        status = "[DRY RUN]" if args.dry_run else "[CREATED]"
-        print(
-            f"  Part {part['part_num']}: {part['count']:,} records (indices {part['start']:,}-{part['end'] - 1:,})"
+        status = "[yellow]DRY RUN[/yellow]" if args.dry_run else "[green]CREATED[/green]"
+        indices = f"{part['start']:,}–{part['end'] - 1:,}"
+        table.add_row(
+            str(part["part_num"]),
+            f"{part['count']:,}",
+            indices,
+            status,
+            str(part["path"]),
         )
-        print(f"    {status} {part['path']}")
-    print("-" * 60)
-    print(f"Total: {sum(p['count'] for p in parts_info):,} records")
+
+    console.print(table)
+
+    # Summary line
+    total_count = sum(p["count"] for p in parts_info)
+    console.print(f"[dim]Total:[/dim] [green]{total_count:,}[/green] records")
 
     # Verify if requested
     if args.verify and not args.dry_run:
-        print()
+        console.print()
         verify_split(args.input_file, parts_info)
 
 

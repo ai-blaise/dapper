@@ -6,11 +6,16 @@ import argparse
 import sys
 from typing import Sequence
 
+from rich.console import Console
+
+console = Console(force_terminal=True, highlight=False)
+err_console = Console(stderr=True)
+
 EXIT_USAGE = 2
 
 
 def _fail(message: str, code: int) -> None:
-    print(f"Error: {message}", file=sys.stderr)
+    err_console.print(f"[bold red]Error:[/] {message}")
     raise SystemExit(code)
 
 
@@ -43,7 +48,7 @@ def archive_main(argv: Sequence[str] | None = None) -> None:
             _fail(str(exc), EXIT_USAGE)
         except (ConfigError, GcsError, RuntimeError, ValueError) as exc:
             _fail(str(exc), 1)
-        print(result.output)
+        console.print(result.output)
         return
 
     parser = argparse.ArgumentParser(
@@ -112,7 +117,7 @@ def archive_main(argv: Sequence[str] | None = None) -> None:
     except (ConfigError, GcsError, RuntimeError, ValueError) as exc:
         _fail(str(exc), 1)
 
-    print(result.output)
+    console.print(result.output)
     if result.exit_code:
         raise SystemExit(result.exit_code)
 
@@ -160,7 +165,7 @@ def catalog_main(argv: Sequence[str] | None = None) -> None:
     except (ConfigError, ValueError) as exc:
         _fail(str(exc), 1)
 
-    print(result.output)
+    console.print(result.output)
 
 
 def run_main(argv: Sequence[str] | None = None) -> None:
@@ -220,7 +225,7 @@ def run_main(argv: Sequence[str] | None = None) -> None:
     except (ConfigError, GcsError, RuntimeError, ValueError) as exc:
         _fail(str(exc), 1)
 
-    print(archive_result.output)
+    console.print(archive_result.output)
 
     # Deduplicating a corpus that is missing sources yields a manifest which
     # under-reports capacity with no error. Stop instead.
@@ -231,9 +236,9 @@ def run_main(argv: Sequence[str] | None = None) -> None:
             archive_result.exit_code,
         )
 
-    print()
+    console.print()
     try:
-        print(dedup_run(config_path=args.config, gcs=True))
+        console.print(dedup_run(config_path=args.config, gcs=True))
     except (ConfigError, GcsError, RuntimeError, ValueError) as exc:
         _fail(str(exc), 1)
 
@@ -243,8 +248,8 @@ def run_main(argv: Sequence[str] | None = None) -> None:
     # already expressible by running those two commands.
     from dapper.tokenize.runner import run_tokenize
 
-    print()
+    console.print()
     try:
-        print(run_tokenize(deduped=True, config_path=args.config))
+        console.print(run_tokenize(deduped=True, config_path=args.config))
     except (ConfigError, GcsError, RuntimeError, ValueError) as exc:
         _fail(str(exc), 1)

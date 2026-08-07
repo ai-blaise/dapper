@@ -104,8 +104,111 @@ def init_gcs(config: DedupConfig, *, verify: bool = True) -> GcsContext:
     )
 
     if verify:
+        # Order matters: a dead credential should be reported as such,
+        # before a bucket probe reports it as an unreachable bucket.
+        verify_credentials()
         _verify_reachable(context.bucket)
+        _verify_writable(context.bucket)
     return context
+
+
+def credential_advice() -> str:
+    """Actionable next step for a broken credential, specific to its type."""
+    kind, _ = describe_credentials()
+    if kind == "authorized_user":
+        return (
+            "Run `gcloud auth application-default login` to re-authenticate.\n"
+            "  Note: user credentials are periodically forced to re-authenticate, "
+            "which kills long runs mid-flight. For multi-hour archives use a "
+            "service account (GOOGLE_APPLICATION_CREDENTIALS) or a GCE instance "
+            "service account instead."
+        )
+    if kind == "service_account":
+        return (
+            "The service account credential was rejected. Check it is not "
+            "disabled or key-rotated, and that it holds roles/storage.objectAdmin "
+            "on the bucket."
+        )
+    return (
+        "Run `gcloud auth application-default login`, or set "
+        "GOOGLE_APPLICATION_CREDENTIALS to a service account key."
+    )
+
+
+def describe_credentials() -> tuple[str, str]:
+    """Return ``(kind, detail)`` for the resolved ADC, without validating it.
+
+    ``kind`` is the credential type where known -- ``authorized_user``,
+    ``service_account``, ``compute_engine`` -- else ``"unknown"``.
+    """
+    try:
+        import google.auth
+
+        creds, project = google.auth.default()
+    except Exception as exc:
+        return "unknown", f"could not resolve credentials: {exc}"
+
+    name = type(creds).__name__
+    if name == "Credentials" and hasattr(creds, "refresh_token"):
+        kind = "authorized_user"
+    elif "ServiceAccount" in name:
+        kind = "service_account"
+    elif "Compute" in name:
+        kind = "compute_engine"
+    else:
+        kind = "unknown"
+    return kind, f"{name} (project {project})"
+
+
+def verify_credentials() -> None:
+    """Force a token refresh so a stale credential fails now, not in 14 hours.
+
+    A cached access token can look fine while the underlying refresh token has
+    been invalidated -- Google periodically forces re-authentication on
+    user-type ADC. Only an explicit refresh surfaces that, and it is the exact
+    failure that destroyed a 16-hour archive run: every worker died at once,
+    hours in, and the errors were reported against the datasets.
+    """
+    try:
+        import google.auth
+        import google.auth.transport.requests as transport
+    except ImportError:
+        # google-auth arrives with gcsfs; if it is genuinely absent the bucket
+        # probe below will fail with a clearer message than an ImportError here.
+        return
+
+    try:
+        creds, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/devstorage.read_write"]
+        )
+        creds.refresh(transport.Request())
+    except Exception as exc:
+        raise GcsError(
+            f"GCS credentials are not usable: {exc}\n  {credential_advice()}"
+        ) from exc
+
+
+def _verify_writable(bucket: str) -> None:
+    """Prove the credential can actually write, not just read.
+
+    Read access is not write access. Discovering that after streaming millions
+    of records costs hours; discovering it here costs one small object.
+    """
+    probe = io.join(bucket_root(bucket), "_dapper_preflight")
+    try:
+        io.write_text(probe, "dapper preflight\n")
+    except Exception as exc:
+        raise GcsError(
+            f"Cannot write to GCS bucket {bucket!r}: {exc}\n"
+            f"  {credential_advice()}"
+        ) from exc
+    finally:
+        try:
+            io.delete(probe, recursive=False)
+        except Exception:
+            # A leftover probe object is harmless; failing to clean it up must
+            # not mask a successful write check.
+            pass
 
 
 def _verify_reachable(bucket: str) -> None:
@@ -119,8 +222,8 @@ def _verify_reachable(bucket: str) -> None:
         visible = fs.exists(bucket)
     except Exception as exc:  # credential / network failures
         raise GcsError(
-            f"Could not reach GCS bucket {bucket!r}: {exc}. Run "
-            "`gcloud auth application-default login`."
+            f"Could not reach GCS bucket {bucket!r}: {exc}\n"
+            f"  {credential_advice()}"
         ) from exc
     if not visible:
         raise GcsError(

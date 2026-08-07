@@ -10,10 +10,17 @@ from __future__ import annotations
 
 import argparse
 
+from rich.console import Console
+from rich.markup import escape as _e
+from rich.panel import Panel
+from rich.table import Table
+
 from dapper.config import load_optional_config
 from dapper.schema import DEFAULT_SCHEMA, add_schema_argument, resolve_schema
 from dapper.schema import schema_from_config
 from dapper.mix.mixer import mix
+
+console = Console(force_terminal=True, highlight=False)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -68,7 +75,7 @@ def main(argv: list[str] | None = None) -> None:
         "--batch-size",
         type=int,
         default=500,
-        help="Records per write batch — lower uses less memory (default: 500)",
+        help="Records per write batch \u2014 lower uses less memory (default: 500)",
     )
     parser.add_argument(
         "--tooling-sample-rate",
@@ -111,17 +118,42 @@ def main(argv: list[str] | None = None) -> None:
     project_config = load_optional_config(args.config)
     default_schema = schema_from_config(project_config, "mix", default=DEFAULT_SCHEMA)
     schema = resolve_schema(args.schema, default=default_schema)
-    print(f"Input directory: {args.input_dir}")
-    print(f"Schema: {schema.name}")
+
+    # --- configuration header panel ---
+    config_lines: list[str] = []
+    config_lines.append(
+        f"[dim]Input directory:[/dim] [bold cyan]{_e(str(args.input_dir))}[/bold cyan]"
+    )
+    config_lines.append(
+        f"[dim]Schema:[/dim] [bold cyan]{_e(schema.name)}[/bold cyan]"
+    )
     if args.dry_run:
-        print("Mode: dry-run (no output will be written)\n")
+        config_lines.append(
+            "[yellow]Mode: dry-run (no output will be written)[/yellow]"
+        )
     else:
-        print(f"Output: {args.output}\n")
+        config_lines.append(
+            f"[green]Output:[/green] [bold cyan]{_e(str(args.output))}[/bold cyan]"
+    )
 
     if args.include:
-        print(f"Include: {', '.join(args.include)}")
+        included = ", ".join(args.include)
+        config_lines.append(
+            f"[dim]Include:[/dim] [bold cyan]{_e(included)}[/bold cyan]"
+        )
     if args.exclude:
-        print(f"Exclude: {', '.join(args.exclude)}")
+        excluded = ", ".join(args.exclude)
+        config_lines.append(
+            f"[dim]Exclude:[/dim] [bold cyan]{_e(excluded)}[/bold cyan]"
+        )
+
+    console.print(Panel(
+        "\n".join(config_lines),
+        title="Dapper Mix",
+        title_align="left",
+        border_style="blue",
+    ))
+    console.print()
 
     result = mix(
         input_dir=args.input_dir,
@@ -139,20 +171,46 @@ def main(argv: list[str] | None = None) -> None:
         schema=schema.name,
     )
 
-    # Print summary
-    print("Records per source:")
+    # --- summary tables ---
+    sources_table = Table(
+        title="Records per source",
+        title_style="bold",
+        border_style="blue",
+        header_style="dim",
+    )
+    sources_table.add_column("Source", style="bold cyan")
+    sources_table.add_column("Count", justify="right", style="green")
+
     for source, count in sorted(result["sources"].items()):
-        print(f"  {source}: {count:,}")
+        sources_table.add_row(source, f"{count:,}")
+
+    console.print(sources_table)
 
     if result.get("tasks"):
-        print("\nRecords per task:")
-        for task, count in sorted(result["tasks"].items(), key=lambda x: -x[1]):
-            print(f"  {task}: {count:,}")
+        console.print()
+        tasks_table = Table(
+            title="Records per task",
+            title_style="bold",
+            border_style="blue",
+            header_style="dim",
+        )
+        tasks_table.add_column("Task", style="bold cyan")
+        tasks_table.add_column("Count", justify="right", style="green")
 
-    print(f"\nTotal records: {result['total_records']:,}")
+        for task, count in sorted(result["tasks"].items(), key=lambda x: -x[1]):
+            tasks_table.add_row(task, f"{count:,}")
+
+        console.print(tasks_table)
+
+    console.print()
+    console.print(
+        f"[bold]Total records:[/bold] [green]{result['total_records']:,}[/green]"
+    )
 
     if result["output_path"]:
-        print(f"Output written to: {result['output_path']}")
+        console.print(
+            f"[bold]Output written to:[/bold] [bold cyan]{_e(str(result['output_path']))}[/bold cyan]"
+        )
 
 
 if __name__ == "__main__":

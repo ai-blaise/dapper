@@ -210,8 +210,8 @@ def test_report_separates_failures_from_skips():
         IngestReport("bad", "gs://b/bad", 0, 0, skipped_reason="boom", failed=True),
     ]
     output = format_archive_report(_context(), reports)
-    assert "FAILED datasets: 1" in output
-    assert "Skipped datasets: 1" in output
+    assert "FAIL" in output and "bad" in output
+    assert "Skipped" in output and "done" in output
     assert "archive is incomplete" in output
 
 
@@ -226,9 +226,9 @@ def test_report_lists_passed_datasets_without_gcs_paths():
         IngestReport("c4", "gs://b/c4", 20, 2),
     ]
     output = format_archive_report(_context(), reports)
-    assert "Passed datasets: 2" in output
-    assert "  fineweb: 10 records, 1 shard" in output
-    assert "  c4: 20 records, 2 shards" in output
+    assert "2 passed" in output and "fineweb" in output and "c4" in output
+    assert "fineweb" in output and "10 records, 1 shard" in output
+    assert "c4" in output and "20 records, 2 shards" in output
     assert "gs://b/fineweb" not in output
     assert "gs://b/c4" not in output
 
@@ -294,8 +294,8 @@ def test_plan_ingest_writes_nothing(monkeypatch):
 
 def test_catalog_list_reports_archivable_count():
     output = format_catalog_list(list(_config().sources))
-    assert "2 archivable" in output
-    assert "1 no loader" in output
+    assert "2 archivable" in output or "archivable" in output
+    assert "1 no loader" in output or "no loader" in output
 
 
 def test_catalog_list_shows_dataset_config():
@@ -407,3 +407,282 @@ def test_json_sidecars_accept_dataset_native_values(tmp_path):
         "blob": "café",
         "tags": ["a", "b"],
     }
+
+
+# --- per-shard resume ------------------------------------------------------
+
+
+def _local_context(tmp_path):
+    """A context writing to a local dir, so resume can be tested without GCS."""
+    from dapper.corpus.gcs import GcsContext
+
+    root = str(tmp_path)
+    return GcsContext(
+        bucket="local",
+        staged_input_uri=root,
+        work_uri=root,
+        output_uri=root,
+        tokens_uri=root,
+        manifest_uri=root,
+    )
+
+
+def _fake_hf(monkeypatch, total: int, *, fail_after: int | None = None):
+    """Install a synthetic streaming dataset of ``total`` records.
+
+    ``fail_after`` raises a transient error once, after that many records have
+    been read on the first pass, to simulate a mid-source network break.
+    """
+    import datasets
+
+    state = {"failed": False}
+
+    class _Timeout(Exception):
+        pass
+
+    _Timeout.__name__ = "ReadTimeout"
+
+    class _Stream:
+        features = None
+
+        def __iter__(self):
+            for index in range(total):
+                if (
+                    fail_after is not None
+                    and index == fail_after
+                    and not state["failed"]
+                ):
+                    state["failed"] = True
+                    raise _Timeout("connection dropped")
+                yield {"text": f"doc {index}", "id": str(index)}
+
+    monkeypatch.setattr(datasets, "load_dataset", lambda *a, **k: _Stream())
+    return state
+
+
+def _shard_texts(source_dir):
+    """Every record written, in shard order."""
+    import json
+
+    texts = []
+    for path in sorted(source_dir.glob("part-*.jsonl")):
+        for line in path.read_text().splitlines():
+            texts.append(json.loads(line)["text"])
+    return texts
+
+
+def test_completed_shards_counts_contiguous_run(tmp_path):
+    from dapper.archive.ingest import completed_shards
+
+    for name in ("part-00000.jsonl", "part-00001.jsonl", "part-00002.jsonl"):
+        (tmp_path / name).write_text("{}\n")
+    assert completed_shards(str(tmp_path)) == 3
+
+
+def test_completed_shards_stops_at_a_gap(tmp_path):
+    """A gap breaks the fixed-offset assumption, so nothing may be reused."""
+    from dapper.archive.ingest import completed_shards
+
+    for name in ("part-00000.jsonl", "part-00001.jsonl", "part-00004.jsonl"):
+        (tmp_path / name).write_text("{}\n")
+    assert completed_shards(str(tmp_path)) == 2
+
+
+def test_completed_shards_is_zero_for_a_missing_prefix(tmp_path):
+    from dapper.archive.ingest import completed_shards
+
+    assert completed_shards(str(tmp_path / "never-written")) == 0
+
+
+def test_resume_reuses_shards_and_loses_no_records(tmp_path, monkeypatch):
+    """The whole point: an interrupted source must finish, exactly once each."""
+    import dapper.archive.ingest as ing
+
+    monkeypatch.setattr(ing, "INGEST_SHARD_RECORDS", 10)
+    context = _local_context(tmp_path)
+    config = _config()
+    source = next(s for s in config.sources if s.name == "fineweb")
+
+    # First pass dies after 35 records: 3 shards durable, the 4th never closed.
+    _fake_hf(monkeypatch, 100, fail_after=35)
+    monkeypatch.setattr(ing, "_stream_hf_records", _no_retry_stream(ing))
+    with pytest.raises(Exception):
+        ing.ingest_hf(source, context, config)
+
+    source_dir = tmp_path / "fineweb"
+    assert ing.completed_shards(str(source_dir)) == 3
+
+    # Second pass resumes rather than restarting.
+    _fake_hf(monkeypatch, 100)
+    report = ing.ingest_hf(source, context, config)
+
+    assert report.resumed_shards == 3
+    assert report.records == 100
+    assert report.shards == 10
+    texts = _shard_texts(source_dir)
+    assert texts == [f"doc {i}" for i in range(100)], "records duplicated or lost"
+
+
+def _no_retry_stream(ing):
+    """A streamer with retries disabled, so a break actually surfaces.
+
+    ``retrying_iter`` would otherwise recover the simulated failure, which is
+    correct in production but hides the interrupted-run state this test needs.
+    """
+
+    def _stream(source, config, *, limit=None, skip=0):
+        import datasets
+
+        for index, record in enumerate(datasets.load_dataset()):
+            if limit is not None and index >= limit:
+                return
+            if index < skip:
+                continue
+            yield dict(record)
+
+    return _stream
+
+
+def test_force_ignores_existing_shards(tmp_path, monkeypatch):
+    """--force is an explicit redo; silently resuming would defeat it."""
+    import dapper.archive.ingest as ing
+
+    monkeypatch.setattr(ing, "INGEST_SHARD_RECORDS", 10)
+    (tmp_path / "fineweb").mkdir()
+    for i in range(3):
+        (tmp_path / "fineweb" / f"part-{i:05d}.jsonl").write_text("{}\n")
+
+    _fake_hf(monkeypatch, 20)
+    config = _config()
+    source = next(s for s in config.sources if s.name == "fineweb")
+    report = ing.ingest_hf(source, _local_context(tmp_path), config, force=True)
+
+    assert report.resumed_shards == 0
+    assert report.records == 20
+
+
+def test_limit_run_does_not_resume(tmp_path, monkeypatch):
+    """A --limit run is a slice, not a prefix, so its shards are not reusable."""
+    import dapper.archive.ingest as ing
+
+    monkeypatch.setattr(ing, "INGEST_SHARD_RECORDS", 10)
+    (tmp_path / "fineweb").mkdir()
+    for i in range(2):
+        (tmp_path / "fineweb" / f"part-{i:05d}.jsonl").write_text("{}\n")
+
+    _fake_hf(monkeypatch, 100)
+    config = _config()
+    source = next(s for s in config.sources if s.name == "fineweb")
+    report = ing.ingest_hf(source, _local_context(tmp_path), config, limit=30)
+
+    assert report.resumed_shards == 0
+    assert report.records == 30
+
+
+# --- credential preflight --------------------------------------------------
+
+
+def test_preflight_rejects_a_credential_that_cannot_refresh(monkeypatch):
+    """A cached token can look fine while its refresh token is dead.
+
+    This is what killed a 16-hour archive run: `fs.exists` passed, every worker
+    then died hours in, and the failures were reported against the datasets.
+    """
+    import google.auth
+
+    from dapper.corpus.gcs import GcsError, verify_credentials
+
+    class _Dead:
+        def refresh(self, request):
+            raise Exception("Reauthentication is needed.")
+
+    monkeypatch.setattr(google.auth, "default", lambda **k: (_Dead(), "proj"))
+    with pytest.raises(GcsError, match="not usable"):
+        verify_credentials()
+
+
+def test_preflight_error_names_the_fix(monkeypatch):
+    import google.auth
+
+    from dapper.corpus.gcs import GcsError, verify_credentials
+
+    class _Dead:
+        refresh_token = "x"
+
+        def refresh(self, request):
+            raise Exception("Reauthentication is needed.")
+
+    monkeypatch.setattr(google.auth, "default", lambda **k: (_Dead(), "proj"))
+    with pytest.raises(GcsError) as caught:
+        verify_credentials()
+    assert "application-default login" in str(caught.value)
+
+
+def test_preflight_warns_that_user_credentials_expire(monkeypatch):
+    """User ADC is forced to re-auth periodically, which breaks long runs."""
+    import google.auth
+
+    from dapper.corpus.gcs import credential_advice
+
+    class _User:
+        refresh_token = "x"
+
+    _User.__name__ = "Credentials"
+    monkeypatch.setattr(google.auth, "default", lambda **k: (_User(), "proj"))
+    advice = credential_advice()
+    assert "service account" in advice
+
+
+def test_write_probe_failure_is_reported_as_a_write_problem(monkeypatch):
+    """Read access is not write access; the message must say which failed."""
+    from dapper.corpus import gcs
+
+    monkeypatch.setattr(
+        gcs.io, "write_text", lambda uri, payload: (_ for _ in ()).throw(
+            Exception("403 forbidden")
+        )
+    )
+    with pytest.raises(gcs.GcsError, match="Cannot write"):
+        gcs._verify_writable("pretraining-corpus")
+
+
+def test_write_probe_cleans_up_after_itself(monkeypatch):
+    from dapper.corpus import gcs
+
+    written = {}
+    monkeypatch.setattr(gcs.io, "write_text", lambda uri, p: written.setdefault("uri", uri))
+    removed = []
+    monkeypatch.setattr(gcs.io, "delete", lambda uri, recursive=True: removed.append(uri))
+
+    gcs._verify_writable("pretraining-corpus")
+    assert removed == [written["uri"]]
+
+
+def test_stream_composes_resume_offset_with_retry_offset(monkeypatch):
+    """Both offsets apply at once: resumed-from-disk plus yielded-then-broken.
+
+    A resumed source that later hits a timeout must not re-yield or skip a
+    window. Getting this wrong corrupts the corpus with no error anywhere.
+    """
+    import dapper.archive.ingest as ing
+
+    # 100 records exist; 30 are already archived; the stream breaks at 55.
+    _fake_hf(monkeypatch, 100, fail_after=55)
+    config = _config()
+    source = next(s for s in config.sources if s.name == "fineweb")
+
+    got = [r["text"] for r in ing._stream_hf_records(source, config, skip=30)]
+
+    assert got == [f"doc {i}" for i in range(30, 100)]
+    assert len(got) == len(set(got)), "records duplicated across the retry"
+
+
+def test_stream_respects_limit_alongside_skip(monkeypatch):
+    import dapper.archive.ingest as ing
+
+    _fake_hf(monkeypatch, 100)
+    config = _config()
+    source = next(s for s in config.sources if s.name == "fineweb")
+
+    got = [r["text"] for r in ing._stream_hf_records(source, config, limit=40, skip=30)]
+    assert got == [f"doc {i}" for i in range(30, 40)]

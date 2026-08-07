@@ -6,6 +6,12 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
+
+console = Console(force_terminal=True, highlight=False)
+err_console = Console(stderr=True)
 
 CommandMain = Callable[[Sequence[str] | None], None]
 
@@ -49,10 +55,7 @@ def _reject_moved_flags(argv: Sequence[str] | None) -> None:
         flag = arg.split("=", 1)[0]
         replacement = _MOVED_FLAGS.get(flag)
         if replacement:
-            print(
-                f"Error: {flag} moved to its own command. Use: {replacement}",
-                file=sys.stderr,
-            )
+            err_console.print(f"[bold red]Error:[/] {flag} moved to its own command. Use: {replacement}")
             raise SystemExit(2)
 
 
@@ -161,10 +164,10 @@ def _run_dedup(argv: Sequence[str] | None) -> None:
             progress=not args.no_progress,
         )
     except (ConfigError, RuntimeError, ValueError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        err_console.print(f"[bold red]Error:[/] {exc}")
         raise SystemExit(1) from exc
 
-    print(output)
+    console.print(output)
 
 
 def _run_tokenize(argv: Sequence[str] | None) -> None:
@@ -222,16 +225,16 @@ COMMANDS: dict[str, tuple[str, CommandMain]] = {
 
 
 def _print_help() -> None:
-    parser = argparse.ArgumentParser(
-        prog="dapper",
-        description=(
-            "Dapper - Dataset Absurdly Powerful Parser Engineered Recklessly"
-        ),
-    )
-    subparsers = parser.add_subparsers(dest="command", metavar="command")
+    console.print(Text("Dapper", style="bold cyan"), "— Dataset CLI")
+    console.print()
+    table = Table(show_header=True, header_style="bold", border_style="dim blue")
+    table.add_column("Command", style="bold green")
+    table.add_column("Description", style="dim")
     for name, (help_text, _) in COMMANDS.items():
-        subparsers.add_parser(name, help=help_text)
-    parser.print_help()
+        table.add_row(name, help_text)
+    console.print(table)
+    console.print()
+    console.print("[dim]Run 'dapper <command> --help' for command-specific options.[/]")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -243,8 +246,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     command = args[0]
     entry = COMMANDS.get(command)
     if entry is None:
-        print(f"Unknown command: {command}", file=sys.stderr)
-        print("Run 'dapper --help' for available commands.", file=sys.stderr)
+        err_console.print(f"[bold red]Unknown command:[/] {command}")
+        err_console.print("[dim]Run 'dapper --help' for available commands.[/]")
         raise SystemExit(2)
 
     _, command_main = entry

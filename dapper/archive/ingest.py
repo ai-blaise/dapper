@@ -46,6 +46,8 @@ class IngestReport:
     shards: int
     skipped_reason: str | None = None
     failed: bool = False
+    # Shards a previous interrupted run had already written and this one reused.
+    resumed_shards: int = 0
     # Full traceback for a failure. A bare "TypeError: ..." names the symptom
     # but not the line, which makes a failure in one source out of sixty
     # effectively undebuggable.
@@ -74,6 +76,27 @@ def source_is_complete(source_uri: str) -> bool:
         # A marker we cannot parse predates this field. Treat it as complete:
         # it was only ever written after a full pass.
         return True
+
+
+SHARD_PREFIX = "part-"
+
+
+def completed_shards(source_uri: str) -> int:
+    """Count the leading run of shards already written for a source.
+
+    Only a *contiguous* run from ``part-00000`` counts. Shards are fixed-size
+    and the stream order is stable, so shard N always holds the same records --
+    but that reasoning only holds with no gaps. A gap means the assumption is
+    already violated, so nothing is reused and the source restarts.
+
+    Object-store writes are atomic on close, so a shard is either complete or
+    absent; an interrupted run cannot leave a half-written one behind.
+    """
+    names = {io.basename(uri) for uri in io.glob(source_uri, f"{SHARD_PREFIX}*.jsonl")}
+    count = 0
+    while f"{SHARD_PREFIX}{count:05d}.jsonl" in names:
+        count += 1
+    return count
 
 
 def _mark_complete(source_uri: str, payload: dict[str, Any]) -> None:
@@ -115,10 +138,23 @@ def ingest_hf(
     # Imported here so plan-only paths work without the extras installed.
     from dapper.dedup.normalize import normalize_pretraining_record, resolve_inspection
 
-    records = _stream_hf_records(source, config, limit=limit)
+    # Reuse shards an interrupted run already wrote. Skipped for --limit (a
+    # slice, not a prefix of the full stream) and for --force (an explicit redo).
+    resumed = 0
+    if not force and limit is None:
+        resumed = completed_shards(destination)
+    skip = resumed * INGEST_SHARD_RECORDS
+    if resumed:
+        print(
+            f"  {source.name}: resuming after {resumed:,} shards "
+            f"({skip:,} records already archived)",
+            file=sys.stderr,
+        )
 
-    total = 0
-    shards = 0
+    records = _stream_hf_records(source, config, limit=limit, skip=skip)
+
+    total = skip
+    shards = resumed
     inspection = None
     if progress_callback is not None:
         progress_callback(total, shards)
@@ -127,7 +163,9 @@ def ingest_hf(
             # Field detection depends on the source, not the record, so resolve
             # it once instead of re-inferring it billions of times.
             inspection = resolve_inspection(source, [dict(batch[0])], config)
-        shard_uri = io.join(destination, f"part-{shard_index:05d}.jsonl")
+        shard_uri = io.join(
+            destination, f"{SHARD_PREFIX}{resumed + shard_index:05d}.jsonl"
+        )
         with io.open_text(shard_uri, "w") as handle:
             for record in batch:
                 normalized = normalize_pretraining_record(
@@ -162,6 +200,7 @@ def ingest_hf(
         destination_uri=destination,
         records=total,
         shards=shards,
+        resumed_shards=resumed,
     )
 
 
@@ -308,6 +347,7 @@ def _stream_hf_records(
     config: DedupConfig,
     *,
     limit: int | None = None,
+    skip: int = 0,
 ) -> Iterator[dict[str, Any]]:
     """Stream one HuggingFace dataset, surviving transient network failures.
 
@@ -325,7 +365,10 @@ def _stream_hf_records(
 
     configure_hf_timeouts()
 
-    def _open(skip: int) -> Iterator[dict[str, Any]]:
+    def _open(delivered: int) -> Iterator[dict[str, Any]]:
+        # Two offsets compose here: `skip` is what a previous run already
+        # archived, `delivered` is what this stream yielded before it broke.
+        start = skip + delivered
         dataset = load_dataset(
             source.repo,
             source.dataset_config,
@@ -336,9 +379,9 @@ def _stream_hf_records(
         for index, record in enumerate(dataset):
             if limit is not None and index >= limit:
                 return
-            # Fast-forward past what a previous attempt already yielded, so a
-            # resumed stream does not duplicate records.
-            if index < skip:
+            # Fast-forward past records that are already durable, so a
+            # resumed stream neither duplicates nor loses any.
+            if index < start:
                 continue
             yield dict(record)
 

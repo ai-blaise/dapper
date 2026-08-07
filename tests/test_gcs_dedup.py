@@ -321,6 +321,9 @@ def test_ingest_reports_streaming_progress(monkeypatch):
     monkeypatch.setattr(gcp, "source_is_complete", lambda uri: False)
     monkeypatch.setattr(gcp, "_stream_hf_records", lambda *a, **k: iter(records))
     monkeypatch.setattr(gcp, "_mark_complete", lambda uri, payload: None)
+    # Nothing to resume from. Left unstubbed this lists a real bucket, which
+    # this test -- about progress callbacks -- has no reason to touch.
+    monkeypatch.setattr(gcp, "completed_shards", lambda uri: 0)
 
     def _fake_open_text(uri, mode="r"):
         import io as _io
