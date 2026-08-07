@@ -259,7 +259,7 @@ def parse_dedup_config(
         ),
         dry_run_sample_records=int(hf.get("dry_run_sample_records", 100)),
         hf_cache_dir=hf.get("cache_dir"),
-        hf_download_mode=str(hf.get("download_mode", "snapshot")),
+        hf_download_mode=str(hf.get("download_mode", "bulk")),
         hf_trust_remote_code=bool(hf.get("trust_remote_code", False)),
         hf_xet_high_performance=bool(hf.get("xet_high_performance", True)),
         hf_xet_num_concurrent_range_gets=(
