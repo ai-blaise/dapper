@@ -10,6 +10,8 @@ to resolve the same bucket layout and prove the same credentials.
 
 from __future__ import annotations
 
+import sys
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -148,16 +150,24 @@ def describe_credentials() -> tuple[str, str]:
     except Exception as exc:
         return "unknown", f"could not resolve credentials: {exc}"
 
+    return _credential_kind(creds), f"{type(creds).__name__} (project {project})"
+
+
+def _credential_kind(creds: Any) -> str:
+    """Classify a credential object without re-resolving ADC.
+
+    Taken from the class name rather than by importing each credential type:
+    google-auth moves these between modules across versions, and the caller
+    already holds the object.
+    """
     name = type(creds).__name__
     if name == "Credentials" and hasattr(creds, "refresh_token"):
-        kind = "authorized_user"
-    elif "ServiceAccount" in name:
-        kind = "service_account"
-    elif "Compute" in name:
-        kind = "compute_engine"
-    else:
-        kind = "unknown"
-    return kind, f"{name} (project {project})"
+        return "authorized_user"
+    if "ServiceAccount" in name:
+        return "service_account"
+    if "Compute" in name:
+        return "compute_engine"
+    return "unknown"
 
 
 def verify_credentials() -> None:
@@ -186,6 +196,24 @@ def verify_credentials() -> None:
         raise GcsError(
             f"GCS credentials are not usable: {exc}\n  {credential_advice()}"
         ) from exc
+
+    # A working user credential is still the wrong credential for a long run:
+    # Google forces re-authentication on it regardless of how valid the refresh
+    # token is, and it takes every concurrent worker down at once. Warn rather
+    # than raise -- a short --limit shakedown on user ADC is reasonable.
+    if _credential_kind(creds) == "authorized_user":
+        print(
+            "WARNING: authenticated as a user (application-default login), not a "
+            "service account.\n"
+            "  User credentials are periodically forced to re-authenticate, which "
+            "kills long runs\n"
+            "  mid-flight and fails every source at once. For a multi-hour archive, "
+            "set\n"
+            "  GOOGLE_APPLICATION_CREDENTIALS to a service account key, or run on a "
+            "GCE instance\n"
+            "  with an attached service account.",
+            file=sys.stderr,
+        )
 
 
 def _verify_writable(bucket: str) -> None:

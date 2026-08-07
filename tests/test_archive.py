@@ -686,3 +686,84 @@ def test_stream_respects_limit_alongside_skip(monkeypatch):
 
     got = [r["text"] for r in ing._stream_hf_records(source, config, limit=40, skip=30)]
     assert got == [f"doc {i}" for i in range(30, 40)]
+
+
+def _creds(kind: str):
+    """A credential object whose class name classifies as ``kind``."""
+
+    class _C:
+        def refresh(self, request):
+            return None
+
+    names = {
+        "authorized_user": "Credentials",
+        "service_account": "ServiceAccountCredentials",
+        "compute_engine": "ComputeEngineCredentials",
+    }
+    _C.__name__ = names[kind]
+    creds = _C()
+    if kind == "authorized_user":
+        creds.refresh_token = "x"
+    return creds
+
+
+def test_user_credentials_warn_even_when_they_work(monkeypatch, capsys):
+    """Passing preflight is not enough: user ADC still dies mid-run.
+
+    A working user credential gives false confidence -- it is exactly what
+    passed the old check and then failed 14 hours into a 16-hour archive.
+    """
+    import google.auth
+
+    from dapper.corpus.gcs import verify_credentials
+
+    monkeypatch.setattr(
+        google.auth, "default", lambda **k: (_creds("authorized_user"), "proj")
+    )
+    verify_credentials()
+
+    warning = capsys.readouterr().err
+    assert "not a service account" in warning
+    assert "GOOGLE_APPLICATION_CREDENTIALS" in warning
+
+
+def test_service_account_produces_no_warning(monkeypatch, capsys):
+    """A warning that fires on the correct setup trains you to ignore it."""
+    import google.auth
+
+    from dapper.corpus.gcs import verify_credentials
+
+    monkeypatch.setattr(
+        google.auth, "default", lambda **k: (_creds("service_account"), "proj")
+    )
+    verify_credentials()
+    assert capsys.readouterr().err == ""
+
+
+def test_attached_gce_service_account_produces_no_warning(monkeypatch, capsys):
+    """Metadata-server credentials refresh forever; nothing to warn about."""
+    import google.auth
+
+    from dapper.corpus.gcs import verify_credentials
+
+    monkeypatch.setattr(
+        google.auth, "default", lambda **k: (_creds("compute_engine"), "proj")
+    )
+    verify_credentials()
+    assert capsys.readouterr().err == ""
+
+
+def test_warning_never_replaces_the_hard_failure(monkeypatch, capsys):
+    """A dead user credential must still raise, not merely warn."""
+    import google.auth
+
+    from dapper.corpus.gcs import GcsError, verify_credentials
+
+    creds = _creds("authorized_user")
+    creds.refresh = lambda request: (_ for _ in ()).throw(
+        Exception("Reauthentication is needed.")
+    )
+    monkeypatch.setattr(google.auth, "default", lambda **k: (creds, "proj"))
+
+    with pytest.raises(GcsError, match="not usable"):
+        verify_credentials()
