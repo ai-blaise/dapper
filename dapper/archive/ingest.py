@@ -8,10 +8,12 @@ computed after dedup, in the DataTrove filter stage.
 
 from __future__ import annotations
 
+import os
 import sys
 
 from dataclasses import dataclass
 from itertools import batched
+from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 
 from dapper.archive.catalog import archivable_sources, is_supported
@@ -151,7 +153,7 @@ def ingest_hf(
             file=sys.stderr,
         )
 
-    records = _stream_hf_records(source, config, limit=limit, skip=skip)
+    records = _hf_records(source, config, limit=limit, skip=skip)
 
     total = skip
     shards = resumed
@@ -364,6 +366,7 @@ def _stream_hf_records(
     from dapper.archive.retry import configure_hf_timeouts, retrying_iter
 
     configure_hf_timeouts()
+    configure_hf_xet(config)
 
     def _open(delivered: int) -> Iterator[dict[str, Any]]:
         # Two offsets compose here: `skip` is what a previous run already
@@ -395,3 +398,144 @@ def _stream_hf_records(
         )
 
     yield from retrying_iter(_open, on_retry=_note)
+
+
+def _hf_records(
+    source: SourceConfig,
+    config: DedupConfig,
+    *,
+    limit: int | None = None,
+    skip: int = 0,
+) -> Iterator[dict[str, Any]]:
+    """Open a Hugging Face source using the configured transfer mode."""
+    mode = config.hf_download_mode.lower()
+    if mode == "streaming":
+        yield from _stream_hf_records(source, config, limit=limit, skip=skip)
+        return
+    if mode in {"snapshot", "bulk"}:
+        yield from _snapshot_hf_records(source, config, limit=limit, skip=skip)
+        return
+    raise ValueError(
+        "huggingface.download_mode must be 'streaming' or 'snapshot', "
+        f"got {config.hf_download_mode!r}."
+    )
+
+
+SNAPSHOT_DATA_SUFFIXES = (
+    ".parquet",
+    ".pq",
+    ".jsonl",
+    ".json",
+    ".csv",
+    ".txt",
+    ".text",
+    ".md",
+    ".log",
+)
+
+
+def _snapshot_hf_records(
+    source: SourceConfig,
+    config: DedupConfig,
+    *,
+    limit: int | None = None,
+    skip: int = 0,
+) -> Iterator[dict[str, Any]]:
+    """Bulk-download a dataset repo with HF Hub, then stream local files."""
+    if not source.repo:
+        raise GcsError(f"HuggingFace source {source.name} has no repo configured.")
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError as exc:
+        raise GcsError(
+            "`huggingface_hub` is required for HuggingFace snapshot archiving."
+        ) from exc
+
+    from dapper.archive.retry import configure_hf_timeouts
+    from utils.loader import load_records
+
+    configure_hf_timeouts()
+    configure_hf_xet(config)
+
+    snapshot_dir = Path(
+        snapshot_download(
+            repo_id=source.repo,
+            repo_type="dataset",
+            cache_dir=config.hf_cache_dir,
+            allow_patterns=_snapshot_allow_patterns(source),
+        )
+    )
+    files = _snapshot_data_files(snapshot_dir, source)
+    if not files:
+        raise GcsError(
+            f"No supported data files found in downloaded snapshot for {source.name}."
+        )
+
+    seen = 0
+    for path in files:
+        for record in load_records(str(path)):
+            index = seen
+            seen += 1
+            if limit is not None and index >= limit:
+                return
+            if index < skip:
+                continue
+            yield dict(record)
+
+
+def _snapshot_allow_patterns(source: SourceConfig) -> list[str]:
+    """Download likely data files, narrowing by config name when practical."""
+    suffix_patterns = [
+        f"**/*{suffix}"
+        for suffix in SNAPSHOT_DATA_SUFFIXES
+        if suffix not in {".md", ".log"}
+    ]
+    if not source.dataset_config:
+        return suffix_patterns
+    config = source.dataset_config.strip("/")
+    return [
+        f"{config}/**/*{suffix}"
+        for suffix in SNAPSHOT_DATA_SUFFIXES
+        if suffix not in {".md", ".log"}
+    ] + [
+        f"data/{config}/**/*{suffix}"
+        for suffix in SNAPSHOT_DATA_SUFFIXES
+        if suffix not in {".md", ".log"}
+    ]
+
+
+def _snapshot_data_files(snapshot_dir: Path, source: SourceConfig) -> list[Path]:
+    """Return supported data files from a downloaded dataset snapshot."""
+    files = [
+        path
+        for path in snapshot_dir.rglob("*")
+        if path.is_file() and path.suffix.lower() in SNAPSHOT_DATA_SUFFIXES
+    ]
+    if not source.dataset_config:
+        return sorted(files)
+
+    config_parts = set(source.dataset_config.replace("-", "_").split("_"))
+    narrowed = [
+        path
+        for path in files
+        if source.dataset_config in path.parts
+        or source.dataset_config in path.stem
+        or config_parts.intersection(path.parts)
+    ]
+    return sorted(narrowed or files)
+
+
+def configure_hf_xet(config: DedupConfig) -> None:
+    """Apply current Hugging Face transfer acceleration defaults.
+
+    `hf_transfer` was the old fast path. Recent `huggingface_hub` uses `hf_xet`
+    automatically when installed, with this env var as the high-throughput
+    setting for machines that can afford the extra CPU, memory, and IO.
+    """
+    if config.hf_xet_high_performance:
+        os.environ.setdefault("HF_XET_HIGH_PERFORMANCE", "1")
+    if config.hf_xet_num_concurrent_range_gets is not None:
+        os.environ.setdefault(
+            "HF_XET_NUM_CONCURRENT_RANGE_GETS",
+            str(config.hf_xet_num_concurrent_range_gets),
+        )

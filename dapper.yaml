@@ -31,7 +31,13 @@ tokenize:
   shuffle_buffer: 0
 
 huggingface:
-  download_mode: streaming
+  download_mode: snapshot
+  # Current Hugging Face fast path. `hf_transfer` is deprecated; recent
+  # huggingface_hub uses `hf_xet` automatically when installed, and this asks
+  # it to maximize network/disk throughput.
+  xet_high_performance: true
+  # Optional advanced knob; leave unset to use hf_xet adaptive defaults.
+  # xet_num_concurrent_range_gets: 16
   dry_run_sample_records: 2
   trust_remote_code: false
 

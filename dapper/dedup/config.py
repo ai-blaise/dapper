@@ -103,6 +103,8 @@ class DedupConfig:
     hf_cache_dir: str | None
     hf_download_mode: str
     hf_trust_remote_code: bool
+    hf_xet_high_performance: bool
+    hf_xet_num_concurrent_range_gets: int | None
     output_dir: str
     datatrove_work_dir: str
     datatrove_n_grams: int
@@ -257,8 +259,14 @@ def parse_dedup_config(
         ),
         dry_run_sample_records=int(hf.get("dry_run_sample_records", 100)),
         hf_cache_dir=hf.get("cache_dir"),
-        hf_download_mode=str(hf.get("download_mode", "streaming")),
+        hf_download_mode=str(hf.get("download_mode", "snapshot")),
         hf_trust_remote_code=bool(hf.get("trust_remote_code", False)),
+        hf_xet_high_performance=bool(hf.get("xet_high_performance", True)),
+        hf_xet_num_concurrent_range_gets=(
+            int(hf["xet_num_concurrent_range_gets"])
+            if hf.get("xet_num_concurrent_range_gets") is not None
+            else None
+        ),
         output_dir=str(project.get("output_dir", "outputs")),
         datatrove_work_dir=str(
             datatrove.get("work_dir", ".dapper/dedup/datatrove")

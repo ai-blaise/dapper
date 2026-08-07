@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from dapper.archive.catalog import (
@@ -83,6 +85,30 @@ def test_dataset_config_survives_parsing():
     by_name = {s.name: s for s in _config().sources}
     assert by_name["fineweb"].dataset_config == "sample-10BT"
     assert by_name["c4"].dataset_config is None
+
+
+def test_hf_xet_acceleration_defaults_on():
+    """The current Hugging Face fast path should be enabled by default."""
+    config = _config()
+
+    assert config.hf_download_mode == "snapshot"
+    assert config.hf_xet_high_performance is True
+    assert config.hf_xet_num_concurrent_range_gets is None
+
+
+def test_hf_xet_acceleration_can_be_configured():
+    raw = {
+        **CORPUS,
+        "huggingface": {
+            "xet_high_performance": False,
+            "xet_num_concurrent_range_gets": 32,
+        },
+    }
+
+    config = _config(raw)
+
+    assert config.hf_xet_high_performance is False
+    assert config.hf_xet_num_concurrent_range_gets == 32
 
 
 def test_repo_with_yaml_indicator_round_trips():
@@ -541,6 +567,99 @@ def _no_retry_stream(ing):
             yield dict(record)
 
     return _stream
+
+
+def test_configure_hf_xet_sets_high_performance_env(monkeypatch):
+    import dapper.archive.ingest as ing
+
+    monkeypatch.delenv("HF_XET_HIGH_PERFORMANCE", raising=False)
+    monkeypatch.delenv("HF_XET_NUM_CONCURRENT_RANGE_GETS", raising=False)
+    config = _config(
+        {
+            **CORPUS,
+            "huggingface": {
+                "xet_high_performance": True,
+                "xet_num_concurrent_range_gets": 24,
+            },
+        }
+    )
+
+    ing.configure_hf_xet(config)
+
+    assert os.environ["HF_XET_HIGH_PERFORMANCE"] == "1"
+    assert os.environ["HF_XET_NUM_CONCURRENT_RANGE_GETS"] == "24"
+
+
+def test_configure_hf_xet_preserves_existing_env(monkeypatch):
+    import dapper.archive.ingest as ing
+
+    monkeypatch.setenv("HF_XET_HIGH_PERFORMANCE", "0")
+    monkeypatch.setenv("HF_XET_NUM_CONCURRENT_RANGE_GETS", "8")
+    config = _config(
+        {
+            **CORPUS,
+            "huggingface": {
+                "xet_high_performance": True,
+                "xet_num_concurrent_range_gets": 24,
+            },
+        }
+    )
+
+    ing.configure_hf_xet(config)
+
+    assert os.environ["HF_XET_HIGH_PERFORMANCE"] == "0"
+    assert os.environ["HF_XET_NUM_CONCURRENT_RANGE_GETS"] == "8"
+
+
+def test_hf_records_snapshot_uses_hub_bulk_download(tmp_path, monkeypatch):
+    import datasets
+    import huggingface_hub
+    import dapper.archive.ingest as ing
+
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    (snapshot / "data.jsonl").write_text(
+        '{"text":"bulk 0","id":"0"}\n{"text":"bulk 1","id":"1"}\n',
+        encoding="utf-8",
+    )
+    calls = []
+
+    def fake_snapshot_download(**kwargs):
+        calls.append(kwargs)
+        return str(snapshot)
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_snapshot_download)
+    monkeypatch.setattr(
+        datasets,
+        "load_dataset",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("load_dataset used")),
+    )
+    config = _config({**CORPUS, "huggingface": {"download_mode": "snapshot"}})
+    source = next(s for s in config.sources if s.name == "fineweb")
+
+    got = [r["text"] for r in ing._hf_records(source, config)]
+
+    assert got == ["bulk 0", "bulk 1"]
+    assert calls == [
+        {
+            "repo_id": "HuggingFaceFW/fineweb",
+            "repo_type": "dataset",
+            "cache_dir": None,
+            "allow_patterns": ing._snapshot_allow_patterns(source),
+        }
+    ]
+
+
+def test_hf_records_streaming_still_uses_load_dataset(monkeypatch):
+    import dapper.archive.ingest as ing
+
+    _fake_hf(monkeypatch, 2)
+    config = _config({**CORPUS, "huggingface": {"download_mode": "streaming"}})
+    source = next(s for s in config.sources if s.name == "fineweb")
+
+    got = [r["text"] for r in ing._hf_records(source, config)]
+
+    assert got == ["doc 0", "doc 1"]
 
 
 def test_force_ignores_existing_shards(tmp_path, monkeypatch):

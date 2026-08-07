@@ -360,9 +360,21 @@ re-run picks up at the first incomplete task rather than restarting.
 
 #### Tuning throughput
 
+Hugging Face archive defaults to bulk snapshot downloads:
+`huggingface.download_mode: snapshot` calls `huggingface_hub.snapshot_download()`
+before Dapper reads local data files. With `hf_xet` installed,
+`huggingface.xet_high_performance` defaults to `true`, which sets
+`HF_XET_HIGH_PERFORMANCE=1`. `hf_transfer` is the older LFS accelerator and is
+no longer the recommended knob for current Hub-backed downloads.
+
 Concurrency is config, not flags — both `dedup` and `tokenize` read it:
 
 ```yaml
+huggingface:
+  download_mode: snapshot
+  xet_high_performance: true
+  # xet_num_concurrent_range_gets: 16  # optional advanced override
+
 dedup:
   datatrove:
     executor: local   # 'slurm' fans the same tasks across a cluster
