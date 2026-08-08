@@ -1,10 +1,9 @@
-"""Archiving HuggingFace datasets into the GCS archive.
+"""Streaming HuggingFace datasets into the GCS archive.
 
-In bulk mode, Hugging Face downloads/prepares the configured dataset locally
-before Dapper streams rows into ``gs://``. In streaming mode, rows are pulled
-from the HF streaming API. Tokenization deliberately does not happen here --
-duplicates would be paid for and then discarded. Token counts are computed
-after dedup, in the DataTrove filter stage.
+Nothing is materialized locally: records are pulled from the HF streaming API
+and pushed straight to ``gs://``. Tokenization deliberately does not happen
+here -- duplicates would be paid for and then discarded. Token counts are
+computed after dedup, in the DataTrove filter stage.
 """
 
 from __future__ import annotations
@@ -400,40 +399,6 @@ def _stream_hf_records(
     yield from retrying_iter(_open, on_retry=_note)
 
 
-def _bulk_hf_records(
-    source: SourceConfig,
-    config: DedupConfig,
-    *,
-    limit: int | None = None,
-    skip: int = 0,
-) -> Iterator[dict[str, Any]]:
-    """Download and prepare a HuggingFace dataset locally, then iterate rows."""
-    try:
-        from datasets import load_dataset
-    except ImportError as exc:
-        raise GcsError("`datasets` is required for HuggingFace archiving.") from exc
-
-    from dapper.archive.retry import configure_hf_timeouts
-
-    configure_hf_timeouts()
-    configure_hf_xet(config)
-
-    dataset = load_dataset(
-        source.repo,
-        source.dataset_config,
-        split=source.split,
-        streaming=False,
-        cache_dir=config.hf_cache_dir,
-        trust_remote_code=config.hf_trust_remote_code,
-    )
-    for index, record in enumerate(dataset):
-        if limit is not None and index >= limit:
-            return
-        if index < skip:
-            continue
-        yield dict(record)
-
-
 def _hf_records(
     source: SourceConfig,
     config: DedupConfig,
@@ -446,11 +411,8 @@ def _hf_records(
     if mode == "streaming":
         yield from _stream_hf_records(source, config, limit=limit, skip=skip)
         return
-    if mode in {"bulk", "snapshot"}:
-        yield from _bulk_hf_records(source, config, limit=limit, skip=skip)
-        return
     raise ValueError(
-        "huggingface.download_mode must be 'streaming' or 'bulk', "
+        "huggingface.download_mode must be 'streaming', "
         f"got {config.hf_download_mode!r}."
     )
 

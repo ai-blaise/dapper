@@ -360,19 +360,17 @@ re-run picks up at the first incomplete task rather than restarting.
 
 #### Tuning throughput
 
-Hugging Face archive defaults to bulk local downloads:
-`huggingface.download_mode: bulk` calls `datasets.load_dataset(...,
-streaming=False)`, so Hugging Face downloads/prepares the actual dataset config
-and split into the local cache before Dapper iterates rows. With `hf_xet`
-installed, `huggingface.xet_high_performance` defaults to `true`, which sets
-`HF_XET_HIGH_PERFORMANCE=1`. `hf_transfer` is the older LFS accelerator and is
-no longer the recommended knob for current Hub-backed downloads.
+Hugging Face archive streams rows with `datasets.load_dataset(...,
+streaming=True)`. With `hf_xet` installed, `huggingface.xet_high_performance`
+defaults to `true`, which sets `HF_XET_HIGH_PERFORMANCE=1`. `hf_transfer` is
+the older LFS accelerator and is no longer the recommended knob for current
+Hub-backed downloads.
 
 Concurrency is config, not flags — both `dedup` and `tokenize` read it:
 
 ```yaml
 huggingface:
-  download_mode: bulk
+  download_mode: streaming
   xet_high_performance: true
   # xet_num_concurrent_range_gets: 16  # optional advanced override
 

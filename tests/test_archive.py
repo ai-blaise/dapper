@@ -91,7 +91,7 @@ def test_hf_xet_acceleration_defaults_on():
     """The current Hugging Face fast path should be enabled by default."""
     config = _config()
 
-    assert config.hf_download_mode == "bulk"
+    assert config.hf_download_mode == "streaming"
     assert config.hf_xet_high_performance is True
     assert config.hf_xet_num_concurrent_range_gets is None
 
@@ -611,49 +611,14 @@ def test_configure_hf_xet_preserves_existing_env(monkeypatch):
     assert os.environ["HF_XET_NUM_CONCURRENT_RANGE_GETS"] == "8"
 
 
-def test_hf_records_bulk_uses_non_streaming_load_dataset(monkeypatch):
-    import datasets
+def test_hf_records_rejects_non_streaming_download_mode(monkeypatch):
     import dapper.archive.ingest as ing
 
-    calls = []
-
-    class _Dataset:
-        def __iter__(self):
-            yield {"text": "bulk 0", "id": "0"}
-            yield {"text": "bulk 1", "id": "1"}
-
-    def fake_load_dataset(*args, **kwargs):
-        calls.append((args, kwargs))
-        return _Dataset()
-
-    monkeypatch.setattr(datasets, "load_dataset", fake_load_dataset)
     config = _config({**CORPUS, "huggingface": {"download_mode": "bulk"}})
     source = next(s for s in config.sources if s.name == "fineweb")
 
-    got = [r["text"] for r in ing._hf_records(source, config)]
-
-    assert got == ["bulk 0", "bulk 1"]
-    assert calls == [
-        (
-            ("HuggingFaceFW/fineweb", "sample-10BT"),
-            {
-                "split": "train",
-                "streaming": False,
-                "cache_dir": None,
-                "trust_remote_code": False,
-            },
-        )
-    ]
-
-
-def test_hf_records_snapshot_alias_uses_non_streaming_load_dataset(monkeypatch):
-    import dapper.archive.ingest as ing
-
-    monkeypatch.setattr(ing, "_bulk_hf_records", lambda *a, **k: iter([{"text": "ok"}]))
-    config = _config({**CORPUS, "huggingface": {"download_mode": "snapshot"}})
-    source = next(s for s in config.sources if s.name == "fineweb")
-
-    assert list(ing._hf_records(source, config)) == [{"text": "ok"}]
+    with pytest.raises(ValueError, match="must be 'streaming'"):
+        list(ing._hf_records(source, config))
 
 
 def test_hf_records_streaming_still_uses_load_dataset(monkeypatch):
