@@ -36,6 +36,7 @@ The public `dapper` CLI currently exposes the core Dapper workflows:
 | `dapper parse` | Parse records under a selected schema |
 | `dapper mix` | Mix supported dataset directories into unified Parquet output |
 | `dapper archive` | Stream the HuggingFace source catalog into GCS |
+| `dapper archive check` | Count archived sources from `_SUCCESS` markers |
 | `dapper catalog` | Inspect the HuggingFace source catalog |
 | `dapper dedup` | Inspect, normalize, and deduplicate configured datasets |
 | `dapper run` | Archive then dedup in one sweep |
@@ -349,8 +350,14 @@ dapper archive --limit 100                 # cheap test slice
 dapper archive --sources c4,cosmopedia     # just two sources
 dapper archive --sources allenai/c4        # repo refs work too
 dapper archive --dry-run                   # what would happen
+dapper archive check                       # complete vs remaining sources
+dapper archive check --sources c4,fineweb  # check only a subset
 dapper archive                             # full run, resumable
 ```
+
+`dapper archive check` reads only each configured source's `_SUCCESS` marker
+under the staged-input prefix. It does not scan shard files or count records,
+so it is a cheap way to see how many sources completed and what remains.
 
 ## `dapper catalog`
 

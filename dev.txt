@@ -1,0 +1,15 @@
+Previous shards
+
+
+
+⠙ dclm-pro            ━━━━━━━━━━      12550000/? 12,550,000 records, 251 shards 4:02:21
+⠙ dclm-baseline       ━━━━━━━━━━      8650000/?  8,650,000 records, 173 shards  4:02:21
+⠙ nemotron-climbmix   ━━━━━━━━━━      16700000/? 16,700,000 records, 334 shards 4:02:21
+⠙ ultra-fineweb       ━━━━━━━━━━      17761000/? 17,761,000 records, 355 shards 4:02:21
+⠙ finephrase-faq      ━━━━━━━━━━      13276000/? 13,276,000 records, 265 shards 4:02:21
+⠙ finephrase-table    ━━━━━━━━━━      13874000/? 13,874,000 records, 277 shards 4:02:21
+⠙ finephrase-tutorial ━━━━━━━━━━      13168000/? 13,168,000 records, 263 shards 4:02:21
+⠙ essential-web       ━━━━━━━━━━      11300000/? 11,300,000 records, 226 shards 4:02:21
+⠙ zyda-2              ━━━━━━━━━━      11500000/? 11,500,000 records, 230 shards 4:02:21
+⠙ falcon-refinedweb   ━━━━━━━━━━      8740000/?  8,740,000 records, 174 shards  4:02:19
+

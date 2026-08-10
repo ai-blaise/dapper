@@ -299,6 +299,7 @@ dapper catalog show fineweb
 # 1. Archive HuggingFace sources into GCS. Streams straight to gs:// --
 #    nothing is written to local disk and nothing is tokenized.
 dapper archive --dry-run              # resolve catalog + bucket, write nothing
+dapper archive check                  # count _SUCCESS markers by source
 dapper archive --limit 1000           # small slice to prove the path works
 dapper archive                        # full run; resumable via _SUCCESS markers
 
@@ -423,6 +424,7 @@ Pretraining corpus pipeline (GCS-backed, driven by `dapper.yaml`):
 | `dapper catalog list` | List configured corpus sources |
 | `dapper catalog show <source>` | Show one source in full |
 | `dapper archive` | Stream the HuggingFace catalog into GCS |
+| `dapper archive check` | Count archived sources from `_SUCCESS` markers |
 | `dapper dedup --gcs` | MinHash-deduplicate the archived corpus |
 | `dapper tokenize <source>` | Tokenize one staged source into binned shards |
 | `dapper tokenize --deduped` | Tokenize the deduplicated corpus |

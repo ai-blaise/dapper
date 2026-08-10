@@ -21,7 +21,7 @@ def _fail(message: str, code: int) -> None:
 
 def archive_main(argv: Sequence[str] | None = None) -> None:
     from dapper.archive.catalog import CatalogError
-    from dapper.archive.runner import run_archive, run_archive_delete
+    from dapper.archive.runner import run_archive, run_archive_check, run_archive_delete
     from dapper.config import ConfigError
     from dapper.corpus.gcs import GcsError
     from dapper.progress import add_progress_argument
@@ -44,6 +44,40 @@ def archive_main(argv: Sequence[str] | None = None) -> None:
         args = parser.parse_args(raw_args[1:])
         try:
             result = run_archive_delete(args.name, config_path=args.config)
+        except CatalogError as exc:
+            _fail(str(exc), EXIT_USAGE)
+        except (ConfigError, GcsError, RuntimeError, ValueError) as exc:
+            _fail(str(exc), 1)
+        console.print(result.output)
+        return
+
+    if raw_args and raw_args[0] == "check":
+        parser = argparse.ArgumentParser(
+            prog="dapper archive check",
+            description=(
+                "Check configured archive source prefixes for _SUCCESS markers "
+                "without scanning shard contents."
+            ),
+        )
+        parser.add_argument(
+            "--config",
+            default=None,
+            help=(
+                "Config file override. Defaults to dapper.yaml in the current "
+                "directory."
+            ),
+        )
+        parser.add_argument(
+            "--sources",
+            default=None,
+            help=(
+                "Comma-separated catalog names or repo refs to check. "
+                "Defaults to the whole archivable catalog."
+            ),
+        )
+        args = parser.parse_args(raw_args[1:])
+        try:
+            result = run_archive_check(config_path=args.config, sources=args.sources)
         except CatalogError as exc:
             _fail(str(exc), EXIT_USAGE)
         except (ConfigError, GcsError, RuntimeError, ValueError) as exc:

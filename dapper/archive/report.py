@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Iterable
 
 from rich.console import Console
@@ -16,6 +17,15 @@ from dapper.corpus.gcs import GcsContext
 from dapper.dedup.config import SourceConfig
 
 console = Console(force_terminal=True, highlight=False)
+
+
+@dataclass(frozen=True)
+class ArchiveCheckEntry:
+    """One source's archive completion status."""
+
+    source_name: str
+    destination_uri: str
+    complete: bool
 
 
 def _render(renderable, **kwargs) -> str:
@@ -127,6 +137,43 @@ def format_archive_plan(context: GcsContext, reports: Iterable[IngestReport]) ->
                     f"  [yellow]SKIP[/] [bold cyan]{_e(report.source_name)}[/] "
                     f"— {_e(report.skipped_reason or '')}"
                 )
+
+    return capture.get()
+
+
+def format_archive_check(
+    context: GcsContext, entries: Iterable[ArchiveCheckEntry]
+) -> str:
+    """Format a lightweight `_SUCCESS` marker check."""
+    entries = list(entries)
+    complete = [entry for entry in entries if entry.complete]
+    remaining = [entry for entry in entries if not entry.complete]
+
+    with console.capture() as capture:
+        console.print(
+            Panel(Text(" Dapper Archive Check", style="bold"), border_style="blue")
+        )
+        console.print(Text("Bucket: ", style="dim"), _e(context.bucket))
+        console.print(Text("Staged input: ", style="dim"), _e(context.staged_input_uri))
+        console.print()
+
+        stats = Text()
+        stats.append(f"{len(complete):,} complete", style="bold green")
+        stats.append(f"  |  {len(remaining):,} remaining", style="bold yellow")
+        stats.append(f"  |  {len(entries):,} total")
+        console.print(stats)
+
+        if remaining:
+            console.print()
+            console.print(Text(f"Remaining ({len(remaining):,}):", style="yellow"))
+            for entry in remaining:
+                console.print(f"  [yellow]TODO[/] [bold cyan]{_e(entry.source_name)}[/]")
+
+        if complete:
+            console.print()
+            console.print(Text(f"Complete ({len(complete):,}):", style="green"))
+            for entry in complete:
+                console.print(f"  [green]OK[/] [bold cyan]{_e(entry.source_name)}[/]")
 
     return capture.get()
 

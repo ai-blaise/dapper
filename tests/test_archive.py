@@ -13,7 +13,12 @@ from dapper.archive.catalog import (
     resolve_sources,
 )
 from dapper.archive.ingest import IngestReport, ingest_all, plan_ingest
-from dapper.archive.report import format_archive_report, format_catalog_list
+from dapper.archive.report import (
+    ArchiveCheckEntry,
+    format_archive_check,
+    format_archive_report,
+    format_catalog_list,
+)
 from dapper.corpus.gcs import init_gcs
 from dapper.dedup.config import parse_dedup_config
 
@@ -295,6 +300,56 @@ def test_archive_delete_is_noop_when_source_prefix_missing(monkeypatch):
         "No archived dataset found for fineweb: "
         "gs://pretraining-corpus/dapper/dedup/staged-input/fineweb"
     )
+
+
+def test_archive_check_counts_success_markers(monkeypatch):
+    import dapper.archive.runner as runner
+
+    completed = {
+        "gs://pretraining-corpus/dapper/dedup/staged-input/fineweb/_SUCCESS"
+    }
+    monkeypatch.setattr(runner, "load_config", lambda path=None: CORPUS)
+    monkeypatch.setattr(runner, "init_gcs", lambda config: _context())
+    monkeypatch.setattr(runner.io, "exists", lambda uri: uri in completed)
+    monkeypatch.setattr(runner.io, "read_json", lambda uri: {"limit": None})
+
+    result = runner.run_archive_check()
+
+    assert "1 complete" in result.output
+    assert "1 remaining" in result.output
+    assert "fineweb" in result.output
+    assert "c4" in result.output
+
+
+def test_archive_check_accepts_source_subset(monkeypatch):
+    import dapper.archive.runner as runner
+
+    monkeypatch.setattr(runner, "load_config", lambda path=None: CORPUS)
+    monkeypatch.setattr(runner, "init_gcs", lambda config: _context())
+    monkeypatch.setattr(runner.io, "exists", lambda uri: False)
+
+    result = runner.run_archive_check(sources="c4")
+
+    assert "0 complete" in result.output
+    assert "1 remaining" in result.output
+    assert "c4" in result.output
+    assert "fineweb" not in result.output
+
+
+def test_archive_check_report_lists_complete_and_remaining():
+    output = format_archive_check(
+        _context(),
+        [
+            ArchiveCheckEntry("fineweb", "gs://b/fineweb", True),
+            ArchiveCheckEntry("c4", "gs://b/c4", False),
+        ],
+    )
+
+    assert "1 complete" in output
+    assert "1 remaining" in output
+    assert "Complete" in output and "fineweb" in output
+    assert "Remaining" in output and "c4" in output
+    assert "gs://b/fineweb" not in output
 
 
 # --- dry run --------------------------------------------------------------

@@ -4,9 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from dapper.archive.catalog import CatalogError, resolve_sources
-from dapper.archive.ingest import DEFAULT_WORKERS, ingest_all, plan_ingest
+from dapper.archive.catalog import CatalogError, archivable_sources, resolve_sources
+from dapper.archive.ingest import (
+    DEFAULT_WORKERS,
+    ingest_all,
+    plan_ingest,
+    source_is_complete,
+)
 from dapper.archive.report import (
+    ArchiveCheckEntry,
+    format_archive_check,
     format_archive_plan,
     format_archive_report,
     format_catalog_list,
@@ -89,6 +96,30 @@ def run_archive_delete(
     else:
         message = f"No archived dataset found for {source.name}: {uri}"
     return CommandResult(message)
+
+
+def run_archive_check(
+    *,
+    config_path: str | None = None,
+    sources: str | None = None,
+) -> CommandResult:
+    """Check configured archive completion markers without scanning shards."""
+    dedup_config = parse_dedup_config(load_config(config_path))
+    targets = (
+        resolve_sources(sources.split(","), dedup_config)
+        if sources
+        else archivable_sources(dedup_config)
+    )
+    context = init_gcs(dedup_config)
+    entries = [
+        ArchiveCheckEntry(
+            source_name=source.name,
+            destination_uri=context.source_uri(source.name),
+            complete=source_is_complete(context.source_uri(source.name)),
+        )
+        for source in targets
+    ]
+    return CommandResult(format_archive_check(context, entries))
 
 
 def run_catalog_list(
