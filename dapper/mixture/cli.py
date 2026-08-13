@@ -6,10 +6,7 @@ import argparse
 import sys
 from typing import Sequence
 
-from rich.console import Console
-
-console = Console(force_terminal=True, highlight=False)
-err_console = Console(stderr=True)
+from utils.display import console, err_console
 
 EXIT_USAGE = 2
 # Distinct from a crash: an unsatisfiable mixture is a valid, successful

@@ -23,8 +23,6 @@ import re
 import sys
 from typing import Any, Iterator
 
-from rich.console import Console
-from rich.panel import Panel
 from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
@@ -32,8 +30,7 @@ from rich.table import Table
 from utils.detect import detect_format
 from utils.loader import load_records as _load_records
 from utils.normalize import normalize_record
-
-console = Console(force_terminal=True, highlight=False)
+from utils.display import BORDER, GOOD, HEADING, MUTED, console, header_panel, panel
 
 
 def iter_normalized_records(filename: str, input_format: str = "auto") -> Iterator[dict]:
@@ -157,17 +154,18 @@ ROLE_COLORS = {
 
 def cmd_list(args):
     """List all records with summary information."""
-    console.print(f"[dim]Loading {args.file}...[/dim]")
+    console.print(f"[{MUTED}]Loading {args.file}...[/{MUTED}]")
 
     table = Table(
         show_header=True,
-        header_style="bold white",
+        header_style=HEADING,
+        border_style=BORDER,
         show_lines=False,
     )
-    table.add_column("IDX", justify="right", style="dim", width=6)
-    table.add_column("UUID", style="dim")
-    table.add_column("MSGS", justify="right", style="green")
-    table.add_column("TOOLS", justify="right", style="green")
+    table.add_column("IDX", justify="right", style=MUTED, width=6)
+    table.add_column("UUID", style=MUTED)
+    table.add_column("MSGS", justify="right", style=GOOD)
+    table.add_column("TOOLS", justify="right", style=GOOD)
     table.add_column("LICENSE")
     table.add_column("USED_IN")
     table.add_column("RSN")
@@ -204,11 +202,11 @@ def cmd_list(args):
 
         count += 1
         if args.limit and count >= args.limit:
-            console.print(f"\n[dim]... (limited to {args.limit} records)[/dim]")
+            console.print(f"\n[{MUTED}]... (limited to {args.limit} records)[/{MUTED}]")
             break
 
     console.print(table)
-    console.print(f"[dim]Displayed {count} records[/dim]")
+    console.print(f"[{MUTED}]Displayed {count} records[/{MUTED}]")
 
 
 def cmd_show(args):
@@ -230,7 +228,7 @@ def cmd_show(args):
         console.print(json.dumps(value, indent=2))
     else:
         # Show full record
-        console.print(Rule(f"Record {args.index}", style="bold white"))
+        console.print(Rule(f"Record {args.index}", style=HEADING))
         record_str = json.dumps(record, indent=2)
         syntax = Syntax(record_str, "json", theme="monokai", line_numbers=False)
         console.print(syntax)
@@ -240,8 +238,8 @@ def cmd_search(args):
     """Search for text within records."""
     query = args.query.lower() if not args.case_sensitive else args.query
 
-    console.print(f"[dim]Searching for '{args.query}' in {args.file}...[/dim]")
-    console.print(Rule(style="dim"))
+    console.print(f"[{MUTED}]Searching for '{args.query}' in {args.file}...[/{MUTED}]")
+    console.print(Rule(style=MUTED))
 
     matches = 0
     for idx, record in enumerate(iter_normalized_records(args.file, args.input_format)):
@@ -260,23 +258,23 @@ def cmd_search(args):
                 end = min(len(record_str), pos + len(query) + 30)
                 context = f"...{record_str[start:end]}..."
 
-            panel_content = f"[dim]{summary['uuid']}[/dim] — [green]{summary['msg_count']} msgs[/green]"
+            panel_content = f"[{MUTED}]{summary['uuid']}[/{MUTED}] — [{GOOD}]{summary['msg_count']} msgs[/{GOOD}]"
             if context:
-                panel_content += f"\n[dim]Context:[/dim] {context}"
+                panel_content += f"\n[{MUTED}]Context:[/{MUTED}] {context}"
 
-            console.print(Panel(panel_content, title=f"[bold][{idx}][/bold]", border_style="dim"))
+            console.print(panel(panel_content, title=f"[bold][{idx}][/bold]", border_style=MUTED))
 
             if args.limit and matches >= args.limit:
-                console.print(f"\n[dim]... (limited to {args.limit} matches)[/dim]")
+                console.print(f"\n[{MUTED}]... (limited to {args.limit} matches)[/{MUTED}]")
                 break
 
-    console.print(Rule(style="dim"))
-    console.print(f"[dim]Found {matches} matching records[/dim]")
+    console.print(Rule(style=MUTED))
+    console.print(f"[{MUTED}]Found {matches} matching records[/{MUTED}]")
 
 
 def cmd_stats(args):
     """Show dataset statistics."""
-    console.print(f"[dim]Analyzing {args.file}...[/dim]")
+    console.print(f"[{MUTED}]Analyzing {args.file}...[/{MUTED}]")
 
     total_records = 0
     total_messages = 0
@@ -308,35 +306,35 @@ def cmd_stats(args):
                 records_with_reasoning += 1
                 break
 
-    console.print(Panel.fit("DATASET STATISTICS", style="bold white", border_style="white"))
+    console.print(header_panel("DATASET STATISTICS"))
 
     # Records table
     records_table = Table(show_header=False, show_lines=False, box=None)
-    records_table.add_column("Metric", style="bold")
+    records_table.add_column("Metric", style=HEADING)
     records_table.add_column("Value")
-    records_table.add_row("Total records", f"[green]{total_records:,}[/green]")
+    records_table.add_row("Total records", f"[{GOOD}]{total_records:,}[/{GOOD}]")
     records_table.add_row(
         "Records with tools",
-        f"[green]{records_with_tools:,}[/green] ([dim]{100 * records_with_tools / max(1, total_records):.1f}%[/dim])",
+        f"[{GOOD}]{records_with_tools:,}[/{GOOD}] ([{MUTED}]{100 * records_with_tools / max(1, total_records):.1f}%[/{MUTED}])",
     )
     records_table.add_row(
         "Records with reasoning",
-        f"[green]{records_with_reasoning:,}[/green] ([dim]{100 * records_with_reasoning / max(1, total_records):.1f}%[/dim])",
+        f"[{GOOD}]{records_with_reasoning:,}[/{GOOD}] ([{MUTED}]{100 * records_with_reasoning / max(1, total_records):.1f}%[/{MUTED}])",
     )
 
-    console.print(Panel(records_table, title="Records", border_style="dim"))
+    console.print(panel(records_table, title="Records", border_style=MUTED))
 
     # Messages table
     messages_table = Table(show_header=False, show_lines=False, box=None)
-    messages_table.add_column("Metric", style="bold")
+    messages_table.add_column("Metric", style=HEADING)
     messages_table.add_column("Value")
-    messages_table.add_row("Total messages", f"[green]{total_messages:,}[/green]")
+    messages_table.add_row("Total messages", f"[{GOOD}]{total_messages:,}[/{GOOD}]")
     messages_table.add_row(
         "Avg per record",
-        f"[green]{total_messages / max(1, total_records):.1f}[/green]",
+        f"[{GOOD}]{total_messages / max(1, total_records):.1f}[/{GOOD}]",
     )
 
-    console.print(Panel(messages_table, title="Messages", border_style="dim"))
+    console.print(panel(messages_table, title="Messages", border_style=MUTED))
 
     # Roles table
     roles_table = Table(show_header=False, show_lines=False, box=None)
@@ -344,27 +342,27 @@ def cmd_stats(args):
     roles_table.add_column("Count", justify="right")
     for role, count in sorted(role_counts.items(), key=lambda x: -x[1]):
         color = ROLE_COLORS.get(role, "white")
-        roles_table.add_row(f"[{color}]{role}[/{color}]", f"[green]{count:,}[/green]")
+        roles_table.add_row(f"[{color}]{role}[/{color}]", f"[{GOOD}]{count:,}[/{GOOD}]")
 
-    console.print(Panel(roles_table, title="Message Roles", border_style="dim"))
+    console.print(panel(roles_table, title="Message Roles", border_style=MUTED))
 
     # Tools table
     tools_table = Table(show_header=False, show_lines=False, box=None)
-    tools_table.add_column("Metric", style="bold")
+    tools_table.add_column("Metric", style=HEADING)
     tools_table.add_column("Value")
-    tools_table.add_row("Total tool definitions", f"[green]{total_tools:,}[/green]")
-    tools_table.add_row("Unique tool names", f"[green]{len(tool_names):,}[/green]")
+    tools_table.add_row("Total tool definitions", f"[{GOOD}]{total_tools:,}[/{GOOD}]")
+    tools_table.add_row("Unique tool names", f"[{GOOD}]{len(tool_names):,}[/{GOOD}]")
 
-    console.print(Panel(tools_table, title="Tools", border_style="dim"))
+    console.print(panel(tools_table, title="Tools", border_style=MUTED))
 
     if args.verbose and tool_names:
         tools_verbose_table = Table(show_header=False, show_lines=False, box=None)
         tools_verbose_table.add_column("Tool")
         tools_verbose_table.add_column("Count", justify="right")
         for name, count in sorted(tool_names.items(), key=lambda x: -x[1])[:10]:
-            tools_verbose_table.add_row(truncate(name, 40), f"[green]{count:,}[/green]")
+            tools_verbose_table.add_row(truncate(name, 40), f"[{GOOD}]{count:,}[/{GOOD}]")
 
-        console.print(Panel(tools_verbose_table, title="Top 10 Tool Names", border_style="dim"))
+        console.print(panel(tools_verbose_table, title="Top 10 Tool Names", border_style=MUTED))
 
 
 def main(argv: list[str] | None = None):

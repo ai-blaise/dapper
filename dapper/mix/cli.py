@@ -10,17 +10,24 @@ from __future__ import annotations
 
 import argparse
 
-from rich.console import Console
 from rich.markup import escape as _e
-from rich.panel import Panel
 from rich.table import Table
+
+from utils.display import (
+    ACCENT,
+    BORDER,
+    GOOD,
+    HEADING,
+    MUTED,
+    WARN,
+    console,
+    panel,
+)
 
 from dapper.config import load_optional_config
 from dapper.schema import DEFAULT_SCHEMA, add_schema_argument, resolve_schema
 from dapper.schema import schema_from_config
 from dapper.mix.mixer import mix
-
-console = Console(force_terminal=True, highlight=False)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -122,37 +129,34 @@ def main(argv: list[str] | None = None) -> None:
     # --- configuration header panel ---
     config_lines: list[str] = []
     config_lines.append(
-        f"[dim]Input directory:[/dim] [bold cyan]{_e(str(args.input_dir))}[/bold cyan]"
+        f"[{MUTED}]Input directory:[/{MUTED}] [{ACCENT}]{_e(str(args.input_dir))}[/{ACCENT}]"
     )
     config_lines.append(
-        f"[dim]Schema:[/dim] [bold cyan]{_e(schema.name)}[/bold cyan]"
+        f"[{MUTED}]Schema:[/{MUTED}] [{ACCENT}]{_e(schema.name)}[/{ACCENT}]"
     )
     if args.dry_run:
         config_lines.append(
-            "[yellow]Mode: dry-run (no output will be written)[/yellow]"
+            f"[{WARN}]Mode: dry-run (no output will be written)[/{WARN}]"
         )
     else:
         config_lines.append(
-            f"[green]Output:[/green] [bold cyan]{_e(str(args.output))}[/bold cyan]"
-    )
+            f"[{GOOD}]Output:[/{GOOD}] [{ACCENT}]{_e(str(args.output))}[/{ACCENT}]"
+        )
 
     if args.include:
         included = ", ".join(args.include)
         config_lines.append(
-            f"[dim]Include:[/dim] [bold cyan]{_e(included)}[/bold cyan]"
+            f"[{MUTED}]Include:[/{MUTED}] [{ACCENT}]{_e(included)}[/{ACCENT}]"
         )
     if args.exclude:
         excluded = ", ".join(args.exclude)
         config_lines.append(
-            f"[dim]Exclude:[/dim] [bold cyan]{_e(excluded)}[/bold cyan]"
+            f"[{MUTED}]Exclude:[/{MUTED}] [{ACCENT}]{_e(excluded)}[/{ACCENT}]"
         )
 
-    console.print(Panel(
-        "\n".join(config_lines),
-        title="Dapper Mix",
-        title_align="left",
-        border_style="blue",
-    ))
+    console.print(
+        panel("\n".join(config_lines), title="Dapper Mix", title_align="left")
+    )
     console.print()
 
     result = mix(
@@ -174,12 +178,12 @@ def main(argv: list[str] | None = None) -> None:
     # --- summary tables ---
     sources_table = Table(
         title="Records per source",
-        title_style="bold",
-        border_style="blue",
-        header_style="dim",
+        title_style=HEADING,
+        border_style=BORDER,
+        header_style=HEADING,
     )
-    sources_table.add_column("Source", style="bold cyan")
-    sources_table.add_column("Count", justify="right", style="green")
+    sources_table.add_column("Source", style=ACCENT)
+    sources_table.add_column("Count", justify="right", style=GOOD)
 
     for source, count in sorted(result["sources"].items()):
         sources_table.add_row(source, f"{count:,}")
@@ -190,12 +194,12 @@ def main(argv: list[str] | None = None) -> None:
         console.print()
         tasks_table = Table(
             title="Records per task",
-            title_style="bold",
-            border_style="blue",
-            header_style="dim",
+            title_style=HEADING,
+            border_style=BORDER,
+            header_style=HEADING,
         )
-        tasks_table.add_column("Task", style="bold cyan")
-        tasks_table.add_column("Count", justify="right", style="green")
+        tasks_table.add_column("Task", style=ACCENT)
+        tasks_table.add_column("Count", justify="right", style=GOOD)
 
         for task, count in sorted(result["tasks"].items(), key=lambda x: -x[1]):
             tasks_table.add_row(task, f"{count:,}")
@@ -204,12 +208,12 @@ def main(argv: list[str] | None = None) -> None:
 
     console.print()
     console.print(
-        f"[bold]Total records:[/bold] [green]{result['total_records']:,}[/green]"
+        f"[bold]Total records:[/bold] [{GOOD}]{result['total_records']:,}[/{GOOD}]"
     )
 
     if result["output_path"]:
         console.print(
-            f"[bold]Output written to:[/bold] [bold cyan]{_e(str(result['output_path']))}[/bold cyan]"
+            f"[bold]Output written to:[/bold] [{ACCENT}]{_e(str(result['output_path']))}[/{ACCENT}]"
         )
 
 

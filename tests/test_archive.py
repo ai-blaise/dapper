@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 
 import pytest
+from rich.console import Console
+from rich.text import Text
 
 from dapper.archive.catalog import (
     CatalogError,
@@ -44,6 +46,13 @@ CORPUS = {
         },
     },
 }
+
+
+def _render_plain(renderable, *, width: int = 80) -> str:
+    test_console = Console(force_terminal=True, highlight=False, width=width)
+    with test_console.capture() as capture:
+        test_console.print(renderable)
+    return Text.from_ansi(capture.get()).plain
 
 
 def _config(raw=None):
@@ -314,11 +323,12 @@ def test_archive_check_counts_success_markers(monkeypatch):
     monkeypatch.setattr(runner.io, "read_json", lambda uri: {"limit": None})
 
     result = runner.run_archive_check()
+    output = _render_plain(result.output)
 
-    assert "1 complete" in result.output
-    assert "1 remaining" in result.output
-    assert "fineweb" in result.output
-    assert "c4" in result.output
+    assert "1 complete" in output
+    assert "1 remaining" in output
+    assert "fineweb" in output
+    assert "c4" in output
 
 
 def test_archive_check_accepts_source_subset(monkeypatch):
@@ -329,20 +339,23 @@ def test_archive_check_accepts_source_subset(monkeypatch):
     monkeypatch.setattr(runner.io, "exists", lambda uri: False)
 
     result = runner.run_archive_check(sources="c4")
+    output = _render_plain(result.output)
 
-    assert "0 complete" in result.output
-    assert "1 remaining" in result.output
-    assert "c4" in result.output
-    assert "fineweb" not in result.output
+    assert "0 complete" in output
+    assert "1 remaining" in output
+    assert "c4" in output
+    assert "fineweb" not in output
 
 
 def test_archive_check_report_lists_complete_and_remaining():
-    output = format_archive_check(
-        _context(),
-        [
-            ArchiveCheckEntry("fineweb", "gs://b/fineweb", True),
-            ArchiveCheckEntry("c4", "gs://b/c4", False),
-        ],
+    output = _render_plain(
+        format_archive_check(
+            _context(),
+            [
+                ArchiveCheckEntry("fineweb", "gs://b/fineweb", True),
+                ArchiveCheckEntry("c4", "gs://b/c4", False),
+            ],
+        )
     )
 
     assert "1 complete" in output
@@ -350,6 +363,70 @@ def test_archive_check_report_lists_complete_and_remaining():
     assert "Complete" in output and "fineweb" in output
     assert "Remaining" in output and "c4" in output
     assert "gs://b/fineweb" not in output
+
+    plain_lines = [line for line in output.splitlines() if "fineweb" in line or "c4" in line]
+    assert len(plain_lines) == 1
+    assert "OK fineweb" in plain_lines[0]
+    assert "TODO c4" in plain_lines[0]
+
+
+def test_archive_check_report_balances_uneven_side_by_side_columns():
+    output = _render_plain(
+        format_archive_check(
+            _context(),
+            [
+                ArchiveCheckEntry("fineweb", "gs://b/fineweb", True),
+                ArchiveCheckEntry("c4", "gs://b/c4", False),
+                ArchiveCheckEntry("libretexts", "gs://b/libretexts", False),
+            ],
+        )
+    )
+
+    assert "Complete (1)" in output
+    assert "Remaining (2)" in output
+    assert output.count("OK fineweb") == 1
+    assert output.count("TODO c4") == 1
+    assert output.count("TODO libretexts") == 1
+
+
+def test_archive_check_report_keeps_long_names_inside_equal_sections():
+    output = _render_plain(
+        format_archive_check(
+            _context(),
+            [
+                ArchiveCheckEntry(
+                    "nemotron-legal-judicial-ethics", "gs://b/complete", True
+                ),
+                ArchiveCheckEntry("nemotron-climbmix", "gs://b/remaining", False),
+            ],
+        )
+    )
+
+    lines = output.splitlines()
+    assert any("OK nemotron-legal-judicial-ethics" in line for line in lines)
+    assert any("TODO nemotron-climbmix" in line for line in lines)
+
+
+def test_archive_check_report_renders_once_at_the_terminal_width():
+    output = _render_plain(
+        format_archive_check(
+            _context(),
+            [
+                ArchiveCheckEntry("fineweb", "gs://b/fineweb", True),
+                ArchiveCheckEntry("dclm-pro", "gs://b/dclm-pro", False),
+            ],
+        ),
+        width=44,
+    )
+
+    assert any(
+        "Complete (1)" in line and "Remaining (1)" in line
+        for line in output.splitlines()
+    )
+    assert any(
+        "OK fineweb" in line and "TODO dclm-pro" in line
+        for line in output.splitlines()
+    )
 
 
 # --- dry run --------------------------------------------------------------

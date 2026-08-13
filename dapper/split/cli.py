@@ -15,13 +15,12 @@ from typing import Iterator
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 
 from utils.detect import detect_format
 from utils.loader import load_records
 from utils.streaming import records_to_batch
+from utils.display import ACCENT, BORDER, GOOD, HEADING, MUTED, WARN, console, panel
 from dapper.mix.schema import OUTPUT_SCHEMA, TURN_TYPE
 
 
@@ -322,8 +321,6 @@ def recombine_parts(parts_paths: list[Path], output_path: Path) -> int:
 
 
 def main(argv: list[str] | None = None):
-    console = Console(force_terminal=True, highlight=False)
-
     parser = argparse.ArgumentParser(
         prog="dapper split",
         description="Split JSONL datasets into N equal (or near-equal) parts.",
@@ -388,11 +385,11 @@ def main(argv: list[str] | None = None):
     summary_text = "\n".join(
         [
             f"[bold]Input:[/bold] {args.input_file}",
-            f"[bold]Total records:[/bold] [green]{total:,}[/green]",
-            f"[bold]Splitting into:[/bold] [bold cyan]{args.parts}[/bold cyan] parts",
+            f"[bold]Total records:[/bold] [{GOOD}]{total:,}[/{GOOD}]",
+            f"[bold]Splitting into:[/bold] [{ACCENT}]{args.parts}[/{ACCENT}] parts",
         ]
     )
-    console.print(Panel(summary_text, title="[bold]Data Splitter[/bold]", border_style="cyan"))
+    console.print(panel(summary_text, title="[bold]Data Splitter[/bold]"))
     console.print()
 
     # Check if split is possible
@@ -415,15 +412,15 @@ def main(argv: list[str] | None = None):
     )
 
     # Display results table
-    table = Table(title="Split Plan", header_style="bold cyan", border_style="cyan")
-    table.add_column("Part #", justify="right", style="bold cyan")
-    table.add_column("Records", justify="right", style="green")
-    table.add_column("Indices", style="dim")
+    table = Table(title="Split Plan", header_style=HEADING, border_style=BORDER)
+    table.add_column("Part #", justify="right", style=ACCENT)
+    table.add_column("Records", justify="right", style=GOOD)
+    table.add_column("Indices", style=MUTED)
     table.add_column("Status")
-    table.add_column("Path", style="dim")
+    table.add_column("Path", style=MUTED)
 
     for part in parts_info:
-        status = "[yellow]DRY RUN[/yellow]" if args.dry_run else "[green]CREATED[/green]"
+        status = f"[{WARN}]DRY RUN[/{WARN}]" if args.dry_run else f"[{GOOD}]CREATED[/{GOOD}]"
         indices = f"{part['start']:,}–{part['end'] - 1:,}"
         table.add_row(
             str(part["part_num"]),
@@ -437,7 +434,7 @@ def main(argv: list[str] | None = None):
 
     # Summary line
     total_count = sum(p["count"] for p in parts_info)
-    console.print(f"[dim]Total:[/dim] [green]{total_count:,}[/green] records")
+    console.print(f"[{MUTED}]Total:[/{MUTED}] [{GOOD}]{total_count:,}[/{GOOD}] records")
 
     # Verify if requested
     if args.verify and not args.dry_run:

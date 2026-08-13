@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from rich.console import RenderableType
+
 from dapper.archive.catalog import CatalogError, archivable_sources, resolve_sources
 from dapper.archive.ingest import (
     DEFAULT_WORKERS,
@@ -35,7 +37,7 @@ EXIT_PARTIAL = 3
 class CommandResult:
     """Display text plus the process exit code."""
 
-    output: str
+    output: RenderableType
     exit_code: int = EXIT_OK
 
 

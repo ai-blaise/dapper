@@ -6,12 +6,7 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
-from rich.console import Console
-from rich.table import Table
-from rich.text import Text
-
-console = Console(force_terminal=True, highlight=False)
-err_console = Console(stderr=True)
+from utils.display import command_table, console, err_console, hint, title
 
 CommandMain = Callable[[Sequence[str] | None], None]
 
@@ -225,16 +220,15 @@ COMMANDS: dict[str, tuple[str, CommandMain]] = {
 
 
 def _print_help() -> None:
-    console.print(Text("Dapper", style="bold cyan"), "— Dataset CLI")
+    console.print(title("Dapper", subtitle="Dataset CLI"))
     console.print()
-    table = Table(show_header=True, header_style="bold", border_style="dim blue")
-    table.add_column("Command", style="bold green")
-    table.add_column("Description", style="dim")
-    for name, (help_text, _) in COMMANDS.items():
-        table.add_row(name, help_text)
-    console.print(table)
+    console.print(
+        command_table(
+            (name, help_text) for name, (help_text, _) in COMMANDS.items()
+        )
+    )
     console.print()
-    console.print("[dim]Run 'dapper <command> --help' for command-specific options.[/]")
+    console.print(hint("Run 'dapper <command> --help' for command-specific options."))
 
 
 def main(argv: Sequence[str] | None = None) -> None:

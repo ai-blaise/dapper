@@ -2,43 +2,53 @@
 
 from __future__ import annotations
 
-from rich.console import Console
 from rich.markup import escape as _e
-from rich.panel import Panel
 from rich.table import Table
 
-from dapper.mixture.check import MixtureCheck
+from utils.display import (
+    ACCENT,
+    BAD,
+    BORDER,
+    GOOD,
+    HEADING,
+    MUTED,
+    console,
+    header_panel,
+    kv_table,
+    panel,
+)
 
-console = Console(force_terminal=True, highlight=False)
+from dapper.mixture.check import MixtureCheck
 
 
 def format_check(result: MixtureCheck) -> str:
     with console.capture() as capture:
-        header = Panel.fit(
-            "\n".join([
-                "[bold cyan]Dapper mixture check[/bold cyan]",
-                "",
-                f"Budget: [bold]{result.budget_tokens:,}[/bold] tokens",
-                f"Corpus: [bold]{result.total_available:,}[/bold] tokens available",
-            ]),
-            border_style="cyan",
+        console.print(header_panel("Dapper mixture check"))
+        console.print(
+            kv_table(
+                [
+                    ("Budget", f"{result.budget_tokens:,} tokens"),
+                    ("Corpus", f"{result.total_available:,} tokens available"),
+                ],
+                value_style=GOOD,
+            )
         )
-        console.print(header)
+        console.print()
 
         for bin_check in result.bins:
             table = Table(
-                title=f"bin [bold]{bin_check.bin_name}[/bold]",
+                title=f"bin [{HEADING}]{bin_check.bin_name}[/{HEADING}]",
                 show_header=True,
-                header_style="bold",
-                border_style="dim blue",
+                header_style=HEADING,
+                border_style=BORDER,
             )
-            table.add_column("Domain", style="dim", min_width=36)
+            table.add_column("Domain", style=MUTED, min_width=36)
             table.add_column("Share", justify="right")
             table.add_column("Need", justify="right")
             table.add_column("Have", justify="right")
             table.add_column("Status", justify="left")
 
-            flag_style = "green" if bin_check.satisfiable else "red"
+            flag_style = GOOD if bin_check.satisfiable else BAD
             flag_text = "ok" if bin_check.satisfiable else "SHORT"
             table.add_row(
                 f"[bold]bin {_e(str(bin_check.bin_name))}[/bold]",
@@ -53,9 +63,9 @@ def format_check(result: MixtureCheck) -> str:
                     f"{cell.domain}/{cell.subdomain}" if cell.subdomain else cell.domain
                 )
                 if cell.satisfiable:
-                    status = "[green]ok[/green]"
+                    status = f"[{GOOD}]ok[/{GOOD}]"
                 else:
-                    status = f"[red]SHORT {cell.shortfall:,}[/red]"
+                    status = f"[{BAD}]SHORT {cell.shortfall:,}[/{BAD}]"
                 table.add_row(
                     f"    {_e(label)}",
                     f"{cell.share:>7.2%}",
@@ -66,21 +76,22 @@ def format_check(result: MixtureCheck) -> str:
 
             if not bin_check.cells:
                 table.add_row(
-                    "[dim](no domains declared)[/dim]", "", "", "", ""
+                    f"[{MUTED}](no domains declared)[/{MUTED}]", "", "", "", ""
                 )
 
             console.print(table)
             console.print()
 
         if result.satisfiable:
-            verdict = Panel.fit(
-                "[bold green]Mixture is satisfiable against the current corpus.[/bold green]",
-                border_style="green",
+            verdict = panel(
+                f"[bold {GOOD}]Mixture is satisfiable against the current corpus.[/bold {GOOD}]",
+                border_style=GOOD,
             )
         else:
-            verdict = Panel.fit(
-                "[bold red]Mixture is NOT satisfiable. Archive more sources for the short cells, or lower their shares.[/bold red]",
-                border_style="red",
+            verdict = panel(
+                f"[bold {BAD}]Mixture is NOT satisfiable. Archive more sources for "
+                f"the short cells, or lower their shares.[/bold {BAD}]",
+                border_style=BAD,
             )
         console.print(verdict)
 
