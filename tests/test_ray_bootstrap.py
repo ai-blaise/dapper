@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import threading
 from dataclasses import replace
 
 import pytest
@@ -355,29 +356,39 @@ def test_driver_connection_has_hard_deadline():
     from dapper.ray.errors import RayBootstrapError
 
     class HangingRay:
-        shutdown_called = False
+        release = threading.Event()
 
         def init(self, **kwargs):
-            signal.pause()
-
-        def shutdown(self):
-            self.shutdown_called = True
+            self.release.wait()
 
     ray = HangingRay()
     dashboard = RayBootstrapDashboard(
         [("head", "head", "local")], enabled=False
     )
 
-    with pytest.raises(RayBootstrapError, match="did not finish"):
-        bootstrap._connect(
-            ray,
-            "127.0.0.1:26379",
-            dashboard,
-            head_name="head",
-            timeout_seconds=0.01,
-        )
+    try:
+        with pytest.raises(RayBootstrapError, match="did not finish"):
+            bootstrap._connect(
+                ray,
+                "127.0.0.1:26379",
+                dashboard,
+                head_name="head",
+                timeout_seconds=0.01,
+            )
+    finally:
+        ray.release.set()
 
-    assert ray.shutdown_called is True
+
+def test_native_ray_gcs_deadlines_are_configured_before_import(monkeypatch):
+    from dapper.ray import bootstrap
+
+    monkeypatch.delenv("RAY_py_gcs_connect_timeout_s", raising=False)
+    monkeypatch.delenv("RAY_gcs_server_request_timeout_seconds", raising=False)
+
+    bootstrap._configure_native_ray_deadlines(15)
+
+    assert os.environ["RAY_py_gcs_connect_timeout_s"] == "15"
+    assert os.environ["RAY_gcs_server_request_timeout_seconds"] == "15"
 
 
 def test_stop_shuts_down_workers_and_releases_head_port(monkeypatch):

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import os
-import signal
+import queue
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import suppress
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -135,15 +135,29 @@ def start_ray_cluster(
             ray_executable=_resolve_executable(resolved.ray_executable, "Ray"),
         )
         _ensure_head(resolved, dashboard, process_runner)
-        _wait_for_control_plane(resolved, dashboard, process_runner)
-        ray = ray_module or _import_ray()
-        _connect(
-            ray,
-            resolved.local_driver_address,
-            dashboard,
-            head_name=resolved.head_name,
-            timeout_seconds=resolved.control_plane_timeout_seconds,
-        )
+        try:
+            _wait_for_control_plane(resolved, dashboard, process_runner)
+            if ray_module is None:
+                _configure_native_ray_deadlines(resolved.control_plane_timeout_seconds)
+                ray = _import_ray()
+            else:
+                ray = ray_module
+            _connect(
+                ray,
+                resolved.local_driver_address,
+                dashboard,
+                head_name=resolved.head_name,
+                timeout_seconds=resolved.control_plane_timeout_seconds,
+            )
+        except RayBootstrapError as exc:
+            dashboard.set_cluster("Connection failed · cleaning up")
+            try:
+                stop_local_ray(resolved, dashboard, process_runner)
+            except RayBootstrapError as cleanup_exc:
+                raise RayBootstrapError(
+                    f"{exc} Head cleanup also failed: {cleanup_exc}"
+                ) from exc
+            raise
         existing = _registered_aliases(ray)
         dashboard.update_node(
             resolved.head_name,
@@ -377,10 +391,6 @@ def _launch_workers(
             )
 
 
-class _DriverConnectTimeout(BaseException):
-    """Interrupt Ray native retries without being swallowed by Exception handlers."""
-
-
 def _connect(
     ray: Any,
     address: str,
@@ -396,29 +406,41 @@ def _connect(
         status="checking",
         detail=f"deadline {timeout_seconds:g}s",
     )
+    outcome: queue.SimpleQueue[BaseException | None] = queue.SimpleQueue()
 
-    def timeout_handler(signum, frame) -> None:
-        del signum, frame
-        raise _DriverConnectTimeout
+    def connect_driver() -> None:
+        try:
+            ray.init(address=address, ignore_reinit_error=True, logging_level="ERROR")
+        # The worker thread must hand every outcome, including SystemExit from
+        # Ray internals, back to the supervising main thread.
+        except BaseException as exc:  # noqa: BLE001
+            outcome.put(exc)
+        else:
+            outcome.put(None)
 
-    previous_handler = signal.getsignal(signal.SIGALRM)
-    previous_timer = signal.getitimer(signal.ITIMER_REAL)
-    signal.signal(signal.SIGALRM, timeout_handler)
-    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
-    try:
-        ray.init(address=address, ignore_reinit_error=True, logging_level="ERROR")
-    except _DriverConnectTimeout as exc:
-        with suppress(Exception):
-            ray.shutdown()
+    thread = threading.Thread(
+        target=connect_driver,
+        name="dapper-ray-driver-connect",
+        daemon=True,
+    )
+    thread.start()
+    thread.join(timeout_seconds)
+    if thread.is_alive():
+        dashboard.update_node(
+            head_name,
+            phase="Driver connection timed out",
+            status="failed",
+            detail=f"native Ray call exceeded {timeout_seconds:g}s",
+        )
         raise RayBootstrapError(
             f"Ray control plane is healthy, but the Dapper driver connection "
             f"did not finish within {timeout_seconds:g}s."
-        ) from exc
-    except Exception as exc:
-        raise RayBootstrapError(f"Ray head started but the driver could not connect: {exc}") from exc
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, *previous_timer)
-        signal.signal(signal.SIGALRM, previous_handler)
+        )
+    error = outcome.get_nowait()
+    if error is not None:
+        raise RayBootstrapError(
+            f"Ray head started but the driver could not connect: {error}"
+        ) from error
 
 
 def _wait_for_aliases(
@@ -532,6 +554,13 @@ def _import_ray() -> Any:
     except ImportError as exc:
         raise RayBootstrapError("Ray is not installed in the Dapper environment.") from exc
     return ray
+
+
+def _configure_native_ray_deadlines(timeout_seconds: float) -> None:
+    """Bound Ray's C++ GCS retries before importing the Ray extension."""
+    timeout = str(max(1, int(timeout_seconds)))
+    os.environ["RAY_py_gcs_connect_timeout_s"] = timeout
+    os.environ["RAY_gcs_server_request_timeout_seconds"] = timeout
 
 
 def _with_head_address(
