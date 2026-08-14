@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import signal
 from collections.abc import Sequence
+from types import FrameType
 
 from dapper.config import ConfigError, load_config
-from dapper.ray.bootstrap import RayBootstrapError, start_ray_cluster
+from dapper.ray.bootstrap import (
+    RayBootstrapError,
+    RayBootstrapResult,
+    RayStopResult,
+    start_ray_cluster,
+    stop_ray_cluster,
+)
 from dapper.ray.config import (
+    RayBootstrapConfig,
     RayBootstrapConfigError,
     load_ray_environment,
     parse_ray_bootstrap_config,
@@ -46,22 +55,67 @@ def ray_main(argv: Sequence[str] | None = None) -> None:
         action="store_true",
         help="Disable the live dashboard and print node transitions as plain lines.",
     )
+    stop = commands.add_parser(
+        "stop",
+        help="Stop configured Ray workers and head, then verify port release.",
+    )
+    stop.add_argument("--config", default=None, help="Config file override.")
+    stop.add_argument(
+        "--env-file",
+        default=None,
+        help="Load DAPPER_RAY_* values from this file; defaults to .env when present.",
+    )
+    stop.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable the live dashboard and print node transitions as plain lines.",
+    )
     args = parser.parse_args(list(argv or []))
 
+    config = None
     try:
         load_ray_environment(args.env_file)
         raw = load_config(args.config)
         config = parse_ray_bootstrap_config(raw)
-        result = start_ray_cluster(
-            config,
-            dry_run=args.dry_run,
-            watch=args.watch,
-            progress=not args.no_progress,
-        )
+        if args.ray_command == "stop":
+            result = stop_ray_cluster(config, progress=not args.no_progress)
+        else:
+            result = _start_with_termination_cleanup(config, args)
+    except KeyboardInterrupt as exc:
+        if config is not None and args.ray_command == "init" and not args.dry_run:
+            err_console.print("\n[yellow]Interrupted; stopping the configured Ray cluster…[/]")
+            try:
+                stop_ray_cluster(config, progress=not args.no_progress)
+            except RayBootstrapError as stop_exc:
+                err_console.print(f"[bold red]Cleanup error:[/] {stop_exc}")
+        raise SystemExit(130) from exc
     except (ConfigError, RayBootstrapConfigError, RayBootstrapError) as exc:
         err_console.print(f"[bold red]Error:[/] {exc}")
         raise SystemExit(1) from exc
     if isinstance(result, str):
         console.print(result)
+    elif isinstance(result, RayStopResult):
+        console.print(result.format())
     else:
         console.print(result.format(show_address=config.show_node_addresses))
+
+
+def _start_with_termination_cleanup(
+    config: RayBootstrapConfig, args: argparse.Namespace
+) -> RayBootstrapResult | str:
+    previous = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGTERM, _interrupt_for_shutdown)
+    try:
+        return start_ray_cluster(
+            config,
+            dry_run=args.dry_run,
+            watch=args.watch,
+            progress=not args.no_progress,
+        )
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+def _interrupt_for_shutdown(signum: int, frame: FrameType | None) -> None:
+    del signum, frame
+    raise KeyboardInterrupt

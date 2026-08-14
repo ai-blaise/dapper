@@ -194,7 +194,7 @@ class RayBootstrapDashboard:
 
 
 def _status(value: str) -> tuple[str, str]:
-    if value == "ready":
+    if value in {"ready", "stopped"}:
         return "✓", GOOD
     if value == "failed":
         return "×", BAD

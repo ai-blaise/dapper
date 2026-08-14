@@ -12,6 +12,7 @@ from typing import Any
 
 from dapper.ray.commands import (
     build_gcloud_command,
+    build_gcloud_stop_command,
     build_head_command,
     build_status_command,
     build_stop_command,
@@ -45,17 +46,21 @@ from dapper.ray.probes import (
 from dapper.ray.probes import (
     registered_aliases as _registered_aliases,
 )
+from dapper.ray.shutdown import RayStopResult, stop_local_ray, stop_ray_cluster
 from utils.display import format_bytes
 
 __all__ = [
     "RayBootstrapError",
     "RayBootstrapResult",
+    "RayStopResult",
     "build_gcloud_command",
+    "build_gcloud_stop_command",
     "build_head_command",
     "build_status_command",
     "build_stop_command",
     "build_worker_remote_command",
     "start_ray_cluster",
+    "stop_ray_cluster",
 ]
 
 
@@ -217,34 +222,8 @@ def _ensure_head(
             status="stale",
             detail=detail,
         )
-        _stop_stale_head(config, dashboard, process_runner)
+        stop_local_ray(config, dashboard, process_runner)
     _start_head(config, dashboard, process_runner)
-
-
-def _stop_stale_head(
-    config: RayBootstrapConfig,
-    dashboard: RayBootstrapDashboard,
-    process_runner: ProcessRunner,
-) -> None:
-    dashboard.update_node(
-        config.head_name,
-        phase="Stopping stale local Ray processes",
-        status="starting",
-        detail="preparing a clean control plane",
-    )
-    try:
-        process_runner(
-            build_stop_command(config),
-            capture_output=True,
-            text=True,
-            timeout=config.control_plane_timeout_seconds,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise RayBootstrapError(
-            "Timed out while stopping stale local Ray processes. "
-            f"Run {config.ray_executable} stop --force, then retry."
-        ) from exc
 
 
 def _start_head(
@@ -421,35 +400,32 @@ def _watch_cluster(
     ray: Any, config: RayBootstrapConfig, dashboard: RayBootstrapDashboard
 ) -> None:
     required = {config.head_name, *(worker.name for worker in config.workers)}
-    try:
-        while True:
-            registered = _registered_aliases(ray)
-            for name in required:
-                node = registered.get(name)
-                if node is None:
-                    dashboard.update_node(
-                        name,
-                        phase="Node no longer registered",
-                        status="stale",
-                        detail="Ray reports this node missing or dead",
-                    )
-                else:
-                    dashboard.update_node(
-                        name,
-                        phase="Ready · monitoring",
-                        status="ready",
-                        cpu=float((node.get("Resources") or {}).get("CPU", 0)),
-                        memory_bytes=int((node.get("Resources") or {}).get("memory", 0)),
-                        node_id=_node_id(node),
-                        address=_node_address(node),
-                    )
-            dashboard.set_cluster(
-                "Ready · watching" if required <= registered.keys() else "Degraded · watching",
-                address=config.cluster_address,
-            )
-            time.sleep(max(2.0, config.poll_seconds))
-    except KeyboardInterrupt:
-        dashboard.set_cluster("Ready · watch ended", address=config.cluster_address)
+    while True:
+        registered = _registered_aliases(ray)
+        for name in required:
+            node = registered.get(name)
+            if node is None:
+                dashboard.update_node(
+                    name,
+                    phase="Node no longer registered",
+                    status="stale",
+                    detail="Ray reports this node missing or dead",
+                )
+            else:
+                dashboard.update_node(
+                    name,
+                    phase="Ready · monitoring",
+                    status="ready",
+                    cpu=float((node.get("Resources") or {}).get("CPU", 0)),
+                    memory_bytes=int((node.get("Resources") or {}).get("memory", 0)),
+                    node_id=_node_id(node),
+                    address=_node_address(node),
+                )
+        dashboard.set_cluster(
+            "Ready · watching" if required <= registered.keys() else "Degraded · watching",
+            address=config.cluster_address,
+        )
+        time.sleep(max(2.0, config.poll_seconds))
 
 
 def _import_ray() -> Any:

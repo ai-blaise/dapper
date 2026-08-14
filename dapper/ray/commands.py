@@ -10,10 +10,28 @@ import socket
 import subprocess
 import sys
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 from dapper.ray.config import GcloudWorker, RayBootstrapConfig
 from dapper.ray.errors import RayBootstrapError
+
+
+@dataclass(frozen=True)
+class PortListener:
+    """Minimal, non-sensitive identity for a local listening process."""
+
+    pid: int
+    name: str
+    owned_by_user: bool
+
+    @property
+    def is_ray_gcs(self) -> bool:
+        return self.name == "gcs_server"
+
+    def describe(self) -> str:
+        ownership = "current user" if self.owned_by_user else "another user"
+        return f"PID {self.pid} ({self.name}, {ownership})"
 
 
 def resolve_head_address(value: str) -> str:
@@ -93,22 +111,24 @@ def build_worker_remote_command(
         *_ray_node_port_args(config),
     ]
     environment = shlex.join([f"DAPPER_NODE_NAME={worker.name}"])
-    configured = shlex.quote(config.ray_executable)
-    discover = (
-        'if command -v ray >/dev/null 2>&1; then ray_exec="$(command -v ray)"; '
-        "elif command -v dapper >/dev/null 2>&1 && "
-        '[ -x "$(dirname "$(command -v dapper)")/ray" ]; then '
-        'ray_exec="$(dirname "$(command -v dapper)")/ray"; '
-        f"elif [ -x {configured} ]; then ray_exec={configured}; "
-        "else echo 'Dapper worker error: Ray executable not found; install Dapper "
-        "with its locked dependencies on this node.' >&2; exit 127; fi"
-    )
+    discover = _worker_ray_discovery(config)
     launch = f'env {environment} "$ray_exec" {shlex.join(start_arguments)}'
     stop = '"$ray_exec" stop --force'
     # This command is sent only to explicitly configured workers which are not
     # registered with the current head. Any local raylet is therefore stale or
     # belongs to another cluster and must not prevent a clean registration.
     return f"{discover}; {stop} >/dev/null 2>&1 || true; {launch}"
+
+
+def build_worker_stop_remote_command(config: RayBootstrapConfig) -> str:
+    """Build a verified Ray shutdown command for a configured worker."""
+    discover = _worker_ray_discovery(config)
+    return (
+        f'{discover}; "$ray_exec" stop --force; '
+        "if pgrep -x raylet >/dev/null 2>&1; then "
+        "echo 'Dapper worker error: raylet is still running after stop.' >&2; "
+        "exit 1; fi"
+    )
 
 
 def build_gcloud_command(
@@ -124,6 +144,21 @@ def build_gcloud_command(
     return command
 
 
+def build_gcloud_stop_command(
+    config: RayBootstrapConfig, worker: GcloudWorker
+) -> list[str]:
+    """Build the private-network command which stops a configured worker."""
+    command = ["gcloud", "compute", "ssh", worker.instance, "--zone", worker.zone]
+    if worker.project:
+        command.extend(("--project", worker.project))
+    if config.use_internal_ip:
+        command.append("--internal-ip")
+    command.extend(
+        ("--quiet", f"--command={build_worker_stop_remote_command(config)}")
+    )
+    return command
+
+
 def port_open(address: str, port: int) -> bool:
     """Return whether a TCP endpoint accepts a short local connection."""
     try:
@@ -131,6 +166,49 @@ def port_open(address: str, port: int) -> bool:
             return True
     except OSError:
         return False
+
+
+def inspect_port_listener(port: int) -> PortListener | None:
+    """Identify a local TCP listener without exposing its command line."""
+    import psutil
+
+    try:
+        connections = psutil.net_connections(kind="tcp")
+    except (OSError, psutil.Error):
+        return None
+    for connection in connections:
+        local = connection.laddr
+        if not local or local.port != port or connection.status != psutil.CONN_LISTEN:
+            continue
+        if connection.pid is None:
+            return None
+        try:
+            process = psutil.Process(connection.pid)
+            name = process.name()
+            owned = hasattr(os, "getuid") and process.uids().real == os.getuid()
+        except (OSError, psutil.Error):
+            return None
+        return PortListener(connection.pid, name, owned)
+    return None
+
+
+def terminate_owned_gcs_listener(listener: PortListener) -> bool:
+    """Kill only an orphaned Ray GCS listener owned by the current user."""
+    if not listener.owned_by_user or not listener.is_ray_gcs:
+        return False
+    import psutil
+
+    try:
+        process = psutil.Process(listener.pid)
+        if process.name() != "gcs_server":
+            return False
+        process.kill()
+        process.wait(timeout=3)
+    except psutil.NoSuchProcess:
+        return True
+    except (OSError, psutil.Error):
+        return False
+    return True
 
 
 def resolve_executable(name: str, label: str) -> str:
@@ -159,7 +237,33 @@ def require_executable(name: str, label: str) -> None:
 def process_error(completed: subprocess.CompletedProcess[str]) -> str:
     """Extract a bounded, useful error line from a failed process."""
     output = (completed.stderr or completed.stdout or "no process output").strip()
-    return output.splitlines()[-1][:240]
+    for signal in (
+        "Address already in use",
+        "Permission denied",
+        "Connection refused",
+        "Ray executable not found",
+    ):
+        if signal in output:
+            return signal
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    diagnostic = next(
+        (line for line in reversed(lines) if "error" in line.casefold()),
+        lines[-1] if lines else "no process output",
+    )
+    return diagnostic[:240]
+
+
+def _worker_ray_discovery(config: RayBootstrapConfig) -> str:
+    configured = shlex.quote(config.ray_executable)
+    return (
+        'if command -v ray >/dev/null 2>&1; then ray_exec="$(command -v ray)"; '
+        "elif command -v dapper >/dev/null 2>&1 && "
+        '[ -x "$(dirname "$(command -v dapper)")/ray" ]; then '
+        'ray_exec="$(dirname "$(command -v dapper)")/ray"; '
+        f"elif [ -x {configured} ]; then ray_exec={configured}; "
+        "else echo 'Dapper worker error: Ray executable not found; install Dapper "
+        "with its locked dependencies on this node.' >&2; exit 127; fi"
+    )
 
 
 def _resource_key(name: str) -> str:
