@@ -7,12 +7,14 @@ import subprocess
 
 import pytest
 
+from dapper.ray import commands
 from dapper.ray.bootstrap import (
     build_gcloud_command,
     build_head_command,
     build_worker_remote_command,
     start_ray_cluster,
 )
+from dapper.ray.commands import resolve_executable
 from dapper.ray.config import (
     RayBootstrapConfigError,
     load_ray_environment,
@@ -99,6 +101,23 @@ def test_commands_bind_dashboard_locally_and_use_private_gcloud_ssh():
     assert "--ssh-key-file" not in gcloud
     assert "DAPPER_NODE_NAME=worker-01" in remote
     assert "10.0.0.1:6379" in remote
+
+
+def test_ray_executable_falls_back_to_active_python_environment(
+    tmp_path, monkeypatch
+):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    python = bin_dir / "python"
+    ray = bin_dir / "ray"
+    python.touch()
+    ray.write_text("#!/bin/sh\n", encoding="utf-8")
+    ray.chmod(0o755)
+
+    monkeypatch.setattr(commands.sys, "executable", str(python))
+    monkeypatch.setattr(commands.shutil, "which", lambda name: None)
+
+    assert resolve_executable("ray", "Ray") == str(ray)
 
 
 class _FakeRemote:

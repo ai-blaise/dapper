@@ -8,7 +8,9 @@ import shlex
 import shutil
 import socket
 import subprocess
+import sys
 import urllib.request
+from pathlib import Path
 
 from dapper.ray.config import GcloudWorker, RayBootstrapConfig
 from dapper.ray.errors import RayBootstrapError
@@ -107,11 +109,27 @@ def port_open(address: str, port: int) -> bool:
         return False
 
 
+def resolve_executable(name: str, label: str) -> str:
+    """Resolve a command from PATH or the active Python environment."""
+    if os.path.sep in name:
+        candidate = Path(name)
+    else:
+        discovered = shutil.which(name)
+        if discovered:
+            return discovered
+        candidate = Path(sys.executable).with_name(name)
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    raise RayBootstrapError(
+        f"{label} executable not found: {name!r}. Install the locked Dapper "
+        "environment on this node or set ray.bootstrap.ray_executable to an "
+        "absolute path."
+    )
+
+
 def require_executable(name: str, label: str) -> None:
     """Fail with a domain error when a required command is unavailable."""
-    exists = os.access(name, os.X_OK) if os.path.sep in name else shutil.which(name)
-    if not exists:
-        raise RayBootstrapError(f"{label} executable not found: {name!r}.")
+    resolve_executable(name, label)
 
 
 def process_error(completed: subprocess.CompletedProcess[str]) -> str:

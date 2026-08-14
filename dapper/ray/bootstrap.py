@@ -25,6 +25,9 @@ from dapper.ray.commands import (
 from dapper.ray.commands import (
     require_executable as _require_executable,
 )
+from dapper.ray.commands import (
+    resolve_executable as _resolve_executable,
+)
 from dapper.ray.config import GcloudWorker, RayBootstrapConfig
 from dapper.ray.dashboard import RayBootstrapDashboard
 from dapper.ray.errors import RayBootstrapError
@@ -116,7 +119,10 @@ def start_ray_cluster(
         return _format_dry_run(resolved)
 
     with dashboard:
-        _require_executable(resolved.ray_executable, "Ray")
+        resolved = replace(
+            resolved,
+            ray_executable=_resolve_executable(resolved.ray_executable, "Ray"),
+        )
         _ensure_head(resolved, dashboard, process_runner)
         ray = ray_module or _import_ray()
         _connect(ray, resolved.cluster_address, dashboard)
