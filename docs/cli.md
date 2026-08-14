@@ -516,6 +516,12 @@ The numeric suffix also supplies the default display alias (`worker-01`,
 workers. The old singular `DAPPER_RAY_WORKER_INSTANCE` / `_ZONE` pair remains
 accepted for a one-worker deployment.
 
+Run `hf auth login` as the Ray service OS user on the head and every worker
+before a full archive. Dapper explicitly requests the cached credential for
+manifest resolution and native-file downloads; it refuses to fall back to
+anonymous Hub rate limits and never places the token in YAML or Ray task
+arguments.
+
 > **A `--limit` run does not mark sources complete.** The marker records the
 > limit, so `dapper archive --limit 1000` followed by a full `dapper archive`
 > re-archives everything rather than skipping it as already done.

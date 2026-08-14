@@ -141,13 +141,15 @@ def test_ray_archive_resolves_commit_pinned_native_files(monkeypatch):
         "hf://datasets/HuggingFaceFW/fineweb@abc/data/a.parquet",
         "hf://datasets/HuggingFaceFW/fineweb@abc/data/b.parquet",
     ]
-    monkeypatch.setattr(
-        datasets,
-        "load_dataset_builder",
-        lambda *args, **kwargs: SimpleNamespace(
+    calls = []
+
+    def fake_builder(*args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(
             config=SimpleNamespace(data_files={"train": files})
-        ),
-    )
+        )
+
+    monkeypatch.setattr(datasets, "load_dataset_builder", fake_builder)
     source = next(item for item in _config().sources if item.name == "fineweb")
 
     plan = resolve_hf_shard_plan(source, _config())
@@ -156,6 +158,7 @@ def test_ray_archive_resolves_commit_pinned_native_files(monkeypatch):
     assert plan.dataset_config == "sample-10BT"
     assert plan.split == "train"
     assert plan.plan_id == plan.to_dict()["plan_id"]
+    assert calls[0][1]["token"] is True
 
 
 def test_ray_archive_task_streams_one_native_file_to_one_jsonl(tmp_path, monkeypatch):
@@ -284,6 +287,7 @@ def test_ray_archive_materializes_pinned_hf_file_in_bounded_spool(
     assert calls[0]["repo_id"] == "HuggingFaceFW/fineweb"
     assert calls[0]["revision"] == "abc123"
     assert calls[0]["filename"] == "data/part.parquet"
+    assert calls[0]["token"] is True
 
 
 def test_ray_archive_bounds_each_xet_client_before_import(monkeypatch):

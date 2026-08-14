@@ -67,8 +67,15 @@ def resolve_hf_shard_plan(
         raise GcsError(f"Hugging Face source {source.name!r} has no repository.")
     try:
         from datasets import load_dataset_builder
+        from huggingface_hub import get_token
     except ImportError as exc:  # pragma: no cover - dependency validation
         raise GcsError("`datasets` is required for Hugging Face archiving.") from exc
+
+    if not get_token():
+        raise GcsError(
+            "The Dapper head process cannot see a cached Hugging Face token. "
+            "Run `hf auth login` as the same OS user that runs Dapper."
+        )
 
     from dapper.progress import quiet_third_party_progress
 
@@ -78,6 +85,7 @@ def resolve_hf_shard_plan(
     builder = load_dataset_builder(
         source.repo,
         source.dataset_config,
+        token=True,
     )
     data_files = builder.config.data_files
     if not data_files or split not in data_files:
@@ -240,9 +248,14 @@ def _materialize_parquet(
         yield input_uri
         return
     try:
-        from huggingface_hub import hf_hub_download
+        from huggingface_hub import get_token, hf_hub_download
     except ImportError as exc:  # pragma: no cover - hard dependency
         raise GcsError("`huggingface_hub` is required for Ray archiving.") from exc
+    if not get_token():
+        raise GcsError(
+            f"Ray archive task {rank} cannot see a cached Hugging Face token. "
+            "Run `hf auth login` as the Ray service OS user on every node."
+        )
 
     spool_root = Path(config.hf_parquet_spool_dir)
     if not spool_root.is_dir():
@@ -259,6 +272,7 @@ def _materialize_parquet(
             repo_type="dataset",
             revision=unquote(match.group("revision")),
             local_dir=temporary,
+            token=True,
         )
         yield str(local)
 
