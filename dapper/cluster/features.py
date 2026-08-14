@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io as memory_io
 import json
+import math
 import unicodedata
 from collections import Counter, defaultdict
 from collections.abc import Callable
@@ -17,6 +18,9 @@ from dapper.cluster.state import read_parquet, stable_hash, stable_int, write_pa
 from dapper.corpus import io
 
 RAW_TEXT_NORMALIZATION = "unicode-nfkc+whitespace-v1"
+HASH_SPACE = 1 << 64
+FIT_SAMPLE_OVERSUBSCRIPTION = 1.25
+QUALITY_SAMPLE_DOCUMENTS = 200_000
 
 
 def normalize_text(value: Any) -> str:
@@ -43,7 +47,8 @@ def extract_features_task(item: InputRange, settings: ClusterSettings, run_uri: 
     html_like = 0
     code_like = 0
     non_ascii = 0
-    for line_start, record in read_range(item):
+    source_rows = read_range(item)
+    for line_start, record in source_rows:
         text = normalize_text(record.get("text"))
         if not text:
             excluded += 1
@@ -96,7 +101,7 @@ def extract_features_task(item: InputRange, settings: ClusterSettings, run_uri: 
     _write_sparse(io.join(run_uri, "features", f"{item.rank:05d}.npz"), matrix)
     write_parquet(io.join(run_uri, "feature-index", f"{item.rank:05d}.parquet"), index)
     return {
-        "documents_read": item.records,
+        "documents_read": len(source_rows),
         "raw_text_bytes": raw_bytes,
         "features_emitted": len(index),
         "clustering_exclusions": excluded,
@@ -107,35 +112,105 @@ def extract_features_task(item: InputRange, settings: ClusterSettings, run_uri: 
     }
 
 
+def fit_sample_cutoff(sample_documents: int, total_documents: int) -> int:
+    """Return a deterministic hash cutoff that safely oversamples fit rows."""
+    if total_documents < 1:
+        raise RuntimeError("Cannot select a clustering sample from an empty corpus.")
+    target = min(
+        total_documents,
+        max(sample_documents, math.ceil(sample_documents * FIT_SAMPLE_OVERSUBSCRIPTION)),
+    )
+    return min(HASH_SPACE, math.ceil(HASH_SPACE * target / total_documents))
+
+
+def quality_sample_cutoff(total_documents: int) -> int:
+    """Bound assignment-distance diagnostics without returning every row."""
+    if total_documents < 1:
+        return HASH_SPACE
+    target = min(total_documents, QUALITY_SAMPLE_DOCUMENTS)
+    return min(HASH_SPACE, math.ceil(HASH_SPACE * target / total_documents))
+
+
+def select_fit_sample_task(
+    rank: int, run_uri: str, cutoff: int, seed: int
+) -> dict[str, Any]:
+    """Select one rank's deterministic KMeans candidates on a Ray worker."""
+    rows = read_parquet(io.join(run_uri, "feature-index", f"{rank:05d}.parquet"))
+    candidates = []
+    for row_index, row in enumerate(rows):
+        key = stable_int(row["document_id"], seed=seed)
+        if key < cutoff:
+            candidates.append(
+                {
+                    "sample_hash": f"{key:016x}",
+                    "document_id": str(row["document_id"]),
+                    "rank": rank,
+                    "row_index": row_index,
+                }
+            )
+    target = io.join(run_uri, "model", "sample-candidates", f"{rank:05d}.parquet")
+    write_parquet(target, candidates)
+    return {
+        "sample_candidates": len(candidates),
+        "documents_considered": len(rows),
+        "candidate_uri": target,
+    }
+
+
+def merge_fit_sample(
+    candidate_metrics: list[dict[str, Any]], limit: int
+) -> list[tuple[int, str, int, int]]:
+    """Merge worker candidates into the exact globally-smallest hash sample."""
+    import heapq
+
+    heap: list[tuple[int, str, int, int]] = []
+    for metric in candidate_metrics:
+        for row in read_parquet(str(metric["candidate_uri"])):
+            key = int(str(row["sample_hash"]), 16)
+            entry = (-key, str(row["document_id"]), int(row["rank"]), int(row["row_index"]))
+            if len(heap) < limit:
+                heapq.heappush(heap, entry)
+            elif entry > heap[0]:
+                heapq.heapreplace(heap, entry)
+    if len(heap) < limit:
+        raise RuntimeError(
+            "Distributed KMeans sampling produced fewer candidates than requested; "
+            "increase FIT_SAMPLE_OVERSUBSCRIPTION."
+        )
+    return sorted(
+        [(-neg, doc_id, rank, row_index) for neg, doc_id, rank, row_index in heap],
+        key=lambda value: (value[0], value[1]),
+    )
+
+
 def fit_model(
     run_uri: str,
     ranks: list[int],
     settings: ClusterSettings,
     on_progress: Callable[[int, int, dict[str, Any] | None], None] | None = None,
+    *,
+    selected: list[tuple[int, str, int, int]] | None = None,
 ) -> dict[str, Any]:
     """Fit one estimator owner from an order-independent hash sample."""
-    import heapq
-
     import joblib
     import numpy as np
     from sklearn.cluster import MiniBatchKMeans
 
     limit = settings.sample_documents
-    # Max-heap via negative key: retain the globally smallest deterministic IDs.
-    heap: list[tuple[int, str, int, int]] = []
-    for rank in ranks:
-        rows = read_parquet(io.join(run_uri, "feature-index", f"{rank:05d}.parquet"))
-        for row_index, row in enumerate(rows):
-            key = stable_int(row["document_id"], seed=settings.seed)
-            entry = (-key, str(row["document_id"]), rank, row_index)
-            if len(heap) < limit:
-                heapq.heappush(heap, entry)
-            elif entry > heap[0]:
-                heapq.heapreplace(heap, entry)
-    selected = sorted(
-        [(-neg, doc_id, rank, row_index) for neg, doc_id, rank, row_index in heap],
-        key=lambda value: (value[0], value[1]),
-    )
+    if selected is None:
+        # Local canaries do not have a Ray sampling stage. Keep the same exact
+        # selection contract without exposing this serial fallback in Ray runs.
+        local_metrics = [
+            select_fit_sample_task(rank, run_uri, HASH_SPACE, settings.seed)
+            for rank in ranks
+        ]
+        selected = merge_fit_sample(
+            local_metrics,
+            min(
+                limit,
+                sum(int(metric["sample_candidates"]) for metric in local_metrics),
+            ),
+        )
     if len(selected) < settings.logical_clusters:
         raise RuntimeError(
             f"MiniBatchKMeans requires at least {settings.logical_clusters} accepted sample documents; found {len(selected)}."
@@ -248,7 +323,12 @@ def _sample_batches(
         yield sparse.vstack(pieces, format="csr")
 
 
-def assign_task(rank: int, run_uri: str) -> dict[str, Any]:
+def assign_task(
+    rank: int,
+    run_uri: str,
+    quality_cutoff: int = HASH_SPACE,
+    quality_seed: int = 0,
+) -> dict[str, Any]:
     import joblib
     import numpy as np
     from sklearn.metrics import pairwise_distances_argmin_min
@@ -259,38 +339,54 @@ def assign_task(rank: int, run_uri: str) -> dict[str, Any]:
     rows = read_parquet(io.join(run_uri, "feature-index", f"{rank:05d}.parquet"))
     labels, distances = pairwise_distances_argmin_min(matrix, estimator.cluster_centers_)
     output = []
+    byte_counts = Counter()
+    distance_sample = []
     for row, label, distance in zip(rows, labels, distances, strict=True):
+        cluster = int(label)
         output.append(
             {
                 **row,
-                "logical_cluster_id": int(label),
+                "logical_cluster_id": cluster,
                 "distance_to_centroid": float(distance),
             }
         )
+        byte_counts[cluster] += int(row.get("raw_text_bytes") or 0)
+        if stable_int(row["document_id"], seed=quality_seed) < quality_cutoff:
+            distance_sample.append([cluster, float(distance)])
     write_parquet(io.join(run_uri, "assignments", f"{rank:05d}.parquet"), output)
     counts = Counter(int(value) for value in labels)
     return {
         "documents_assigned": len(output),
         "cluster_counts": dict(sorted(counts.items())),
+        "cluster_bytes": dict(sorted(byte_counts.items())),
+        "distance_sample": distance_sample,
+        "distance_sample_documents": len(distance_sample),
         "distance_p50": float(np.percentile(distances, 50)) if len(distances) else 0.0,
         "distance_p95": float(np.percentile(distances, 95)) if len(distances) else 0.0,
         "distance_p99": float(np.percentile(distances, 99)) if len(distances) else 0.0,
     }
 
 
-def cluster_distribution(run_uri: str, ranks: list[int], settings: ClusterSettings) -> dict[str, Any]:
+def cluster_distribution(
+    assignment_metrics: list[dict[str, Any]], settings: ClusterSettings
+) -> dict[str, Any]:
+    """Reduce exact assignment counts and bounded distance samples on the driver."""
     import numpy as np
 
     counts = Counter()
     byte_counts = Counter()
     distances: list[float] = []
     distances_by_cluster: dict[int, list[float]] = defaultdict(list)
-    for rank in ranks:
-        for row in read_parquet(io.join(run_uri, "assignments", f"{rank:05d}.parquet")):
-            cluster = int(row["logical_cluster_id"])
-            counts[cluster] += 1
-            byte_counts[cluster] += int(row.get("raw_text_bytes") or 0)
-            distance = float(row["distance_to_centroid"])
+    for metric in assignment_metrics:
+        counts.update(
+            {int(cluster): int(value) for cluster, value in metric["cluster_counts"].items()}
+        )
+        byte_counts.update(
+            {int(cluster): int(value) for cluster, value in metric["cluster_bytes"].items()}
+        )
+        for cluster, value in metric.get("distance_sample") or []:
+            cluster = int(cluster)
+            distance = float(value)
             distances.append(distance)
             distances_by_cluster[cluster].append(distance)
     total = sum(counts.values())
@@ -298,6 +394,8 @@ def cluster_distribution(run_uri: str, ranks: list[int], settings: ClusterSettin
         raise RuntimeError(
             f"Cluster canary rejected the model: only {len(counts)} of {settings.logical_clusters} clusters received documents."
         )
+    if not distances:
+        raise RuntimeError("Cluster quality sampling produced no assignment distances.")
     shares = {cluster: count / total for cluster, count in counts.items()}
     if max(shares.values()) > settings.imbalance_max_share or min(shares.values()) < settings.imbalance_min_share:
         raise RuntimeError(
@@ -321,8 +419,9 @@ def cluster_distribution(run_uri: str, ranks: list[int], settings: ClusterSettin
             "p95": float(np.percentile(distances, 95)),
             "p99": float(np.percentile(distances, 99)),
         },
+        "distance_sample_documents": len(distances),
+        "distance_percentile_method": "deterministic-document-hash-sample-v1",
     }
-    io.write_json(io.join(run_uri, "model", "cluster-quality.json"), report, indent=2)
     return report
 
 

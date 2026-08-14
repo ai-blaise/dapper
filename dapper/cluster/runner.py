@@ -9,11 +9,16 @@ from dapper.archive.catalog import is_supported, resolve_sources
 from dapper.cluster.config import parse_pipeline_config
 from dapper.cluster.dashboard import PipelineDashboard
 from dapper.cluster.features import (
+    HASH_SPACE,
     RAW_TEXT_NORMALIZATION,
     assign_task,
     cluster_distribution,
     extract_features_task,
+    fit_sample_cutoff,
     fit_model,
+    merge_fit_sample,
+    quality_sample_cutoff,
+    select_fit_sample_task,
 )
 from dapper.cluster.ranges import InputRange, build_input_ranges
 from dapper.cluster.shuffle import (
@@ -108,7 +113,11 @@ def _run_cluster(
         inventory = validate_archive_completion(
             source_uri, expected_source=source.name, expected_repo=source.repo
         )
-        report(1, 1, {"documents": inventory.records, "input_bytes": inventory.total_bytes})
+        report(
+            1,
+            1,
+            {"documents": inventory.records, "inventory_bytes": inventory.total_bytes},
+        )
     with dashboard.stage("cluster-topology", "Discover Ray cluster", total=1) as report:
         ray_module, discovered_topology = discover_topology(
             pipeline, input_units=max(inventory.records, len(inventory.objects))
@@ -126,28 +135,52 @@ def _run_cluster(
         if resume_payload.get("versions") != versions:
             raise ClusterRunError("Code or clustering dependency versions changed since this run started.")
         topology = topology_from_dict(resume_payload["topology"])
-        ranges = tuple(
-            InputRange(
-                rank=int(item["rank"]),
-                uri=str(item["uri"]),
-                generation=item.get("generation"),
-                start=int(item["start"]),
-                end=int(item["end"]),
-                records=int(item["records"]),
+        with dashboard.stage(
+            "range-plan", "Load frozen input ranges", total=1
+        ) as report:
+            ranges = tuple(
+                InputRange(
+                    rank=int(item["rank"]),
+                    uri=str(item["uri"]),
+                    generation=item.get("generation"),
+                    start=int(item["start"]),
+                    end=int(item["end"]),
+                    records=(
+                        None
+                        if item.get("records") is None
+                        else int(item["records"])
+                    ),
+                )
+                for item in resume_payload["input_ranges"]
             )
-            for item in resume_payload["input_ranges"]
-        )
+            report(
+                1,
+                1,
+                {
+                    "ranges_planned": len(ranges),
+                    "indexed_bytes": sum(item.bytes for item in ranges),
+                },
+            )
     else:
         topology = discovered_topology
         desired_ranges = topology.cluster_stage.workers * pipeline.cluster.resources.task_oversubscription
-        ranges = build_input_ranges(inventory, desired_ranges)
+        with dashboard.stage(
+            "range-plan",
+            "Plan newline-safe input ranges",
+            total=len(inventory.objects),
+        ) as report:
+            ranges = build_input_ranges(
+                inventory,
+                desired_ranges,
+                on_progress=report,
+            )
     if not ranges:
         raise ClusterRunError("FineWeb archive contains no usable JSONL ranges.")
-    ranged_records = sum(item.records for item in ranges)
-    if ranged_records != inventory.records:
+    known_records = [item.records for item in ranges if item.records is not None]
+    if len(known_records) == len(ranges) and sum(known_records) != inventory.records:
         raise ClusterRunError(
             f"Archive record inventory mismatch: marker records {inventory.records:,}, "
-            f"newline inventory contains {ranged_records:,}."
+            f"frozen range inventory contains {sum(known_records):,}."
         )
     generated_id = identity(
         {
@@ -209,19 +242,121 @@ def _run_cluster(
             memory_bytes_per_task=stage.memory_bytes_per_task,
             on_progress=report,
         )
-    ranks = [item.rank for item in ranges]
     with dashboard.stage(
-        "fit", "Fit 128-cluster model", total=pipeline.cluster.fit_epochs
+        "feature-reconcile", "Reconcile feature inputs", total=1
     ) as report:
-        if not io.exists(io.join(run_uri, "model", "metadata.json")):
-            fit_model(run_uri, ranks, pipeline.cluster, on_progress=report)
+        documents_read = sum(
+            int(metric.get("documents_read", 0)) for metric in feature_metrics
+        )
+        features_emitted = sum(
+            int(metric.get("features_emitted", 0)) for metric in feature_metrics
+        )
+        exclusions = sum(
+            int(metric.get("clustering_exclusions", 0)) for metric in feature_metrics
+        )
+        if documents_read != inventory.records:
+            raise ClusterRunError(
+                "Parallel range reconciliation failed: archive marker records "
+                f"{inventory.records:,} documents, ranges read {documents_read:,}."
+            )
+        if features_emitted + exclusions != documents_read:
+            raise ClusterRunError(
+                "Feature reconciliation failed: emitted features plus exclusions "
+                "does not equal documents read."
+            )
+        report(1, 1, {"documents": documents_read})
+    ranks = [item.rank for item in ranges]
+    if features_emitted < pipeline.cluster.logical_clusters:
+        raise ClusterRunError(
+            "FineWeb produced too few non-empty documents for clustering: "
+            f"{features_emitted:,} accepted, {pipeline.cluster.logical_clusters:,} required."
+        )
+    selected_sample = None
+    model_uri = io.join(run_uri, "model", "metadata.json")
+    if io.exists(model_uri):
+        with dashboard.stage(
+            "fit-sample", "Select KMeans sample (existing)", total=1
+        ) as report:
+            metadata = io.read_json(model_uri)
+            report(1, 1, {"sample_documents": metadata["sample_documents"]})
+    else:
+        sample_limit = min(pipeline.cluster.sample_documents, features_emitted)
+        cutoff = fit_sample_cutoff(sample_limit, features_emitted)
+        with dashboard.stage(
+            "fit-sample",
+            "Select KMeans sample",
+            total=len(ranks),
+            workers=stage.workers,
+        ) as report:
+            sample_metrics = run_ranked(
+                (
+                    (
+                        rank,
+                        (rank, run_uri, cutoff, pipeline.cluster.seed),
+                    )
+                    for rank in ranks
+                ),
+                select_fit_sample_task,
+                run_uri=run_uri,
+                stage="fit-sample",
+                workers=stage.workers,
+                ray_module=ray_module,
+                cpus_per_task=stage.cpus_per_task,
+                memory_bytes_per_task=stage.memory_bytes_per_task,
+                on_progress=report,
+            )
+        if sum(int(metric["sample_candidates"]) for metric in sample_metrics) < sample_limit:
+            with dashboard.stage(
+                "fit-sample-expand",
+                "Expand KMeans sample",
+                total=len(ranks),
+                workers=stage.workers,
+            ) as report:
+                sample_metrics = run_ranked(
+                    (
+                        (
+                            rank,
+                            (rank, run_uri, HASH_SPACE, pipeline.cluster.seed),
+                        )
+                        for rank in ranks
+                    ),
+                    select_fit_sample_task,
+                    run_uri=run_uri,
+                    stage="fit-sample-expand",
+                    workers=stage.workers,
+                    ray_module=ray_module,
+                    cpus_per_task=stage.cpus_per_task,
+                    memory_bytes_per_task=stage.memory_bytes_per_task,
+                    on_progress=report,
+                )
+        selected_sample = merge_fit_sample(sample_metrics, sample_limit)
+    with dashboard.stage(
+        "fit",
+        "Fit 128-cluster model (single owner)",
+        total=pipeline.cluster.fit_epochs,
+    ) as report:
+        if not io.exists(model_uri):
+            fit_model(
+                run_uri,
+                ranks,
+                pipeline.cluster,
+                on_progress=report,
+                selected=selected_sample,
+            )
         else:
             report(pipeline.cluster.fit_epochs, pipeline.cluster.fit_epochs, None)
+    distance_cutoff = quality_sample_cutoff(features_emitted)
     with dashboard.stage(
         "assignment", "Assign documents", total=len(ranks), workers=stage.workers
     ) as report:
-        run_ranked(
-            ((rank, (rank, run_uri)) for rank in ranks),
+        assignment_metrics = run_ranked(
+            (
+                (
+                    rank,
+                    (rank, run_uri, distance_cutoff, pipeline.cluster.seed),
+                )
+                for rank in ranks
+            ),
             assign_task,
             run_uri=run_uri,
             stage="assignment",
@@ -232,7 +367,7 @@ def _run_cluster(
             on_progress=report,
         )
     with dashboard.stage("cluster-quality", "Validate cluster quality", total=1) as report:
-        quality = cluster_distribution(run_uri, ranks, pipeline.cluster)
+        quality = cluster_distribution(assignment_metrics, pipeline.cluster)
         quality["skew_metrics"] = {
             name: sum(int(metric.get(name, 0)) for metric in feature_metrics)
             for name in (
@@ -270,7 +405,11 @@ def _run_cluster(
                     inventory.total_bytes,
                     pipeline.cluster.target_partition_bytes,
                 )
-            rules, partitions = plan_physical_partitions(run_uri, ranks, desired_physical)
+            rules, partitions = plan_physical_partitions(
+                quality["cluster_counts"],
+                quality["cluster_bytes"],
+                desired_physical,
+            )
             partition_manifest = {
                 "desired_physical_partitions": desired_physical,
                 "rules": {
@@ -281,7 +420,7 @@ def _run_cluster(
                 "frozen_at": utc_now(),
             }
             io.write_json(partition_manifest_uri, partition_manifest, indent=2)
-        report(1, 1, None)
+        report(1, 1, {"physical_partitions": len(partitions)})
 
     with dashboard.stage(
         "shuffle-map", "Shuffle map", total=len(ranges), workers=stage.workers
@@ -416,4 +555,6 @@ def _cluster_versions() -> dict[str, str]:
         "numpy",
         "pyarrow",
     }
-    return {key: value for key, value in all_versions.items() if key in relevant}
+    result = {key: value for key, value in all_versions.items() if key in relevant}
+    result["cluster_execution"] = "parallel-aggregation-v2"
+    return result

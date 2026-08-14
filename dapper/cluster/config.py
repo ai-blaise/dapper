@@ -184,7 +184,10 @@ def parse_pipeline_config(raw: dict[str, Any]) -> PipelineConfig:
         fit_n_init=fit.get("n_init", "auto"),
         resources=_resources(cluster_raw, default_memory=3),
         physical_shuffle_partitions=physical,
-        target_partition_bytes=_positive(cluster_raw.get("target_partition_bytes", 1_073_741_824), "cluster.target_partition_bytes"),
+        target_partition_bytes=_positive(
+            cluster_raw.get("target_partition_bytes", 67_108_864),
+            "cluster.target_partition_bytes",
+        ),
         imbalance_max_share=float(cluster_raw.get("imbalance_max_share", 0.35)),
         imbalance_min_share=float(cluster_raw.get("imbalance_min_share", 1e-6)),
     )

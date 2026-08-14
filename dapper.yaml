@@ -97,7 +97,9 @@ cluster:
   memory_gb_per_task: 3
   task_oversubscription: 4
   physical_shuffle_partitions: auto
-  target_partition_bytes: 1073741824
+  # Fine-grained enough to keep a 448-CPU cluster busy for the 52.7 GiB
+  # FineWeb archive while retaining multiple scheduling waves.
+  target_partition_bytes: 67108864
 
 pack:
   contexts:

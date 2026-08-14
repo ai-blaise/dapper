@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from typing import Any
 
 from dapper.corpus import io
 from dapper.corpus.completion import ArchiveInventory, ArchiveObject
+
+_BOUNDARY_READ_BLOCK_SIZE = 64 * 1024
+_BOUNDARY_PLANNERS = 32
 
 
 @dataclass(frozen=True)
@@ -16,7 +21,7 @@ class InputRange:
     generation: str | None
     start: int
     end: int
-    records: int
+    records: int | None
 
     @property
     def bytes(self) -> int:
@@ -28,16 +33,53 @@ class InputRange:
         return payload
 
 
-def build_input_ranges(inventory: ArchiveInventory, desired_tasks: int) -> tuple[InputRange, ...]:
-    """Split each object only at record boundaries, covering every byte once."""
+def build_input_ranges(
+    inventory: ArchiveInventory,
+    desired_tasks: int,
+    *,
+    on_progress: Callable[[int, int, dict[str, int]], None] | None = None,
+) -> tuple[InputRange, ...]:
+    """Split objects at sampled newline boundaries without scanning their contents."""
     objects = inventory.objects
     if not objects:
         return ()
     desired = max(len(objects), int(desired_tasks))
     allocations = _allocate(desired, objects)
+    per_object: list[list[InputRange] | None] = [None] * len(objects)
+    completed = 0
+    with ThreadPoolExecutor(max_workers=min(_BOUNDARY_PLANNERS, len(objects))) as pool:
+        futures = {
+            pool.submit(_object_ranges, obj, count, rank_offset=0): (index, obj)
+            for index, (obj, count) in enumerate(
+                zip(objects, allocations, strict=True)
+            )
+        }
+        for future in as_completed(futures):
+            index, obj = futures[future]
+            planned = future.result()
+            per_object[index] = planned
+            completed += 1
+            if on_progress is not None:
+                on_progress(
+                    completed,
+                    len(objects),
+                    {"ranges_planned": len(planned), "indexed_bytes": obj.size},
+                )
     built: list[InputRange] = []
-    for obj, count in zip(objects, allocations, strict=True):
-        built.extend(_object_ranges(obj, count, rank_offset=len(built)))
+    for planned in per_object:
+        if planned is None:  # pragma: no cover - every completed future fills one slot
+            raise RuntimeError("Input range planning did not return every object.")
+        for item in planned:
+            built.append(
+                InputRange(
+                    rank=len(built),
+                    uri=item.uri,
+                    generation=item.generation,
+                    start=item.start,
+                    end=item.end,
+                    records=item.records,
+                )
+            )
     return tuple(built)
 
 
@@ -54,7 +96,7 @@ def read_range(item: InputRange) -> list[tuple[int, dict[str, Any]]]:
             if not line:
                 break
             records.append((start, json.loads(line)))
-    if len(records) != item.records:
+    if item.records is not None and len(records) != item.records:
         raise RuntimeError(
             f"Frozen range {item.rank} expected {item.records} records, read {len(records)}."
         )
@@ -80,26 +122,40 @@ def _allocate(desired: int, objects: tuple[ArchiveObject, ...]) -> list[int]:
 
 
 def _object_ranges(obj: ArchiveObject, requested: int, *, rank_offset: int) -> list[InputRange]:
-    boundaries = [0]
-    with io.open_binary(obj.uri, "rb") as handle:
-        while handle.readline():
-            boundaries.append(handle.tell())
-    records = len(boundaries) - 1
-    if records < 1:
+    """Seek to proportional byte offsets and advance only to the next newline."""
+    if obj.size < 1:
         raise RuntimeError(f"Staged JSONL shard is empty: {obj.uri}")
-    count = min(requested, records)
+    count = min(max(1, requested), obj.size)
+    boundaries = [0]
+    with io.open_binary(
+        obj.uri,
+        "rb",
+        block_size=_BOUNDARY_READ_BLOCK_SIZE,
+        cache_type="none",
+    ) as handle:
+        for index in range(1, count):
+            target = index * obj.size // count
+            handle.seek(target - 1)
+            # Starting one byte before the proportional target handles both
+            # cases with one request: if it is already a newline, tell() lands
+            # exactly on target; otherwise it advances to the next line.
+            handle.readline()
+            boundary = handle.tell()
+            if boundary < obj.size and boundary != boundaries[-1]:
+                boundaries.append(boundary)
+    boundaries.append(obj.size)
     result = []
-    for index in range(count):
-        first = index * records // count
-        last = (index + 1) * records // count
+    for index, (start, end) in enumerate(
+        zip(boundaries[:-1], boundaries[1:], strict=True)
+    ):
         result.append(
             InputRange(
                 rank=rank_offset + index,
                 uri=obj.uri,
                 generation=obj.generation,
-                start=boundaries[first],
-                end=boundaries[last],
-                records=last - first,
+                start=start,
+                end=end,
+                records=None,
             )
         )
     return result

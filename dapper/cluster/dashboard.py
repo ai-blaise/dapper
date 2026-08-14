@@ -449,7 +449,14 @@ def _metric_summary(metrics: dict[str, float]) -> str:
     fields = (
         ("documents", "docs"),
         ("documents_tokenized", "docs"),
+        ("documents_assigned", "docs"),
         ("documents_read", "docs"),
+        ("documents_considered", "docs"),
+        ("sample_documents", "sample"),
+        ("sample_candidates", "candidates"),
+        ("distance_sample_documents", "quality sample"),
+        ("ranges_planned", "ranges"),
+        ("physical_partitions", "partitions"),
         ("features_emitted", "features"),
         ("packs", "packs"),
         ("packs_emitted", "packs"),
@@ -458,7 +465,9 @@ def _metric_summary(metrics: dict[str, float]) -> str:
         ("tokens", "tokens"),
         ("leftover_groups", "left"),
         ("spill_count", "spills"),
+        ("inventory_bytes", "staged"),
         ("input_bytes", "read"),
+        ("indexed_bytes", "indexed"),
         ("non_padding_utilization", "util"),
         ("distance_p95", "p95 dist"),
         ("max_cluster_share", "max cluster"),
@@ -493,6 +502,7 @@ def _rate_summary(stage: _StageState, elapsed: float, outstanding: int) -> str:
         ("documents_read", "doc/s"),
         ("features_emitted", "doc/s"),
         ("input_bytes", "B/s"),
+        ("indexed_bytes", "B/s"),
     )
     value = float(stage.completed)
     unit = "task/s"

@@ -229,7 +229,7 @@ cluster:
   memory_gb_per_task: 3
   task_oversubscription: 4
   physical_shuffle_partitions: auto
-  target_partition_bytes: 1073741824
+  target_partition_bytes: 67108864
 
 pack:
   contexts:
@@ -459,6 +459,11 @@ feature.
 Select up to sample_documents records by deterministic document-ID hash. The
 sample is independent of input ordering.
 
+Range workers compute document hashes and persist only candidates below a
+deterministic oversampling cutoff. The driver merges that bounded candidate
+set into the exact globally smallest sample; it does not rescan every feature
+index on the head.
+
 One controlled fitting owner runs scikit-learn MiniBatchKMeans over deterministic
 sparse mini-batches:
 
@@ -503,6 +508,12 @@ URL/host and retained metadata
 
 Distribution checks report cluster size, bytes, and distance percentiles.
 Collapsed or extremely imbalanced models fail the canary gate.
+
+Assignment workers return exact per-cluster document/byte counters and a
+bounded deterministic distance sample. Quality validation and physical
+partition planning reduce those metrics without rereading the full assignment
+corpus on the head. Counts used by canary gates and partition allocation remain
+exact; reported distance percentiles are sampled diagnostics.
 
 A logical cluster may contain short articles, long reports, and book-length
 documents about the same subject. That length variation does not change their

@@ -158,7 +158,66 @@ def test_newline_ranges_cover_every_record_once(tmp_path):
     ranges = build_input_ranges(inventory, 4)
     assert ranges[0].start == 0 and ranges[-1].end == shard.stat().st_size
     assert all(left.end == right.start for left, right in pairwise(ranges))
+    assert all(item.records is None for item in ranges)
     assert [record["id"] for item in ranges for _, record in read_range(item)] == list(range(11))
+
+
+def test_range_planning_reads_only_boundary_lines(tmp_path, monkeypatch):
+    from dapper.cluster import ranges as range_module
+    from dapper.cluster.ranges import build_input_ranges
+
+    source = tmp_path / "fineweb"
+    source.mkdir()
+    shard = source / "part-00000.jsonl"
+    shard.write_text(
+        "".join(
+            json.dumps({"id": index, "text": "x" * 1024}) + "\n"
+            for index in range(2_000)
+        )
+    )
+    objects = snapshot_jsonl(str(source))
+    inventory = type("Inventory", (), {"objects": objects})()
+    bytes_read = 0
+
+    class CountingHandle:
+        def __init__(self, path):
+            self.handle = open(path, "rb")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.handle.close()
+
+        def seek(self, offset):
+            return self.handle.seek(offset)
+
+        def tell(self):
+            return self.handle.tell()
+
+        def read(self, size=-1):
+            nonlocal bytes_read
+            value = self.handle.read(size)
+            bytes_read += len(value)
+            return value
+
+        def readline(self):
+            nonlocal bytes_read
+            value = self.handle.readline()
+            bytes_read += len(value)
+            return value
+
+    open_options = {}
+
+    def _open(path, mode, **kwargs):
+        open_options.update(kwargs)
+        return CountingHandle(path)
+
+    monkeypatch.setattr(range_module.io, "open_binary", _open)
+    planned = build_input_ranges(inventory, 32)
+    assert len(planned) == 32
+    assert bytes_read < shard.stat().st_size // 20
+    assert open_options == {"block_size": 64 * 1024, "cache_type": "none"}
 
 
 def test_topology_uses_registered_cpu_memory_and_limits():
@@ -171,6 +230,51 @@ def test_topology_uses_registered_cpu_memory_and_limits():
     assert stage.workers == 7  # floor per node: 16/3 + 8/3
     assert stage.queued_tasks == 28
     assert auto_physical_partitions(8, 4, 100 * 1024**3, 1024**3) == 32
+    assert auto_physical_partitions(448, 4, int(52.7 * 1024**3), 64 * 1024**2) == 844
+
+
+def test_default_partition_target_keeps_large_cluster_busy():
+    settings = parse_pipeline_config(pipeline_raw()).cluster
+    assert settings.target_partition_bytes == 64 * 1024**2
+
+
+def test_partition_plan_consumes_reduced_assignment_metrics():
+    from dapper.cluster.shuffle import plan_physical_partitions
+
+    rules, partitions = plan_physical_partitions(
+        {"0": 30, "1": 10},
+        {"0": 3_000, "1": 1_000},
+        8,
+    )
+    assert len(partitions) == 8
+    assert rules[0].count > rules[1].count
+
+
+def test_distributed_fit_sampling_matches_exact_global_top_k(tmp_path):
+    from dapper.cluster.features import (
+        fit_sample_cutoff,
+        merge_fit_sample,
+        select_fit_sample_task,
+    )
+    from dapper.cluster.state import stable_int, write_parquet
+
+    run_uri = str(tmp_path)
+    documents = [f"doc-{index}" for index in range(1_000)]
+    for rank in range(4):
+        write_parquet(
+            f"{run_uri}/feature-index/{rank:05d}.parquet",
+            [
+                {"document_id": document_id}
+                for document_id in documents[rank::4]
+            ],
+        )
+    cutoff = fit_sample_cutoff(100, len(documents))
+    metrics = [
+        select_fit_sample_task(rank, run_uri, cutoff, 7) for rank in range(4)
+    ]
+    selected = merge_fit_sample(metrics, 100)
+    expected = sorted(documents, key=lambda value: (stable_int(value, seed=7), value))[:100]
+    assert [document_id for _, document_id, _, _ in selected] == expected
 
 
 def test_ray_node_display_policy_is_non_sensitive_by_default():
@@ -279,10 +383,13 @@ def test_context_assignment_is_deterministic_and_exclusive():
 
 def test_sklearn_feature_fit_and_assignment_canary(tmp_path):
     from dapper.cluster.features import (
+        HASH_SPACE,
         assign_task,
         cluster_distribution,
         extract_features_task,
         fit_model,
+        merge_fit_sample,
+        select_fit_sample_task,
     )
     from dapper.cluster.ranges import build_input_ranges
 
@@ -329,16 +436,29 @@ def test_sklearn_feature_fit_and_assignment_canary(tmp_path):
     )
     settings = parse_pipeline_config(raw).cluster
     run_uri = str(tmp_path / "run")
+    documents_read = 0
     for item in ranges:
         metrics = extract_features_task(item, settings, run_uri)
-        assert metrics["features_emitted"] == item.records
+        assert metrics["features_emitted"] == metrics["documents_read"]
+        documents_read += metrics["documents_read"]
+    assert documents_read == 128
     ranks = [item.rank for item in ranges]
-    assert fit_model(run_uri, ranks, settings)["logical_clusters"] == 128
-    for rank in ranks:
-        assign_task(rank, run_uri)
-    quality = cluster_distribution(run_uri, ranks, settings)
+    candidate_metrics = [
+        select_fit_sample_task(rank, run_uri, HASH_SPACE, settings.seed)
+        for rank in ranks
+    ]
+    selected = merge_fit_sample(candidate_metrics, settings.sample_documents)
+    assert len(selected) == 128
+    assert fit_model(
+        run_uri, ranks, settings, selected=selected
+    )["logical_clusters"] == 128
+    assignment_metrics = [assign_task(rank, run_uri) for rank in ranks]
+    quality = cluster_distribution(
+        json.loads(json.dumps(assignment_metrics)), settings
+    )
     assert quality["documents"] == 128
     assert len(quality["cluster_counts"]) == 128
+    assert quality["distance_sample_documents"] == 128
 
 
 def test_overlong_document_chunks_are_contiguous_and_lossless():

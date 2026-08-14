@@ -4,6 +4,7 @@
 .opencode
 .ruff_cache
 .codex
+.agents
 
 ./dataset/
 datasets/

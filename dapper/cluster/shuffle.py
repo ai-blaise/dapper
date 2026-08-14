@@ -18,14 +18,14 @@ class PartitionRule:
     count: int
 
 
-def plan_physical_partitions(run_uri: str, assignment_ranks: list[int], desired: int) -> tuple[dict[int, PartitionRule], list[dict[str, Any]]]:
-    counts = Counter()
-    byte_counts = Counter()
-    for rank in assignment_ranks:
-        for row in read_parquet(io.join(run_uri, "assignments", f"{rank:05d}.parquet")):
-            cluster = int(row["logical_cluster_id"])
-            counts[cluster] += 1
-            byte_counts[cluster] += int(row.get("raw_text_bytes") or 0)
+def plan_physical_partitions(
+    cluster_counts: dict[int, int] | dict[str, int],
+    cluster_bytes: dict[int, int] | dict[str, int],
+    desired: int,
+) -> tuple[dict[int, PartitionRule], list[dict[str, Any]]]:
+    """Plan partitions from the assignment workers' exact reduced metrics."""
+    counts = Counter({int(cluster): int(value) for cluster, value in cluster_counts.items()})
+    byte_counts = Counter({int(cluster): int(value) for cluster, value in cluster_bytes.items()})
     clusters = sorted(counts)
     target = max(len(clusters), int(desired))
     allocations = {cluster: 1 for cluster in clusters}
