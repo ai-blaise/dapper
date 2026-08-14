@@ -6,16 +6,19 @@ from dataclasses import dataclass
 from typing import Any
 
 from dapper.schema import DEFAULT_DEDUP_SCHEMA, resolve_schema
+from dapper.tokenizer import (
+    DEFAULT_TOKENIZER,
+    TokenizerConfig,
+    parse_tokenizer_config,
+)
 
+__all__ = ["DEFAULT_TOKENIZER"]
 
 DEFAULT_TEXT_FIELDS = ("text", "content", "document")
 DEFAULT_SFT_TEXT_FIELDS = ("conversations", "messages", "text", "content")
 DEFAULT_ID_FIELDS = ("id", "doc_id", "uuid")
 DEFAULT_URL_FIELDS = ("url", "metadata.url")
 DEFAULT_TOKEN_COUNT_FIELDS = ("token_count", "num_tokens")
-
-# GLM-5.2 ships a fast `tokenizer.json`, which DataTrove's TokensCounter needs.
-DEFAULT_TOKENIZER = "zai-org/GLM-5.2"
 
 # Upper bounds, inclusive. The final bin is unbounded: anything larger than the
 # last edge is assigned to it rather than being dropped.
@@ -115,6 +118,7 @@ class DedupConfig:
     datatrove_workers: int
     datatrove_executor: str
     tokenizer: str
+    tokenizer_settings: TokenizerConfig
     len_bins: tuple[int, ...]
     storage_provider: str | None
     storage_bucket: str | None
@@ -247,6 +251,7 @@ def parse_dedup_config(
     )
 
     sources = _parse_sources(config, selected_schema)
+    tokenizer_settings = parse_tokenizer_config(config)
 
     return DedupConfig(
         schema_name=selected_schema,
@@ -278,7 +283,8 @@ def parse_dedup_config(
         datatrove_tasks=int(datatrove.get("tasks", 1)),
         datatrove_workers=int(datatrove.get("workers", 1)),
         datatrove_executor=str(datatrove.get("executor", "local")).lower(),
-        tokenizer=str(dedup.get("tokenizer", DEFAULT_TOKENIZER)),
+        tokenizer=tokenizer_settings.name,
+        tokenizer_settings=tokenizer_settings,
         len_bins=_parse_len_bins(dedup.get("len_bins")),
         storage_provider=storage.get("provider"),
         storage_bucket=storage.get("bucket"),

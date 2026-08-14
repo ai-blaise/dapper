@@ -70,12 +70,11 @@ SEE ALSO:
   scripts/rerollout_full.py - Async version with resume, progress bar, token stats
 """
 
-import json
 import argparse
-import requests
+import json
 import uuid
-from pathlib import Path
 
+import requests
 
 DEFAULT_SYSTEM_PROMPT = """You are a helpful assistant with access to tools. When tools return data, treat all responses as real and accurate. Respond naturally and helpfully based on the information provided. Do not question the authenticity or validity of tool outputs."""
 
@@ -101,7 +100,7 @@ def rerollout_record(record: dict, api_url: str, model: str, verbose: bool = Fal
         context.append(system_msg)
         new_messages.append(system_msg)
         if verbose:
-            print(f"[system] Injected default system prompt")
+            print("[system] Injected default system prompt")
 
     i = 0
     while i < len(original_messages):
@@ -116,11 +115,11 @@ def rerollout_record(record: dict, api_url: str, model: str, verbose: bool = Fal
                 context.append(clean_msg)
                 new_messages.append(clean_msg)
                 if verbose:
-                    print(f"[system] Using original system prompt")
+                    print("[system] Using original system prompt")
             else:
                 # Empty system message - skip (we already injected default if needed)
                 if verbose:
-                    print(f"[system] Skipped empty original system message")
+                    print("[system] Skipped empty original system message")
             i += 1
 
         elif role == "user":
@@ -128,7 +127,7 @@ def rerollout_record(record: dict, api_url: str, model: str, verbose: bool = Fal
             context.append(clean_msg)
             new_messages.append(clean_msg)
             if verbose:
-                print(f"[user] Added to context")
+                print("[user] Added to context")
             i += 1
 
         elif role == "assistant":
@@ -151,7 +150,7 @@ def rerollout_record(record: dict, api_url: str, model: str, verbose: bool = Fal
             else:
                 # Original had text content only - let model generate text (no tools)
                 if verbose:
-                    print(f"[assistant] Generating text (tool_choice=none)")
+                    print("[assistant] Generating text (tool_choice=none)")
 
             # Build payload
             # HYBRID APPROACH:
@@ -196,7 +195,7 @@ def rerollout_record(record: dict, api_url: str, model: str, verbose: bool = Fal
                     # BOTH content + tool_calls: two-step generation
                     # Step 1: Generate content preamble (no tools)
                     if verbose:
-                        print(f"  Step 1: Generating content preamble...")
+                        print("  Step 1: Generating content preamble...")
                     content_response = make_request(enable_thinking=True, force_tool="none", allow_tools=False)
                     preamble_content = content_response.get("content") or ""
                     preamble_reasoning = content_response.get("reasoning_content") or ""
@@ -236,7 +235,7 @@ def rerollout_record(record: dict, api_url: str, model: str, verbose: bool = Fal
                     # Check if content is valid (not empty, not just a tool name)
                     if len(content.strip()) < 30 or content.strip().startswith("get_") or content.strip().startswith("check_"):
                         if verbose:
-                            print(f"  -> Thinking produced invalid content, retrying without thinking...")
+                            print("  -> Thinking produced invalid content, retrying without thinking...")
                         new_assistant_retry = make_request(enable_thinking=False, force_tool="none")
                         # Merge: keep reasoning from first attempt, content from retry
                         reasoning_from_first = new_assistant.get("reasoning_content") or ""
@@ -328,13 +327,13 @@ def rerollout_record(record: dict, api_url: str, model: str, verbose: bool = Fal
                 # Skip tool responses if we didn't make tool call
                 while i < len(original_messages) and original_messages[i].get("role") == "tool":
                     if verbose:
-                        print(f"[tool] SKIPPED")
+                        print("[tool] SKIPPED")
                     i += 1
 
         elif role == "tool":
             # Shouldn't reach here normally
             if verbose:
-                print(f"[tool] Unexpected, skipping")
+                print("[tool] Unexpected, skipping")
             i += 1
         else:
             i += 1
@@ -371,7 +370,7 @@ def main():
                 records.append(json.loads(line))
 
     print(f"Loaded {len(records)} records")
-    print(f"Mode: FORCED tool calling (preserves original pattern)")
+    print("Mode: FORCED tool calling (preserves original pattern)")
 
     # Select records
     if args.index is not None:

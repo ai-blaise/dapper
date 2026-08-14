@@ -30,7 +30,8 @@ import csv
 import json
 import re
 import sys
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 import pyarrow.parquet as pq
 
@@ -96,7 +97,7 @@ def _iter_json(filename: str) -> Iterator[dict[str, Any]]:
     elif isinstance(data, dict):
         yield data
     else:
-        raise ValueError(f"JSON must be object or array, got {type(data).__name__}")
+        raise TypeError(f"JSON must be object or array, got {type(data).__name__}")
 
 
 def _count_json(filename: str) -> int:

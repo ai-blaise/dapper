@@ -3,7 +3,13 @@
 Status: IMPLEMENTED. Approved by @architect; shipped in `dapper/tokenize/`.
 Supersedes the earlier fused `dapper dedup --tokenize` design (removed).
 Related: [archive-dedup-split.md](archive-dedup-split.md),
-[curriculum-vertical.md](curriculum-vertical.md).
+[curriculum-vertical.md](curriculum-vertical.md), and
+[fineweb-token-cluster-pack.md](fineweb-token-cluster-pack.md).
+
+The FineWeb cluster-and-pack spec defines an alternative future path that
+clusters staged raw text first, then tokenizes and packs each cluster-local
+partition directly. Packed fixed-context sequences live in a separate
+namespace and do not change the implemented behavior described here.
 
 ## The rule
 

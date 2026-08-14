@@ -8,14 +8,15 @@ with schema transformation to the unified OUTPUT_SCHEMA.
 from __future__ import annotations
 
 import random
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from utils.detect import detect_format
 from dapper.mix.adapters import BaseAdapter, NemotronAdapter, detect_adapter
 from dapper.mix.schema import OUTPUT_SCHEMA, TURN_TYPE
+from utils.detect import detect_format
 
 from .data import transform_batch
 

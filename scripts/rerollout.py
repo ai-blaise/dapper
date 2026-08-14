@@ -13,10 +13,11 @@ Usage:
     python scripts/rerollout.py parsed_datasets/interactive_agent_parsed.jsonl -i 0 --verbose
 """
 
-import json
 import argparse
-import requests
+import json
 from pathlib import Path
+
+import requests
 
 
 def rerollout_record(record: dict, api_url: str, model: str, verbose: bool = False) -> dict:
@@ -173,8 +174,7 @@ def main():
     if args.output:
         output_path = Path(args.output)
         with open(output_path, "w") as f:
-            for r in results:
-                f.write(json.dumps(r) + "\n")
+            f.writelines(json.dumps(r) + "\n" for r in results)
         print(f"Wrote {len(results)} records to {output_path}")
     else:
         # Print to stdout

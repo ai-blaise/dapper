@@ -103,6 +103,7 @@ def test_dapper_dedup_command_requires_config(tmp_path):
         cwd=tmp_path,
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 1
@@ -137,6 +138,7 @@ def test_dapper_dedup_command_dry_run(tmp_path):
         cwd=tmp_path,
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 0
@@ -181,6 +183,7 @@ def test_dapper_dedup_schema_sft_dry_run(tmp_path):
         cwd=tmp_path,
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 0
@@ -217,6 +220,7 @@ def test_dapper_dedup_schema_flag_sets_operating_schema(tmp_path):
         cwd=tmp_path,
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 0
@@ -228,6 +232,7 @@ def test_dapper_dedup_help_has_no_datatrove_flag():
         [sys.executable, "-m", "dapper", "dedup", "--help"],
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 0

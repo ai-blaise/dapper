@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Data Splitter - Split JSONL datasets into N equal (or near-equal) parts.
 
@@ -10,18 +9,18 @@ import argparse
 import json
 import random
 import sys
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 from rich.table import Table
 
+from dapper.mix.schema import OUTPUT_SCHEMA, TURN_TYPE
 from utils.detect import detect_format
+from utils.display import ACCENT, BORDER, GOOD, HEADING, MUTED, WARN, console, panel
 from utils.loader import load_records
 from utils.streaming import records_to_batch
-from utils.display import ACCENT, BORDER, GOOD, HEADING, MUTED, WARN, console, panel
-from dapper.mix.schema import OUTPUT_SCHEMA, TURN_TYPE
 
 
 def count_records(filepath: Path) -> int:
@@ -54,8 +53,7 @@ def get_part_bounds(total: int, num_parts: int, part_idx: int) -> tuple[int, int
 def iter_records(filepath: Path) -> Iterator[str]:
     """Iterate over raw lines in JSONL file (preserves exact formatting)."""
     with open(filepath, "r", encoding="utf-8") as f:
-        for line in f:
-            yield line
+        yield from f
 
 
 def shuffle_records(records: list[dict], seed: int | None = None) -> list[dict]:
@@ -206,8 +204,7 @@ def split_file(
             for i, chunk in enumerate(chunks):
                 output_path = output_dir / f"{prefix}_part_{i + 1}_of_{num_parts}.jsonl"
                 with open(output_path, "w", encoding="utf-8") as f:
-                    for record in chunk:
-                        f.write(json.dumps(record) + "\n")
+                    f.writelines(json.dumps(record) + "\n" for record in chunk)
                 parts_info.append(
                     {
                         "path": output_path,

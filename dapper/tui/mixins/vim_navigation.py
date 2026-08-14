@@ -62,11 +62,7 @@ class VimNavigationMixin:
         if widget is None:
             return
 
-        if isinstance(widget, DataTable):
-            widget.action_cursor_down()
-        elif isinstance(widget, ListView):
-            widget.action_cursor_down()
-        elif isinstance(widget, Tree):
+        if isinstance(widget, (DataTable, ListView, Tree)):
             widget.action_cursor_down()
 
     def action_vim_up(self) -> None:
@@ -78,11 +74,7 @@ class VimNavigationMixin:
         if widget is None:
             return
 
-        if isinstance(widget, DataTable):
-            widget.action_cursor_up()
-        elif isinstance(widget, ListView):
-            widget.action_cursor_up()
-        elif isinstance(widget, Tree):
+        if isinstance(widget, (DataTable, ListView, Tree)):
             widget.action_cursor_up()
 
     def action_vim_top(self) -> None:

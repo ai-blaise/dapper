@@ -6,20 +6,18 @@ actual dataset files. Tests are skipped if the data files don't exist.
 
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
 
-from utils.detect import detect_format
-from utils.loader import load_records, get_record_count, get_record_at_index
-from utils.normalize import normalize_record
-from dapper.tui.data_loader import (
-    load_records as tui_load_records,
-    load_all_records,
-    load_record_at_index,
-    get_record_summary,
-    clear_cache,
-)
+import pytest
 
+from dapper.tui.data_loader import (
+    clear_cache,
+    get_record_summary,
+    load_all_records,
+)
+from utils.detect import detect_format
+from utils.loader import get_record_at_index, get_record_count, load_records
+from utils.normalize import normalize_record
 
 # Path to dataset directory
 DATASET_DIR = Path(__file__).parent.parent / "dataset"

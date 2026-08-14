@@ -21,7 +21,9 @@ Usage:
 
 from __future__ import annotations
 
-import dapper.tui.keybindings as keybindings
+from textual.css.query import NoMatches
+
+from dapper.tui import keybindings
 
 
 class DualPaneMixin:
@@ -125,7 +127,7 @@ class DualPaneMixin:
             tree = self.query_one(tree_id, JsonTreePanel)
             if tree.display:  # Only if tree is visible
                 tree.emit_node_selected()
-        except Exception:
+        except NoMatches:
             pass  # No tree found or not in JSON view
 
     def on_json_tree_panel_node_selected(self, message) -> None:
@@ -155,7 +157,7 @@ class DualPaneMixin:
         try:
             left = self.query_one("#left-panel")
             right = self.query_one("#right-panel")
-        except Exception:
+        except NoMatches:
             return
 
         left_is_active = self._active_panel == "left"

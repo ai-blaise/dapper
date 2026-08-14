@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from typing import ClassVar
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -29,7 +30,7 @@ def _parquet_bytes(rows: int) -> bytes:
 
 
 class _Filesystem:
-    payloads = {
+    payloads: ClassVar[dict[str, bytes]] = {
         "datasets/Zyphra/Zyda-2@main/data/dclm_crossdeduped/part-000.parquet": _parquet_bytes(2),
         "datasets/Zyphra/Zyda-2@main/data/dclm_crossdeduped/part-001.parquet": _parquet_bytes(3),
         "datasets/Zyphra/Zyda-2@main/data/fwe3/part-000.parquet": _parquet_bytes(5),

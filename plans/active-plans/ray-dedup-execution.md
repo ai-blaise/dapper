@@ -69,21 +69,22 @@ DataTrove task processes           GCS access through VM identity
 GCS access through VM identity
 ```
 
-The head participates in computation. On a 16-vCPU head, advertise 15 CPUs to
-Ray and reserve one CPU for the driver and Ray services. A 16-vCPU worker
-advertises all 16 CPUs, giving 31 schedulable CPUs.
+The head participates fully in computation. Both production nodes have 224
+vCPUs and advertise all 224 CPUs to Ray, giving 448 schedulable CPU slots. The
+driver and Ray services still consume operating-system time, but Dapper does
+not reserve a logical Ray CPU for them in the initial production topology.
 
 Initial sizing:
 
 | Resource | Head | Worker |
 |---|---:|---:|
-| vCPU | 16 | 16 |
-| RAM | 64 GiB | 64 GiB |
-| Ray task CPUs | 15 | 16 |
+| vCPU | 224 | 224 |
+| RAM before Dapper | 1.2-1.78 TiB | 1.2-1.78 TiB |
+| Ray task CPUs | 224 | 224 |
 | Local disk | 200-500 GiB fast disk | 200-500 GiB fast disk |
 
-These are canary defaults, not permanent production sizing. Stage statistics
-decide whether the next run needs more nodes or a high-memory head.
+These are the initial production resources. Stage statistics decide whether a
+later run needs more nodes or a differently shaped head.
 
 ### A2. Placement and identity
 
@@ -112,7 +113,7 @@ The explicitly pinned ports are:
 | 6379 | Ray head control endpoint |
 | 8076 | object manager |
 | 8077 | node manager |
-| 10002-10100 | Ray task workers |
+| 10002-10500 | Ray task workers |
 
 The dashboard binds to loopback on the head and is accessed through an SSH
 tunnel. After the Ray version is pinned, inventory every listening Ray service.
@@ -153,8 +154,8 @@ ray start \
   --object-manager-port=8076 \
   --node-manager-port=8077 \
   --min-worker-port=10002 \
-  --max-worker-port=10100 \
-  --num-cpus=15 \
+  --max-worker-port=10500 \
+  --num-cpus=224 \
   --dashboard-host=127.0.0.1
 ```
 
@@ -168,8 +169,8 @@ ray start \
   --object-manager-port=8076 \
   --node-manager-port=8077 \
   --min-worker-port=10002 \
-  --max-worker-port=10100 \
-  --num-cpus=16
+  --max-worker-port=10500 \
+  --num-cpus=224
 ```
 
 The exact commands belong in an operations runbook after the pinned Ray version
@@ -184,7 +185,9 @@ Before Dapper starts a paid run, the operator verifies:
 ray status
 ```
 
-The cluster must report two alive nodes and 31 CPUs for the example topology.
+The cluster must report two alive nodes and 448 CPUs for the production
+topology.
+
 Each node must independently pass:
 
 - import Dapper, DataTrove, Ray, PyArrow, tokenizers, and GCS dependencies;
@@ -243,14 +246,14 @@ dedup:
     task_oversubscription: 4
 
     signatures:
-      workers: 31
+      workers: 448
       cpus_per_task: 1
       memory_gb_per_task: 2
       tasks_per_job: 1
 
     buckets:
-      workers_per_bucket: 2
-      workers: 28
+      workers_per_bucket: 32
+      workers: 448
       cpus_per_task: 1
       memory_gb_per_task: 4
       tasks_per_job: 1
@@ -261,8 +264,8 @@ dedup:
       memory_gb_per_task: 48
 
     filter:
-      workers: 16
-      cpus_per_task: 2
+      workers: 448
+      cpus_per_task: 1
       memory_gb_per_task: 4
       tasks_per_job: 1
 
@@ -570,7 +573,7 @@ The stable human-readable surface is:
 ```text
 Run:                  <run-id>
 Stage:                filter
-Ray nodes:            2 alive / 2 expected
+Ray nodes:            2 alive / 2 expected (448 CPU slots)
 Datasets staged:      42
 Input records:        825,000,000
 
@@ -625,13 +628,13 @@ Before the full corpus, run a representative set of complete shards from every
 material source group. For signatures and filter, test concurrent workers:
 
 ```text
-4 -> 8 -> 16 -> 31
+56 -> 112 -> 224 -> 336 -> 448
 ```
 
 For buckets, test workers per bucket:
 
 ```text
-1 -> 2 -> 4 -> 8
+1 -> 2 -> 4 -> 8 -> 16 -> 32
 ```
 
 Record:

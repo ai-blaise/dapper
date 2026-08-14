@@ -53,7 +53,7 @@ def detect_format(filename: str) -> str:
                 magic = f.read(4)
                 if magic == b"PAR1":
                     return "parquet"
-        except (IOError, OSError):
+        except OSError:
             pass
 
         # JSON vs JSONL by first non-whitespace char
@@ -69,7 +69,7 @@ def detect_format(filename: str) -> str:
                     return "json"
                 elif first_char == "{":
                     return "jsonl"
-        except (IOError, OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError):
             pass
 
     raise ValueError(

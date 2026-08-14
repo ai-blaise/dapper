@@ -88,18 +88,18 @@ SEE ALSO:
   scripts/rerollout_forced.py - Synchronous version for debugging and small batches
 """
 
-import json
 import argparse
 import asyncio
-import aiohttp
-import aiofiles
-import time
+import json
 import random
-from pathlib import Path
-from tqdm.asyncio import tqdm
-from dataclasses import dataclass, field
-from typing import Optional
 import threading
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import aiofiles
+import aiohttp
+from tqdm.asyncio import tqdm
 
 # Retry configuration (local GPU server - retry until success)
 MAX_RETRIES = 0  # 0 = infinite retries
@@ -196,19 +196,23 @@ async def rerollout_record(
                 else:
                     tool_choice = "none"
                     if verbose:
-                        print(f"[assistant] Generating text (tool_choice=none)")
+                        print("[assistant] Generating text (tool_choice=none)")
 
                 # HYBRID APPROACH:
                 # - TOOL CALL turns: thinking=True (works well)
                 # - TEXT turns: try thinking=True first, retry with thinking=False if content empty
                 is_tool_call_turn = bool(orig_tool_calls)
 
-                async def make_request(enable_thinking):
+                async def make_request(
+                    enable_thinking,
+                    original_tool_calls=orig_tool_calls,
+                    selected_tool_choice=tool_choice,
+                ):
                     payload = {
                         "model": model,
                         "messages": context,
-                        "tools": tools if tools and orig_tool_calls else None,
-                        "tool_choice": tool_choice if tools else None,
+                        "tools": tools if tools and original_tool_calls else None,
+                        "tool_choice": selected_tool_choice if tools else None,
                         "temperature": 0.7,
                         "max_tokens": 2048,
                         "chat_template_kwargs": {"thinking": True} if enable_thinking else None,
@@ -233,7 +237,7 @@ async def rerollout_record(
                             attempt += 1
                             # max_retries=0 means infinite, otherwise give up after max_retries
                             if max_retries > 0 and attempt >= max_retries:
-                                raise e
+                                raise
                             # Exponential backoff with jitter, capped at MAX_DELAY
                             delay = min(BASE_DELAY * (2 ** min(attempt, 5)) + random.uniform(0, 0.5), MAX_DELAY)
                             if verbose:
@@ -250,7 +254,7 @@ async def rerollout_record(
                     # Check if content is valid (not empty, not just a tool name)
                     if len(content.strip()) < 30 or content.strip().startswith("get_") or content.strip().startswith("check_"):
                         if verbose:
-                            print(f"  -> Thinking produced invalid content, retrying without thinking...")
+                            print("  -> Thinking produced invalid content, retrying without thinking...")
                         new_assistant_retry = await make_request(enable_thinking=False)
                         # Merge: keep reasoning from first attempt, content from retry
                         reasoning_from_first = new_assistant.get("reasoning_content") or ""
@@ -320,7 +324,7 @@ async def rerollout_record(
                 else:
                     while i < len(original_messages) and original_messages[i].get("role") == "tool":
                         if verbose:
-                            print(f"[tool] SKIPPED")
+                            print("[tool] SKIPPED")
                         i += 1
 
             elif role == "tool":
@@ -362,7 +366,7 @@ def load_and_clean_output(output_path: Path) -> tuple[set, set, list]:
                             else:
                                 successful.add(uuid)
                                 successful_records.append(record)
-                    except:
+                    except json.JSONDecodeError:
                         pass
     return successful, errors, successful_records
 
@@ -406,7 +410,7 @@ async def process_record(
 
     except Exception as e:
         # Build descriptive error message (some exceptions like TimeoutError have empty str)
-        error_msg = str(e) if str(e) else f"{type(e).__name__}: {repr(e)}"
+        error_msg = str(e) if str(e) else f"{type(e).__name__}: {e!r}"
         async with write_lock:
             error_record = {
                 "uuid": uuid,
@@ -430,8 +434,8 @@ async def main_async(args):
     # Load input records
     print(f"Loading {input_path}...")
     records = []
-    with open(input_path) as f:
-        for line in f:
+    async with aiofiles.open(input_path) as input_file:
+        async for line in input_file:
             if line.strip():
                 records.append(json.loads(line))
 
@@ -460,9 +464,10 @@ async def main_async(args):
 
         # Rewrite output file with only successful records (removes old errors)
         if error_uuids:
-            with open(output_path, "w") as f:
-                for record in successful_records:
-                    f.write(json.dumps(record) + "\n")
+            async with aiofiles.open(output_path, "w") as output_file:
+                await output_file.writelines(
+                    json.dumps(record) + "\n" for record in successful_records
+                )
             print(f"Cleaned output file: removed {len(error_uuids)} error records for retry")
 
     # Filter out already successful records (errors will be retried)
@@ -480,7 +485,7 @@ async def main_async(args):
     print(f"  Output:      {output_path}")
     print(f"  Concurrency: {args.concurrency}")
     print(f"  Retries:     {'infinite' if args.retries == 0 else args.retries} (with exponential backoff)")
-    print(f"  Mode:        Forced tool calling + Thinking traces")
+    print("  Mode:        Forced tool calling + Thinking traces")
     print("=" * 70)
     print()
 
@@ -496,8 +501,10 @@ async def main_async(args):
 
     mode = "a" if args.resume and output_path.exists() else "w"
 
-    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-        async with aiofiles.open(output_path, mode) as out_file:
+    async with (
+        aiohttp.ClientSession(connector=connector, timeout=timeout) as session,
+        aiofiles.open(output_path, mode) as out_file,
+    ):
 
             # Create tasks
             tasks = [
@@ -552,8 +559,8 @@ async def main_async(args):
                         "BEFORE": original,
                         "AFTER": result
                     }
-                    with open(args.proof, "w") as f:
-                        json.dump(proof, f, indent=2)
+                    async with aiofiles.open(args.proof, "w") as proof_file:
+                        await proof_file.write(json.dumps(proof, indent=2))
                     print(f"Proof written to {args.proof}")
                     break
 

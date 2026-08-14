@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_CONFIG_FILENAMES = ("dapper.yaml", "dapper.config.yaml", "config.yaml")
 
 

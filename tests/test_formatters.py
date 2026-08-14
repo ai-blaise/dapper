@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+
 import pytest
 
 from dapper.parser.cli import format_json, format_jsonl, format_markdown, format_text

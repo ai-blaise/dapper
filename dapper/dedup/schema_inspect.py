@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from dapper.dedup.config import DedupConfig, SourceConfig
 
@@ -99,7 +100,7 @@ def _ordered_fields(records: list[dict[str, Any]]) -> tuple[str, ...]:
     seen = []
     seen_set = set()
     for record in records:
-        for key in record.keys():
+        for key in record:
             if key not in seen_set:
                 seen.append(key)
                 seen_set.add(key)

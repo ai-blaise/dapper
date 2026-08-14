@@ -11,7 +11,7 @@ to resolve the same bucket layout and prove the same credentials.
 from __future__ import annotations
 
 import sys
-
+import warnings
 from dataclasses import dataclass
 from typing import Any
 
@@ -223,20 +223,27 @@ def _verify_writable(bucket: str) -> None:
     of records costs hours; discovering it here costs one small object.
     """
     probe = io.join(bucket_root(bucket), "_dapper_preflight")
+    written = False
     try:
         io.write_text(probe, "dapper preflight\n")
+        written = True
     except Exception as exc:
         raise GcsError(
             f"Cannot write to GCS bucket {bucket!r}: {exc}\n"
             f"  {credential_advice()}"
         ) from exc
     finally:
-        try:
-            io.delete(probe, recursive=False)
-        except Exception:
-            # A leftover probe object is harmless; failing to clean it up must
-            # not mask a successful write check.
-            pass
+        if written:
+            try:
+                io.delete(probe, recursive=False)
+            except Exception as exc:  # noqa: BLE001 - best-effort remote cleanup
+                # A leftover probe object is harmless; failing to clean it up must
+                # not mask a successful write check.
+                warnings.warn(
+                    f"Could not remove GCS write probe {probe!r}: {exc}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
 
 
 def _verify_reachable(bucket: str) -> None:

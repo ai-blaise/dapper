@@ -7,7 +7,6 @@ Provides functions to load/save config and manage theme preferences.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 DEFAULT_APP_THEME = "textual-dark"
@@ -29,7 +28,7 @@ def load_config() -> dict:
     try:
         with open(CONFIG_FILE, "r") as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return {}
 
 

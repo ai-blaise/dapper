@@ -10,20 +10,20 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pytest
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from dapper.tui.data_loader import (
-    load_records,
+    clear_cache,
+    get_cached_records,
+    get_record_summary,
     load_all_records,
     load_record_at_index,
     load_record_pair,
-    get_record_summary,
-    truncate,
-    get_cached_records,
+    load_records,
     set_cached_records,
-    clear_cache,
+    truncate,
 )
 from dapper.tui.keybindings import BACK_BINDINGS, GLOBAL_BINDINGS, MODAL_BINDINGS
 from dapper.tui.widgets.json_tree_panel import MAX_ARRAY_CHILDREN, JsonTreePanel
@@ -32,8 +32,7 @@ from dapper.tui.widgets.json_tree_panel import MAX_ARRAY_CHILDREN, JsonTreePanel
 def create_jsonl_file(filepath: Path, records: list[dict[str, Any]]) -> None:
     """Helper to create a JSONL file from records."""
     with open(filepath, "w", encoding="utf-8") as f:
-        for record in records:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        f.writelines(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
 
 
 def create_json_file(filepath: Path, records: list[dict[str, Any]]) -> None:
@@ -536,9 +535,9 @@ class TestFormatConsistency:
         create_parquet_file(parquet_path, parquet_records)
 
         # Load all formats
-        jsonl_loaded = list(load_records(str(jsonl_path)))[0]
-        json_loaded = list(load_records(str(json_path)))[0]
-        parquet_loaded = list(load_records(str(parquet_path)))[0]
+        jsonl_loaded = next(load_records(str(jsonl_path)))
+        json_loaded = next(load_records(str(json_path)))
+        parquet_loaded = next(load_records(str(parquet_path)))
 
         # JSONL/JSON use 'messages', Parquet keeps raw 'conversations'
         assert "messages" in jsonl_loaded

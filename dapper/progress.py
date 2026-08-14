@@ -22,9 +22,9 @@ the next; a bar that implied otherwise would be lying.
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Iterator
 
 from dapper.corpus import io
 
@@ -64,13 +64,13 @@ def quiet_third_party_progress() -> None:
         import datasets
 
         datasets.disable_progress_bars()
-    except Exception:
+    except (ImportError, AttributeError):
         pass
     try:
         from huggingface_hub.utils import disable_progress_bars
 
         disable_progress_bars()
-    except Exception:
+    except (ImportError, AttributeError):
         pass
 
 
@@ -114,7 +114,7 @@ class _NullBar:
         *,
         total: int | None = None,
         status: str = "",
-    ) -> "_NullBar":
+    ) -> _NullBar:
         return self
 
     def update(
@@ -206,7 +206,7 @@ def stage_bar(stage: Stage, *, enabled: bool = True) -> Iterator[_NullBar]:
                 *,
                 total: int | None = None,
                 status: str = "",
-            ) -> "_Bar":
+            ) -> _Bar:
                 with lock:
                     child_id = progress.add_task(name, total=total, status=status)
                 return _Bar(child_id, total)

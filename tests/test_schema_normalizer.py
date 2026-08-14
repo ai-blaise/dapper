@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
-
 from utils.normalize import (
-    normalize_record,
     denormalize_record,
-    get_standard_fields,
     get_parquet_only_fields,
+    get_standard_fields,
     is_normalized,
+    normalize_record,
 )
 
 

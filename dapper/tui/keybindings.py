@@ -20,7 +20,6 @@ Composite groups:
 
 from textual.binding import Binding
 
-
 # ── Always present ──────────────────────────────────────────────────
 GLOBAL_BINDINGS = [
     Binding("q", "quit", "Quit", show=True, priority=True),

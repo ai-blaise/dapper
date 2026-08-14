@@ -16,7 +16,6 @@ from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
 from dapper.corpus import io
-from utils.detect import discover_data_entries, format_file_size
 from dapper.tui.data_loader import (
     FieldMapping,
     get_field_mapping,
@@ -33,6 +32,7 @@ from dapper.tui.mixins import (
     VimNavigationMixin,
 )
 from dapper.tui.widgets.json_tree_panel import JsonTreePanel
+from utils.detect import discover_data_entries, format_file_size
 
 
 class PaneState(Enum):

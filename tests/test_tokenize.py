@@ -6,12 +6,13 @@ import json
 
 import pytest
 
+from dapper.corpus.gcs import DEFAULT_TOKENS_PREFIX, init_gcs
+
 # dapper.dedup.config must be imported before dapper.corpus.gcs: gcs imports
 # dedup.config, whose package __init__ reaches dedup.stage, which imports back
 # into gcs. Importing the dedup side first resolves it, matching the order in
 # test_gcs_dedup.py.
 from dapper.dedup.config import parse_dedup_config
-from dapper.corpus.gcs import DEFAULT_TOKENS_PREFIX, init_gcs
 from dapper.tokenize.report import (
     TokenizeReport,
     format_tokenize_plan,
@@ -325,7 +326,6 @@ def test_dedup_run_takes_no_tokenize_argument():
 
 
 def test_dedup_cli_has_no_tokenize_flag():
-    import yaml
 
     from dapper.cli import _run_dedup
 

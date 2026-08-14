@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Iterable, Iterator
+from datetime import UTC, datetime
+from typing import Any
 
 from dapper.corpus import io
 from dapper.dedup.config import DedupConfig, assign_len_bucket
@@ -43,6 +44,7 @@ class Manifest:
 
     tokenizer: str
     tokenizer_hash: str
+    tokenizer_config: dict[str, Any]
     len_bins: tuple[int, ...]
     dedup_run_id: str
     corpus_uri: str
@@ -73,6 +75,7 @@ class Manifest:
         payload = {
             "tokenizer": self.tokenizer,
             "tokenizer_hash": self.tokenizer_hash,
+            "tokenizer_config": self.tokenizer_config,
             "len_bins": list(self.len_bins),
             "dedup_run_id": self.dedup_run_id,
             "corpus_uri": self.corpus_uri,
@@ -84,11 +87,12 @@ class Manifest:
         return json.dumps(payload, indent=2, ensure_ascii=False)
 
     @classmethod
-    def from_json(cls, payload: str) -> "Manifest":
+    def from_json(cls, payload: str) -> Manifest:
         data = json.loads(payload)
         manifest = cls(
             tokenizer=data["tokenizer"],
             tokenizer_hash=data["tokenizer_hash"],
+            tokenizer_config=data.get("tokenizer_config") or {"name": data["tokenizer"]},
             len_bins=tuple(data["len_bins"]),
             dedup_run_id=data["dedup_run_id"],
             corpus_uri=data["corpus_uri"],
@@ -148,7 +152,7 @@ class ManifestAccumulator:
         corpus_uri: str,
         dedup_run_id: str,
         domain_file_counts: dict[str, int] | None = None,
-    ) -> "Manifest":
+    ) -> Manifest:
         entries = [
             ManifestEntry(
                 domain=domain,
@@ -167,10 +171,11 @@ class ManifestAccumulator:
         return Manifest(
             tokenizer=config.tokenizer,
             tokenizer_hash=tokenizer_hash(config.tokenizer),
+            tokenizer_config=config.tokenizer_settings.to_dict(),
             len_bins=config.len_bins,
             dedup_run_id=dedup_run_id,
             corpus_uri=corpus_uri,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
             entries=entries,
         )
 

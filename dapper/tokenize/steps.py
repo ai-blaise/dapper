@@ -124,7 +124,7 @@ class DocumentTokenizer(PipelineStep):
 
 def build_tokenizer_step(
     tokenizer_name: str, *, counts_uri: str | None = None
-) -> "DocumentTokenizer":
+) -> DocumentTokenizer:
     """Build the tokenizing step.
 
     The indirection exists so callers that may run without DataTrove installed

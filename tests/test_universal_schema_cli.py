@@ -28,6 +28,7 @@ def test_parse_schema_pretraining(tmp_path):
         ],
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 0
@@ -67,6 +68,7 @@ def test_parse_schema_sft_keeps_existing_behavior(tmp_path):
         ],
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 0
@@ -99,6 +101,7 @@ def test_parse_uses_schema_from_dapper_yaml(tmp_path):
         cwd=tmp_path,
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 0
@@ -138,6 +141,7 @@ def test_mix_schema_pretraining_writes_canonical_parquet(tmp_path):
         ],
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 0
@@ -162,6 +166,7 @@ def test_mix_schema_sft_sets_operating_schema(tmp_path):
         ],
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 0
@@ -194,6 +199,7 @@ def test_mix_uses_schema_from_dapper_yaml(tmp_path):
         cwd=tmp_path,
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 0

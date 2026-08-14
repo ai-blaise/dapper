@@ -14,7 +14,7 @@ what a run actually did.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from dapper.archive.catalog import is_supported, resolve_sources
 from dapper.config import load_config
@@ -147,6 +147,7 @@ def run_tokenize(
             "records": records,
             "tokens": tokens,
             "tokenizer": config.tokenizer,
+            "tokenizer_config": config.tokenizer_settings.to_dict(),
             "len_bins": list(config.len_bins),
             "shuffle_seed": config.shuffle_seed if config.shuffle else None,
             "input_uri": input_uri,
@@ -199,7 +200,7 @@ def _skip_reason(run_uri: str, config: DedupConfig, *, force: bool) -> str | Non
     previous = payload.get("tokenizer")
     if previous and previous != config.tokenizer:
         return (
-            f"already tokenized with {previous!r}, but dedup.tokenizer is now "
+            f"already tokenized with {previous!r}, but tokenizer.name is now "
             f"{config.tokenizer!r}. Token IDs from two tokenizers are not "
             "interchangeable"
         )
@@ -251,12 +252,13 @@ def _write_run_marker(run_uri: str, config: DedupConfig) -> None:
         io.join(run_uri, RUN_MARKER),
         {
             "tokenizer": config.tokenizer,
+            "tokenizer_config": config.tokenizer_settings.to_dict(),
             "tokenizer_hash": tokenizer_hash(config.tokenizer),
             "len_bins": list(config.len_bins),
             # Recorded but not enforced: a differently seeded resume yields a
             # differently ordered but equally valid corpus.
             "shuffle_seed": config.shuffle_seed if config.shuffle else None,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
         },
     )
 
@@ -355,6 +357,7 @@ def _write_manifest(
         shuffle_seed=config.shuffle_seed if config.shuffle else None,
         source=source,
         deduped=deduped,
+        tokenizer_config=config.tokenizer_settings.to_dict(),
     )
     write_manifest(manifest, io.join(tokens_uri, MANIFEST_DIRNAME))
     return manifest

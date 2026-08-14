@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-import json
-import pytest
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from utils.loader import (
-    load_records,
-    get_record_count,
     get_record_at_index,
+    get_record_count,
     get_records_range,
+    load_records,
 )
 
 

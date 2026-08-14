@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import csv
+
 import pytest
 
-from utils.loader import load_records, get_record_count, get_record_at_index
+from utils.loader import get_record_at_index, get_record_count, load_records
 
 
 class TestCSVLoaderLoad:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+
 import pytest
-import tempfile
 
 from dapper.parser.cli import load_jsonl
 

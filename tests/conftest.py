@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 
 import pytest
 
@@ -167,8 +168,7 @@ def dataset_dir() -> Path:
 def write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
     """Helper to write records to a JSONL file."""
     with open(path, 'w', encoding='utf-8') as f:
-        for record in records:
-            f.write(json.dumps(record, ensure_ascii=False) + '\n')
+        f.writelines(json.dumps(record, ensure_ascii=False) + '\n' for record in records)
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:

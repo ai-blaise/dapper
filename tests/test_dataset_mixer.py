@@ -7,17 +7,14 @@ Tests run against real dataset files from datasets/ and skip if absent.
 
 from __future__ import annotations
 
-import copy
 import os
-import tempfile
 from itertools import islice
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pyarrow.parquet as pq
 import pytest
 
-from utils.loader import load_records
 from dapper.mix.adapters import (
     HighCodeReasoningAdapter,
     HighCodeSFTAdapter,
@@ -29,6 +26,7 @@ from dapper.mix.adapters import (
 )
 from dapper.mix.mixer import _filter_files, discover_files, mix
 from dapper.mix.schema import OUTPUT_SCHEMA
+from utils.loader import load_records
 
 # ---------------------------------------------------------------------------
 # Dataset paths (real files — tests skip if absent)
@@ -620,7 +618,7 @@ class TestEdgeCases:
 class TestSourceFiltering:
     """Tests for _filter_files() and include/exclude behavior."""
 
-    SYNTHETIC_FILES = [
+    SYNTHETIC_FILES: ClassVar[list[dict[str, str]]] = [
         {
             "path": "/data/nemotron/code.parquet",
             "source_dataset": "Nemotron-Terminal-Corpus",
@@ -706,6 +704,7 @@ class TestSourceFiltering:
     # Integration tests (real data — skip if absent)
     # -----------------------------------------------------------------------
 
+    @pytest.mark.integration
     def test_include_single_source(self, tmp_path):
         """Include Nemotron only — all records must have that source_dataset."""
         if not DATASETS_DIR.exists():
@@ -720,6 +719,7 @@ class TestSourceFiltering:
         assert result["total_records"] > 0
         assert set(result["sources"].keys()) == {"Nemotron-Terminal-Corpus"}
 
+    @pytest.mark.integration
     def test_include_nemotron_gets_both_adapters_and_synthetic(self):
         """--include Nemotron-Terminal-Corpus must capture both dataset_adapters/ and synthetic_tasks/."""
         if not DATASETS_DIR.exists():
@@ -733,6 +733,7 @@ class TestSourceFiltering:
         assert has_synthetic, "Filtered list missing synthetic_tasks/ files"
         assert len(filtered) >= 4, f"Expected many Nemotron files, got {len(filtered)}"
 
+    @pytest.mark.integration
     def test_exclude_single_source(self, tmp_path):
         """Exclude one source — remaining records must not include it."""
         if not DATASETS_DIR.exists():
@@ -755,6 +756,7 @@ class TestSourceFiltering:
         }
         assert set(result["sources"]).issubset(discovered_sources)
 
+    @pytest.mark.integration
     def test_exclude_record_count_matches_non_nemotron(self, tmp_path):
         """Exclude Nemotron record count should equal TeichAI + Raiden."""
         _skip_if_missing(TEICHAI_JSONL)
@@ -771,6 +773,7 @@ class TestSourceFiltering:
         # Total should be at least 3317 + 8041 = 11358
         assert result["total_records"] >= 11_358
 
+    @pytest.mark.integration
     def test_no_filter_includes_all_sources(self, tmp_path):
         """No include/exclude should process all recognized source_datasets."""
         if not DATASETS_DIR.exists():
@@ -788,6 +791,7 @@ class TestSourceFiltering:
         }
         assert set(result["sources"]).issubset(discovered_sources)
 
+    @pytest.mark.integration
     def test_include_nonexistent_source_returns_zero(self, tmp_path):
         """Include a nonexistent source — 0 records, no crash."""
         if not DATASETS_DIR.exists():
@@ -802,6 +806,7 @@ class TestSourceFiltering:
         assert result["total_records"] == 0
         assert result["sources"] == {}
 
+    @pytest.mark.integration
     def test_include_and_exclude_compose(self, tmp_path):
         """Include two sources then exclude one — only the remaining source survives."""
         if not DATASETS_DIR.exists():

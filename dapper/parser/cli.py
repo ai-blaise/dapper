@@ -31,17 +31,22 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from dapper.config import load_optional_config
-from dapper.schema import DEFAULT_SCHEMA, add_schema_argument, resolve_schema
-from dapper.schema import schema_from_config
-from dapper.dedup.config import parse_dedup_config, SourceConfig
+from dapper.dedup.config import SourceConfig, parse_dedup_config
 from dapper.dedup.normalize import normalize_pretraining_record
+from dapper.schema import (
+    DEFAULT_SCHEMA,
+    add_schema_argument,
+    resolve_schema,
+    schema_from_config,
+)
 from utils.detect import detect_format
 from utils.loader import load_records as _load_records
 from utils.normalize import normalize_record

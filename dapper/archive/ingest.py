@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import os
 import sys
-
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from itertools import batched
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any
 
 from dapper.archive.catalog import archivable_sources, is_supported
 from dapper.corpus import io
@@ -102,7 +102,11 @@ def completed_shards(source_uri: str) -> int:
 
 def _mark_complete(source_uri: str, payload: dict[str, Any]) -> None:
     """Write the completion marker that makes re-runs resumable."""
-    io.write_json(io.join(source_uri, SUCCESS_MARKER), payload)
+    frozen = dict(payload)
+    frozen.setdefault(
+        "inventory", [item.to_dict() for item in _archive_inventory(source_uri)]
+    )
+    io.write_json(io.join(source_uri, SUCCESS_MARKER), frozen)
 
 
 def ingest_hf(
@@ -195,7 +199,6 @@ def ingest_hf(
             "limit": limit,
         },
     )
-
     return IngestReport(
         source_name=source.name,
         destination_uri=destination,
@@ -203,6 +206,12 @@ def ingest_hf(
         shards=shards,
         resumed_shards=resumed,
     )
+
+
+def _archive_inventory(source_uri: str):
+    from dapper.corpus.completion import snapshot_jsonl
+
+    return snapshot_jsonl(source_uri)
 
 
 def ingest_all(

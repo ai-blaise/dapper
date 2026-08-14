@@ -11,10 +11,10 @@ Usage:
     uv run python scripts/rerollout_proper.py parsed_datasets/interactive_agent_parsed.jsonl -n 1 -v
 """
 
-import json
 import argparse
+import json
+
 import requests
-from pathlib import Path
 
 
 def rerollout_record(record: dict, api_url: str, model: str, verbose: bool = False) -> dict:
@@ -46,7 +46,7 @@ def rerollout_record(record: dict, api_url: str, model: str, verbose: bool = Fal
 
         elif role == "assistant":
             if verbose:
-                print(f"[assistant] Regenerating with model...")
+                print("[assistant] Regenerating with model...")
                 print(f"  Context size: {len(context)} messages")
 
             # Call model
@@ -130,13 +130,13 @@ def rerollout_record(record: dict, api_url: str, model: str, verbose: bool = Fal
                 # Model didn't make tool call but original did - skip original tool responses
                 while i < len(original_messages) and original_messages[i].get("role") == "tool":
                     if verbose:
-                        print(f"[tool] SKIPPED (model didn't make tool call)")
+                        print("[tool] SKIPPED (model didn't make tool call)")
                     i += 1
 
         elif role == "tool":
             # Shouldn't reach here if logic above is correct, but handle gracefully
             if verbose:
-                print(f"[tool] Unexpected tool message, skipping")
+                print("[tool] Unexpected tool message, skipping")
             i += 1
 
         else:

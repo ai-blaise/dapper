@@ -14,11 +14,11 @@ from dapper.dedup.hf_dry_run import sample_huggingface_records
 from dapper.dedup.local_sample import sample_local_records
 from dapper.dedup.normalize import normalize_sources
 from dapper.dedup.report import (
+    format_datatrove_report,
     format_dry_run_report,
     format_exact_report,
     format_gcs_stage_plan,
     format_normalize_report,
-    format_datatrove_report,
 )
 from dapper.dedup.schema_inspect import (
     SchemaInspection,
@@ -142,7 +142,7 @@ def _inspect_local_source_groups(config: DedupConfig) -> list[SchemaInspection]:
         grouped.setdefault(source.name, []).append(source)
 
     inspections = []
-    for source_name, sources in grouped.items():
+    for sources in grouped.values():
         sample_records = []
         representative = sources[0]
         try:

@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
-from dapper.parser.cli import load_jsonl, process_record, process_messages
-
+from dapper.parser.cli import load_jsonl, process_record
 
 # Skip these tests if dataset files don't exist
 DATASET_DIR = Path(__file__).parent.parent / "dataset"

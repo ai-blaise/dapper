@@ -13,7 +13,6 @@ Provides reusable methods for:
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING, Any
 
 from textual.widgets import DataTable
@@ -69,7 +68,7 @@ class RecordTableMixin(DataTableMixin):
     """
 
     # Cached field names for the current table
-    _field_columns: list[str] = []
+    _field_columns: tuple[str, ...] = ()
 
     def _detect_field_columns(self, records: list[dict[str, Any]]) -> list[str]:
         """Detect ALL field names from records for table columns.
@@ -89,7 +88,7 @@ class RecordTableMixin(DataTableMixin):
         return list(sample.keys())
 
     def _get_record_columns(
-        self, mapping: "FieldMapping", records: list[dict[str, Any]] | None = None
+        self, mapping: FieldMapping, records: list[dict[str, Any]] | None = None
     ) -> list[tuple[str, int | None]]:
         """Generate column config from actual record field names.
 
@@ -108,9 +107,9 @@ class RecordTableMixin(DataTableMixin):
         cols: list[tuple[str, int | None]] = [("IDX", 6)]
 
         if records:
-            self._field_columns = self._detect_field_columns(records)
+            self._field_columns = tuple(self._detect_field_columns(records))
         else:
-            self._field_columns = []
+            self._field_columns = ()
 
         if self._field_columns:
             # Last field gets flexible width, others get capped width
@@ -126,7 +125,7 @@ class RecordTableMixin(DataTableMixin):
     def _build_record_row(
         self,
         summary: dict[str, Any],
-        mapping: "FieldMapping",
+        mapping: FieldMapping,
         record: dict[str, Any] | None = None,
     ) -> list[str]:
         """Build a table row from record field values.
@@ -173,7 +172,7 @@ class RecordTableMixin(DataTableMixin):
         self,
         table: DataTable,
         records: list[dict[str, Any]],
-        mapping: "FieldMapping",
+        mapping: FieldMapping,
         get_summary_fn: Any = None,
     ) -> None:
         """Populate a DataTable with records using field-derived columns.

@@ -5,8 +5,8 @@ from __future__ import annotations
 from rich.markup import escape as _e
 from rich.table import Table
 
+from dapper.mixture.check import MixtureCheck
 from utils.display import (
-    ACCENT,
     BAD,
     BORDER,
     GOOD,
@@ -17,8 +17,6 @@ from utils.display import (
     kv_table,
     panel,
 )
-
-from dapper.mixture.check import MixtureCheck
 
 
 def format_check(result: MixtureCheck) -> str:

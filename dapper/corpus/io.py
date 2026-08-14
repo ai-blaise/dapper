@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import json
 import posixpath
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 
 def is_remote_uri(uri: str) -> bool:
@@ -86,6 +87,24 @@ def size(uri: str) -> int:
         return 0
     raw_size = info.get("size")
     return int(raw_size or 0)
+
+
+def info(uri: str) -> dict[str, Any]:
+    """Return normalized immutable-object metadata used by run inventories."""
+    fs, path = fs_for(uri)
+    raw = fs.info(path)
+    generation = (
+        raw.get("generation")
+        or raw.get("version_id")
+        or raw.get("etag")
+        or raw.get("checksum")
+        or raw.get("mtime")
+    )
+    return {
+        "uri": str(uri),
+        "size": int(raw.get("size") or 0),
+        "generation": None if generation is None else str(generation),
+    }
 
 
 def basename(uri: str) -> str:

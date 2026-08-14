@@ -229,7 +229,7 @@ def test_failed_source_is_flagged_not_just_skipped(monkeypatch):
     Both are "not archived now", but only a crash means the corpus is
     incomplete, and only a crash should make the command exit non-zero.
     """
-    import dapper.archive.ingest as ingest
+    from dapper.archive import ingest
 
     def _boom(source, context, config, **kwargs):
         raise RuntimeError("dataset exploded")
@@ -274,7 +274,7 @@ def test_report_lists_passed_datasets_without_gcs_paths():
 
 
 def test_archive_delete_removes_configured_source(monkeypatch):
-    import dapper.archive.runner as runner
+    from dapper.archive import runner
 
     deleted = []
     monkeypatch.setattr(runner, "load_config", lambda path=None: CORPUS)
@@ -297,7 +297,7 @@ def test_archive_delete_removes_configured_source(monkeypatch):
 
 
 def test_archive_delete_is_noop_when_source_prefix_missing(monkeypatch):
-    import dapper.archive.runner as runner
+    from dapper.archive import runner
 
     monkeypatch.setattr(runner, "load_config", lambda path=None: CORPUS)
     monkeypatch.setattr(runner, "init_gcs", lambda config: _context())
@@ -312,7 +312,7 @@ def test_archive_delete_is_noop_when_source_prefix_missing(monkeypatch):
 
 
 def test_archive_check_counts_success_markers(monkeypatch):
-    import dapper.archive.runner as runner
+    from dapper.archive import runner
 
     completed = {
         "gs://pretraining-corpus/dapper/dedup/staged-input/fineweb/_SUCCESS"
@@ -332,7 +332,7 @@ def test_archive_check_counts_success_markers(monkeypatch):
 
 
 def test_archive_check_accepts_source_subset(monkeypatch):
-    import dapper.archive.runner as runner
+    from dapper.archive import runner
 
     monkeypatch.setattr(runner, "load_config", lambda path=None: CORPUS)
     monkeypatch.setattr(runner, "init_gcs", lambda config: _context())
@@ -507,7 +507,7 @@ def test_bytes_are_decoded_lossily_rather_than_dropped():
     """A mangled character beats discarding the document."""
     from dapper.archive.ingest import _json_line
 
-    line = _json_line({"b": "café".encode("utf-8"), "bad": b"\xff\xfe"})
+    line = _json_line({"b": "café".encode(), "bad": b"\xff\xfe"})
     assert "café" in line
     assert '"bad"' in line
 

@@ -173,7 +173,7 @@ def test_repeated_failure_at_the_same_point_does_exhaust_the_budget(monkeypatch)
 def test_hf_timeout_is_raised_above_the_ten_second_default():
     """10s is aggressive for a large shard; usgpo died on exactly that."""
     configure_hf_timeouts()
-    import huggingface_hub.constants as constants
+    from huggingface_hub import constants
 
     assert constants.HF_HUB_DOWNLOAD_TIMEOUT >= DEFAULT_HF_TIMEOUT
     assert DEFAULT_HF_TIMEOUT > 10

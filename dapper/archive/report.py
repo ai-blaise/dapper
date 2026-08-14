@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from rich import box
 from rich.console import Group
@@ -12,6 +12,10 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from dapper.archive.catalog import is_supported
+from dapper.archive.ingest import IngestReport
+from dapper.corpus.gcs import GcsContext
+from dapper.dedup.config import SourceConfig
 from utils.display import (
     ACCENT,
     BAD,
@@ -25,11 +29,6 @@ from utils.display import (
     kv_table,
     title,
 )
-
-from dapper.archive.catalog import is_supported
-from dapper.archive.ingest import IngestReport
-from dapper.corpus.gcs import GcsContext
-from dapper.dedup.config import SourceConfig
 
 
 @dataclass(frozen=True)

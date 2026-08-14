@@ -11,19 +11,21 @@ Supports two modes:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
+from dapper.parser.cli import process_record
 from dapper.tui.data_loader import (
+    FieldMapping,
     export_records,
     get_field_mapping,
-    FieldMapping,
 )
 from dapper.tui.keybindings import PAGE_BINDINGS, SINGLE_PANE_BINDINGS
 from dapper.tui.mixins import (
@@ -32,7 +34,9 @@ from dapper.tui.mixins import (
     RecordTableMixin,
     VimNavigationMixin,
 )
-from dapper.parser.cli import process_record
+
+if TYPE_CHECKING:
+    from dapper.tui.app import ExportingScreen
 
 
 class RecordListScreen(
@@ -202,7 +206,7 @@ class RecordListScreen(
         """Update the page status bar."""
         try:
             status = self.query_one("#page-status", Static)
-        except Exception:
+        except NoMatches:
             return
         start, end = self._record_page_bounds(self._page, self._total_count)
         total = self._total_count or 0
@@ -270,7 +274,7 @@ class RecordListScreen(
         self._run_export_all_records(exporting_screen)
 
     @work(thread=True)
-    def _run_export_all_records(self, exporting_screen: "ExportingScreen") -> None:
+    def _run_export_all_records(self, exporting_screen: ExportingScreen) -> None:
         """Run the export in a background thread."""
         output_dir = self._get_output_dir()
         total_records = len(self._records)

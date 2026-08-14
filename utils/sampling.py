@@ -9,13 +9,12 @@ Principles:
 import os
 import random
 import tempfile
-from pathlib import Path
-from typing import Any, Iterator, TypeVar
-
-T = TypeVar("T")
+from collections.abc import Iterator
 
 
-def reservoir_sample(iterator: Iterator[T], k: int, seed: int | None = None) -> list[T]:
+def reservoir_sample[T](
+    iterator: Iterator[T], k: int, seed: int | None = None
+) -> list[T]:
     """Reservoir sampling - get k random items from stream using Algorithm R.
 
     Memory: O(k) instead of O(n)
@@ -60,21 +59,21 @@ def shuffle_file_streaming(
     if seed is not None:
         random.seed(seed)
 
-    with open(input_path, "r", encoding="utf-8") as infile:
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, encoding="utf-8"
-        ) as tmp:
-            tmp_path = tmp.name
-            chunk: list[str] = []
-            for line in infile:
-                chunk.append(line)
-                if len(chunk) >= buffer_size:
-                    random.shuffle(chunk)
-                    tmp.writelines(chunk)
-                    chunk = []
-            if chunk:
+    with (
+        open(input_path, "r", encoding="utf-8") as infile,
+        tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as tmp,
+    ):
+        tmp_path = tmp.name
+        chunk: list[str] = []
+        for line in infile:
+            chunk.append(line)
+            if len(chunk) >= buffer_size:
                 random.shuffle(chunk)
                 tmp.writelines(chunk)
+                chunk = []
+        if chunk:
+            random.shuffle(chunk)
+            tmp.writelines(chunk)
 
     # Second pass: shuffle chunk order
     with open(tmp_path, "r", encoding="utf-8") as tmp_in:

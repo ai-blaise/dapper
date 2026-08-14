@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dapper.corpus import io
-from dapper.dedup.config import DedupConfig
 from dapper.corpus.gcs import bucket_root
+from dapper.dedup.config import DedupConfig
 
 
 @dataclass(frozen=True)

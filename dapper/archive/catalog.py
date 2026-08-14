@@ -13,8 +13,8 @@ silently change what a re-run archived.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from difflib import get_close_matches
-from typing import Iterable
 
 from dapper.dedup.config import DedupConfig, SourceConfig
 

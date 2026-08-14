@@ -13,6 +13,14 @@ import argparse
 from rich.markup import escape as _e
 from rich.table import Table
 
+from dapper.config import load_optional_config
+from dapper.mix.mixer import mix
+from dapper.schema import (
+    DEFAULT_SCHEMA,
+    add_schema_argument,
+    resolve_schema,
+    schema_from_config,
+)
 from utils.display import (
     ACCENT,
     BORDER,
@@ -23,11 +31,6 @@ from utils.display import (
     console,
     panel,
 )
-
-from dapper.config import load_optional_config
-from dapper.schema import DEFAULT_SCHEMA, add_schema_argument, resolve_schema
-from dapper.schema import schema_from_config
-from dapper.mix.mixer import mix
 
 
 def main(argv: list[str] | None = None) -> None:

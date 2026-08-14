@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Dataset Explorer
 
@@ -21,16 +20,17 @@ import argparse
 import json
 import re
 import sys
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
 
 from utils.detect import detect_format
+from utils.display import BORDER, GOOD, HEADING, MUTED, console, header_panel, panel
 from utils.loader import load_records as _load_records
 from utils.normalize import normalize_record
-from utils.display import BORDER, GOOD, HEADING, MUTED, console, header_panel, panel
 
 
 def iter_normalized_records(filename: str, input_format: str = "auto") -> Iterator[dict]:

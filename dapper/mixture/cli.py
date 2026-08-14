@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import sys
-from typing import Sequence
+from collections.abc import Sequence
 
 from utils.display import console, err_console
 
@@ -24,10 +23,10 @@ def mixture_main(argv: Sequence[str] | None = None) -> None:
     # dapper.dedup.config must be imported before dapper.corpus.gcs: gcs
     # imports dedup.config, whose package __init__ reaches dedup.stage, which
     # imports back into gcs. Importing the dedup side first resolves it.
-    from dapper.dedup.config import parse_dedup_config
     from dapper.config import ConfigError, load_config
     from dapper.corpus import io
     from dapper.corpus.gcs import GcsError, init_gcs
+    from dapper.dedup.config import parse_dedup_config
     from dapper.mixture.check import check_mixture
     from dapper.mixture.config import MixtureError, load_mixture
     from dapper.mixture.report import format_check

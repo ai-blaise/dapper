@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import pytest
 
 from dapper.corpus import io
 from utils.detect import (
-    detect_format,
     EXTENSION_MAP,
     SUPPORTED_FORMATS,
+    detect_format,
     discover_data_entries,
     discover_data_files,
     format_file_size,

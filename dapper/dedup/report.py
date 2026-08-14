@@ -4,13 +4,21 @@ from __future__ import annotations
 
 from rich.markup import escape as _e
 
-from utils.display import ACCENT, BAD, GOOD, MUTED, WARN, console, header_panel, kv_table
-
-from dapper.dedup.schema_inspect import SchemaInspection
+from dapper.dedup.datatrove import DataTroveDedupReport
 from dapper.dedup.exact import ExactDedupReport
 from dapper.dedup.normalize import NormalizeReport
-from dapper.dedup.datatrove import DataTroveDedupReport
+from dapper.dedup.schema_inspect import SchemaInspection
 from dapper.dedup.stage import GcsStagePlan
+from utils.display import (
+    ACCENT,
+    BAD,
+    GOOD,
+    MUTED,
+    WARN,
+    console,
+    header_panel,
+    kv_table,
+)
 
 
 def format_dry_run_report(
@@ -30,7 +38,7 @@ def format_dry_run_report(
             for inspection in inspections:
                 status_color = BAD if inspection.error else GOOD
                 console.print(
-                    f"[{ACCENT}]{_e(inspection.source_name)}[/{ACCENT}]  "
+                    f"Dataset: [{ACCENT}]{_e(inspection.source_name)}[/{ACCENT}]  "
                     f"status: [{status_color}]{_e(inspection.status)}[/{status_color}]"
                 )
                 console.print(f"  Sample records: {inspection.sample_records:,}")
@@ -41,11 +49,11 @@ def format_dry_run_report(
                     fields = ", ".join(inspection.fields) if inspection.fields else "none"
                     console.print(f"  Detected fields: {fields}")
                     console.print(
-                        "  Text field: "
+                        "  Detected text field: "
                         f"[{GOOD if inspection.text_field else MUTED}]{_e(inspection.text_field or 'missing')}[/{GOOD if inspection.text_field else MUTED}]"
                     )
                     console.print(
-                        "  ID field: "
+                        "  Detected id field: "
                         f"[{GOOD if inspection.id_field else MUTED}]{_e(inspection.id_field or 'missing')}[/{GOOD if inspection.id_field else MUTED}]"
                     )
                     console.print(

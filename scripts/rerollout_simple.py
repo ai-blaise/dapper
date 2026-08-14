@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Generate before/after rerollout comparison"""
 import json
+
 import requests
 
 API = "http://localhost:30000/v1/chat/completions"

@@ -17,16 +17,17 @@ or wrap a whole block in :func:`capture` to build a report as a string.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+import sys
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-console = Console(force_terminal=True, highlight=False)
+console = Console(highlight=False, width=None if sys.stdout.isatty() else 240)
 err_console = Console(stderr=True)
 
 # The visual vocabulary. Retune the whole CLI from this one place.
@@ -92,13 +93,25 @@ def kv_table(
     label_style: str = MUTED,
     value_style: str = ACCENT,
 ) -> Table:
-    """A borderless label/value grid: dim label on the left, value on the right."""
-    table = Table(show_header=False, show_edge=False, box=None, padding=(0, 1))
-    table.add_column(style=label_style)
-    table.add_column(style=value_style)
+    """A stable ``label: value`` list with independently styled text."""
+    table = Table(show_header=False, show_edge=False, box=None, padding=0)
+    table.add_column()
     for label, value in rows:
-        table.add_row(f"{label}:", str(value))
+        line = Text()
+        line.append(f"{label}: ", style=label_style)
+        line.append_text(Text.from_markup(str(value), style=value_style))
+        table.add_row(line)
     return table
+
+
+def format_bytes(value: float) -> str:
+    """Format a byte count with a compact binary unit."""
+    amount = float(value)
+    for suffix in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if abs(amount) < 1024 or suffix == "TiB":
+            return f"{amount:.1f}{suffix}"
+        amount /= 1024
+    raise AssertionError("unreachable")
 
 
 def data_table(

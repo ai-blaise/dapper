@@ -98,7 +98,6 @@ def normalize_pretraining_record(
     """
     if inspection is None:
         inspection = inspect_records(source, [record], config)
-    text_field = inspection.text_field
     id_field = inspection.id_field
     url_field = inspection.url_field
     token_count_field = inspection.token_count_field

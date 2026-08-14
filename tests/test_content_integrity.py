@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import copy
-import json
 from pathlib import Path
-from typing import Any
 
 import pytest
 
-from dapper.parser.cli import process_messages, process_record, load_jsonl
+from dapper.parser.cli import load_jsonl, process_messages, process_record
 
 
 class TestContentIntegrity:

@@ -7,22 +7,23 @@ transforms, and writes a schema-enforced Parquet output.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from utils.detect import EXTENSION_MAP
-from utils.loader import load_records
-from utils.streaming import records_to_batch
-from dapper.mix.adapters import detect_adapter
-from dapper.mix.schema import OUTPUT_SCHEMA
-from utils import get_existing_record_count, stream_file
 from dapper.dedup.config import SourceConfig, parse_dedup_config
 from dapper.dedup.normalize import normalize_pretraining_record
 from dapper.dedup.schema import PRETRAINING_ARROW_SCHEMA
+from dapper.mix.adapters import detect_adapter
+from dapper.mix.schema import OUTPUT_SCHEMA
 from dapper.schema import DEFAULT_SCHEMA, resolve_schema
+from utils import get_existing_record_count, stream_file
+from utils.detect import EXTENSION_MAP
+from utils.loader import load_records
+from utils.streaming import records_to_batch
 
 
 def discover_files(input_dir: str) -> list[dict[str, str]]:
@@ -145,10 +146,9 @@ def stream_all(
                     adapter = detect_adapter(file_info["path"])
                 except ValueError:
                     continue
-                for record in adapter.stream(
-                    file_info["path"], file_info["source_dataset"]
-                ):
-                    tool_calling_records.append(record)
+                tool_calling_records.extend(
+                    adapter.stream(file_info["path"], file_info["source_dataset"])
+                )
             else:
                 other_file_list.append(file_info)
 
@@ -262,7 +262,6 @@ def mix(
 
     # Streaming write mode - process files one at a time
     writer: pq.ParquetWriter | None = None
-    output_exists = Path(output_path).exists()
 
     try:
         for file_info in file_list:

@@ -14,7 +14,6 @@ from textual.message import Message
 from textual.widgets import Tree
 from textual.widgets.tree import TreeNode
 
-
 # Maximum depth for recursive tree operations to prevent stack overflow
 MAX_TREE_DEPTH = 100
 

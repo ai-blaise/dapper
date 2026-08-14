@@ -5,6 +5,10 @@ Status: IMPLEMENTED. Approved by @architect; shipped in `dapper/tokenize/`
 Supersedes the "Output format" section of [tokenize.md](tokenize.md).
 Supersedes the `Partitioning` / `Mixture` / `Shard format` rows of
 [curriculum-vertical.md](curriculum-vertical.md) — see "Reconciliation".
+The later [FineWeb token clustering and packing spec](fineweb-token-cluster-pack.md)
+defines a separate path: cluster staged raw text first, then tokenize and pack
+cluster-local text directly. It writes fixed-context sequences to a separate
+run-scoped namespace and does not reinterpret these document-bin artifacts.
 
 ## Shape
 

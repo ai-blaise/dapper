@@ -7,14 +7,13 @@ import tarfile
 
 import pytest
 
-from dapper.dedup.config import parse_dedup_config  # before corpus.gcs: cycle
 from dapper.mixture.check import check_mixture
 from dapper.mixture.config import MixtureError, parse_mixture
 
 pytest.importorskip("datatrove")
 
-from dapper.tokenize.manifest import build_manifest, merge_partials  # noqa: E402
-from dapper.tokenize.shards import Shuffler, TarShardWriter  # noqa: E402
+from dapper.tokenize.manifest import build_manifest, merge_partials
+from dapper.tokenize.shards import Shuffler, TarShardWriter
 
 
 class _Doc:

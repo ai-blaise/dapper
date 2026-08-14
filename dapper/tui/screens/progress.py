@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Center, Middle
+from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
@@ -55,14 +56,13 @@ class ProgressScreen(Screen):
     def compose(self) -> ComposeResult:
         """Compose the progress screen layout."""
         yield Header()
-        with Center():
-            with Middle(
-                id=self._get_container_id(),
-                classes="progress-container",
-            ):
-                yield Static(self._title_text, id="progress-title", classes="progress-title")
-                yield Static(self._status_text, id="progress-status", classes="progress-status")
-                yield Static(self._detail_text, id="progress-detail", classes="progress-detail")
+        with Center(), Middle(
+            id=self._get_container_id(),
+            classes="progress-container",
+        ):
+            yield Static(self._title_text, id="progress-title", classes="progress-title")
+            yield Static(self._status_text, id="progress-status", classes="progress-status")
+            yield Static(self._detail_text, id="progress-detail", classes="progress-detail")
         yield Footer()
 
     def _get_container_id(self) -> str:
@@ -72,7 +72,6 @@ class ProgressScreen(Screen):
     def on_mount(self) -> None:
         """Apply dynamic styles on mount."""
         # Styles are defined in CSS; subclasses override via CSS
-        pass
 
     def update_status(self, status: str) -> None:
         """Update the main status message.
@@ -83,7 +82,7 @@ class ProgressScreen(Screen):
         self._status_text = status
         try:
             self.query_one("#progress-status", Static).update(status)
-        except Exception:
+        except NoMatches:
             pass
 
     def update_detail(self, detail: str) -> None:
@@ -95,7 +94,7 @@ class ProgressScreen(Screen):
         self._detail_text = detail
         try:
             self.query_one("#progress-detail", Static).update(detail)
-        except Exception:
+        except NoMatches:
             pass
 
     def update_progress(self, current: int, total: int | None = None, item: str = "") -> None:
@@ -124,7 +123,7 @@ class ProgressScreen(Screen):
         """
         try:
             self.query_one("#progress-title", Static).update("Complete")
-        except Exception:
+        except NoMatches:
             pass
         self.update_status(message)
         self.update_detail(detail)
@@ -138,7 +137,7 @@ class ProgressScreen(Screen):
         """
         try:
             self.query_one("#progress-title", Static).update("Error")
-        except Exception:
+        except NoMatches:
             pass
         self.update_status(message)
         self.update_detail(detail)

@@ -12,8 +12,6 @@ Usage:
 """
 
 import json
-import sys
-from pathlib import Path
 from typing import Any
 
 import click
@@ -83,34 +81,41 @@ def filter_evals(
                 passed = True
 
                 # Filter: exclude errors
-                if exclude_errors:
-                    if record.get("has_error", 0) == 1.0:
-                        stats["excluded_by_error"] += 1
-                        passed = False
+                if exclude_errors and record.get("has_error", 0) == 1.0:
+                    stats["excluded_by_error"] += 1
+                    passed = False
 
                 # Filter: min turns
-                if passed and min_turns is not None:
-                    if record.get("num_turns", 0) < min_turns:
-                        stats["excluded_by_min_turns"] += 1
-                        passed = False
+                if (
+                    passed
+                    and min_turns is not None
+                    and record.get("num_turns", 0) < min_turns
+                ):
+                    stats["excluded_by_min_turns"] += 1
+                    passed = False
 
                 # Filter: max turns
-                if passed and max_turns is not None:
-                    if record.get("num_turns", 0) > max_turns:
-                        stats["excluded_by_max_turns"] += 1
-                        passed = False
+                if (
+                    passed
+                    and max_turns is not None
+                    and record.get("num_turns", 0) > max_turns
+                ):
+                    stats["excluded_by_max_turns"] += 1
+                    passed = False
 
                 # Filter: model
-                if passed and model is not None:
-                    if record.get("model") != model:
-                        stats["excluded_by_model"] += 1
-                        passed = False
+                if passed and model is not None and record.get("model") != model:
+                    stats["excluded_by_model"] += 1
+                    passed = False
 
                 # Filter: example_id
-                if passed and example_id is not None:
-                    if record.get("example_id") != example_id:
-                        stats["excluded_by_example_id"] += 1
-                        passed = False
+                if (
+                    passed
+                    and example_id is not None
+                    and record.get("example_id") != example_id
+                ):
+                    stats["excluded_by_example_id"] += 1
+                    passed = False
 
                 if passed:
                     stats["passed"] += 1

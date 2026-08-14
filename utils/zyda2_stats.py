@@ -7,9 +7,9 @@ import json
 import sys
 import threading
 from collections import defaultdict
+from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
-from typing import Callable, Iterable, Sequence
 
 DEFAULT_REPO = "Zyphra/Zyda-2"
 DEFAULT_WORKERS = 8

@@ -12,7 +12,8 @@ Provides a reusable pattern for:
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Callable, Iterator
+from collections.abc import Callable, Iterator
+from typing import TYPE_CHECKING, Any
 
 from textual import work
 
@@ -83,7 +84,7 @@ class BackgroundTaskMixin:
     @work(thread=True)
     def _run_loading_worker(
         self,
-        screen: "ProgressScreen",
+        screen: ProgressScreen,
         load_fn: Callable[[], Iterator[dict[str, Any]]],
         on_complete: Callable[[list[dict[str, Any]]], None],
         on_error: Callable[[str], None] | None,
@@ -155,7 +156,7 @@ class BackgroundTaskMixin:
     @work(thread=True)
     def _run_export_worker(
         self,
-        screen: "ProgressScreen",
+        screen: ProgressScreen,
         items: list[Any],
         export_fn: Callable[[Any], None],
         on_complete: Callable[[int], None] | None,
@@ -237,7 +238,7 @@ class BackgroundTaskMixin:
     @work(thread=True)
     def _run_processing_worker(
         self,
-        screen: "ProgressScreen",
+        screen: ProgressScreen,
         items: list[Any],
         process_fn: Callable[[Any], Any],
         on_complete: Callable[[list[Any]], None],

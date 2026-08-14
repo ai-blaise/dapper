@@ -17,10 +17,10 @@ from enum import Enum
 from typing import Any
 
 from textual.app import App
+from textual.css.query import NoMatches
 
 from dapper.config import ConfigError, load_config
 from dapper.corpus import io
-from utils.detect import detect_format, discover_data_entries
 from dapper.tui.data_loader import (
     get_record_count,
     load_all_records,
@@ -29,7 +29,6 @@ from dapper.tui.data_loader import (
 )
 from dapper.tui.keybindings import GLOBAL_BINDINGS
 from dapper.tui.mixins import BackgroundTaskMixin
-from dapper.tui.screens import ExportingScreen, LoadingScreen
 from dapper.tui.views.comparison_screen import ComparisonScreen
 from dapper.tui.views.file_list import FileListScreen
 from dapper.tui.views.record_detail import RecordDetailScreen
@@ -39,6 +38,7 @@ from dapper.tui.widgets.json_tree_panel import JsonTreePanel
 
 # Import config module for theme management
 from utils.config import get_app_theme, get_syntax_theme
+from utils.detect import detect_format, discover_data_entries
 
 
 class AppMode(Enum):
@@ -319,7 +319,7 @@ class JsonComparisonApp(BackgroundTaskMixin, App):
                 if tree.display:
                     tree.emit_node_selected()
                     return
-        except Exception:
+        except NoMatches:
             pass
 
     def action_change_app_theme(self, theme_name: str | None = None) -> None:

@@ -31,9 +31,12 @@ def normalize_record(
         normalized["messages"] = normalized.pop("conversations")
 
     # For parquet files, use trial_name as uuid fallback
-    if source_format == "parquet" and "uuid" not in normalized:
-        if "trial_name" in normalized:
-            normalized["uuid"] = normalized["trial_name"]
+    if (
+        source_format == "parquet"
+        and "uuid" not in normalized
+        and "trial_name" in normalized
+    ):
+        normalized["uuid"] = normalized["trial_name"]
 
     # Ensure required fields exist with defaults
     normalized.setdefault("uuid", None)
@@ -49,9 +52,12 @@ def denormalize_record(record: dict[str, Any], target_format: str) -> dict[str, 
     """Convert normalized record back to format-specific schema."""
     denormalized = record.copy()
 
-    if target_format == "parquet":
-        if "messages" in denormalized and "conversations" not in denormalized:
-            denormalized["conversations"] = denormalized.pop("messages")
+    if (
+        target_format == "parquet"
+        and "messages" in denormalized
+        and "conversations" not in denormalized
+    ):
+        denormalized["conversations"] = denormalized.pop("messages")
 
     return denormalized
 

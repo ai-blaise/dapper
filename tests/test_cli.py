@@ -3,13 +3,9 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
-
-import pytest
 
 # Path to the parser module.
 PARSER_MODULE = "dapper.parser.cli"
@@ -26,7 +22,8 @@ def run_parser(*args: str, input_file: str | None = None) -> subprocess.Complete
         cmd,
         capture_output=True,
         text=True,
-        cwd=Path(__file__).parent.parent
+        cwd=Path(__file__).parent.parent,
+        check=False,
     )
 
 
@@ -45,7 +42,8 @@ class TestCLIBasic:
             [sys.executable, "-m", PARSER_MODULE],
             capture_output=True,
             text=True,
-            cwd=Path(__file__).parent.parent
+            cwd=Path(__file__).parent.parent,
+            check=False,
         )
         assert result.returncode != 0
 

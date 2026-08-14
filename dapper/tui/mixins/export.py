@@ -25,7 +25,8 @@ Usage:
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from textual import work
 
@@ -67,7 +68,7 @@ class ExportMixin:
     @work(thread=True)
     def _run_export(
         self,
-        exporting_screen: "ExportingScreen",
+        exporting_screen: ExportingScreen,
         items: list[str],
         export_fn: Callable[[str], None],
         *,
@@ -102,7 +103,7 @@ class ExportMixin:
 
     def _export_files(
         self,
-        exporting_screen: "ExportingScreen",
+        exporting_screen: ExportingScreen,
         files: list[str],
         export_fn: Callable[[str], None],
     ) -> None:

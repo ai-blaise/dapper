@@ -1,14 +1,8 @@
-"""Tests for data_splitter module."""
-
-import sys
-from pathlib import Path
+"""Tests for the supported data splitting API."""
 
 import pytest
 
-# Add scripts to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from data_splitter import get_part_bounds, split_file, recombine_parts
+from dapper.split.cli import get_part_bounds, recombine_parts, split_file
 
 
 def test_even_split():

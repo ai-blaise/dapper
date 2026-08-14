@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import sys
 from collections.abc import Callable, Sequence
 
@@ -171,6 +170,18 @@ def _run_tokenize(argv: Sequence[str] | None) -> None:
     tokenize_main(argv)
 
 
+def _run_cluster(argv: Sequence[str] | None) -> None:
+    from dapper.cluster.cli import cluster_main
+
+    cluster_main(argv)
+
+
+def _run_ray(argv: Sequence[str] | None) -> None:
+    from dapper.ray.cli import ray_main
+
+    ray_main(argv)
+
+
 def _run_mixture(argv: Sequence[str] | None) -> None:
     from dapper.mixture.cli import mixture_main
 
@@ -212,6 +223,8 @@ COMMANDS: dict[str, tuple[str, CommandMain]] = {
     "archive": ("Stream the HuggingFace catalog into GCS", _run_archive),
     "catalog": ("Inspect the HuggingFace source catalog", _run_catalog),
     "dedup": ("Inspect and deduplicate datasets", _run_dedup),
+    "cluster": ("Cluster staged FineWeb raw text for related-document packing", _run_cluster),
+    "ray": ("Start and inspect the configured Ray cluster", _run_ray),
     "tokenize": ("Tokenize a text corpus into binned WebDataset shards", _run_tokenize),
     "mixture": ("Check a target mixture against the token manifest", _run_mixture),
     "run": ("Archive, dedup, then tokenize in one sweep", _run_sweep),

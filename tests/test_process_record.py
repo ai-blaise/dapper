@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from dapper.parser.cli import process_record
 
 

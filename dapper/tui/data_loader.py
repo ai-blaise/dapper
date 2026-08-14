@@ -27,24 +27,26 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any
 
 from dapper.corpus import io
 from utils.detect import detect_format
-from utils.loader import get_record_count as _get_record_count
 from utils.loader import (
     get_record_at_index,
     get_records_range,
+)
+from utils.loader import get_record_count as _get_record_count
+from utils.loader import (
     load_records as _load_records,
 )
 from utils.normalize import normalize_record
 
-
 # Constants for field detection
 UUID_PATTERN = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
 )
 ID_FIELD_NAMES = {
     "uuid",
@@ -78,9 +80,13 @@ def detect_messages_field(record: dict) -> str | None:
     """
     candidates = []
     for key, val in record.items():
-        if isinstance(val, list) and val and isinstance(val[0], dict):
-            if "role" in val[0] or "content" in val[0]:
-                candidates.append((key, len(val)))
+        if (
+            isinstance(val, list)
+            and val
+            and isinstance(val[0], dict)
+            and ("role" in val[0] or "content" in val[0])
+        ):
+            candidates.append((key, len(val)))
     if not candidates:
         return None
     return max(candidates, key=lambda x: x[1])[0]
@@ -140,9 +146,13 @@ def detect_tools_field(record: dict) -> str | None:
     """
     candidates = []
     for key, val in record.items():
-        if isinstance(val, list) and val and isinstance(val[0], dict):
-            if "function" in val[0] or "name" in val[0]:
-                candidates.append((key, len(val)))
+        if (
+            isinstance(val, list)
+            and val
+            and isinstance(val[0], dict)
+            and ("function" in val[0] or "name" in val[0])
+        ):
+            candidates.append((key, len(val)))
     if not candidates:
         return None
     return max(candidates, key=lambda x: x[1])[0]
@@ -724,8 +734,7 @@ def export_records(
         if format == "json":
             json.dump(records, f, indent=2, ensure_ascii=False)
         else:  # jsonl
-            for record in records:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            f.writelines(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
 
     return str(output_path)
 

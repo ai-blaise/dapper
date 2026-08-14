@@ -7,7 +7,7 @@ in a split-screen view with synchronized navigation.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from textual import work
 from textual.app import ComposeResult
@@ -17,17 +17,20 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
 from dapper.tui.data_loader import (
+    FieldMapping,
     detect_messages_field,
     export_records,
-    FieldMapping,
     get_field_mapping,
     load_record_pair,
 )
 from dapper.tui.keybindings import DUAL_PANE_BINDINGS, TREE_BINDINGS
 from dapper.tui.mixins import DualPaneMixin, ExportMixin, VimNavigationMixin
-from dapper.tui.widgets.field_detail_modal import FieldDetailModal
 from dapper.tui.widgets.diff_indicator import calculate_diff
+from dapper.tui.widgets.field_detail_modal import FieldDetailModal
 from dapper.tui.widgets.json_tree_panel import MAX_TREE_DEPTH, JsonTreePanel
+
+if TYPE_CHECKING:
+    from dapper.tui.app import ExportingScreen
 
 
 class ComparisonScreen(ExportMixin, DualPaneMixin, VimNavigationMixin, Screen):
@@ -254,7 +257,7 @@ class ComparisonScreen(ExportMixin, DualPaneMixin, VimNavigationMixin, Screen):
         self._run_export_record(exporting_screen)
 
     @work(thread=True)
-    def _run_export_record(self, exporting_screen: "ExportingScreen") -> None:
+    def _run_export_record(self, exporting_screen: ExportingScreen) -> None:
         """Run the single record export in a background thread."""
         output_dir = self._get_output_dir()
         self.app.call_from_thread(

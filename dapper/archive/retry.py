@@ -13,9 +13,7 @@ everything else propagates immediately.
 from __future__ import annotations
 
 import time
-from typing import Callable, Iterator, TypeVar
-
-T = TypeVar("T")
+from collections.abc import Callable, Iterator
 
 # HuggingFace defaults to 10s, which is aggressive for a large shard on a busy
 # CDN. Raising it converts many would-be retries into a single slow success.
@@ -63,13 +61,13 @@ def configure_hf_timeouts(seconds: int = DEFAULT_HF_TIMEOUT) -> None:
     os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", str(seconds))
     os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", str(seconds))
     try:
-        import huggingface_hub.constants as constants
+        from huggingface_hub import constants
 
         constants.HF_HUB_DOWNLOAD_TIMEOUT = seconds
         constants.HF_HUB_ETAG_TIMEOUT = seconds
         constants.DEFAULT_DOWNLOAD_TIMEOUT = seconds
         constants.DEFAULT_ETAG_TIMEOUT = seconds
-    except Exception:
+    except (ImportError, AttributeError):
         # A renamed constant in a future version must not stop a run; the env
         # vars above still apply to any subsequent import.
         pass
@@ -100,7 +98,7 @@ def is_transient(exc: BaseException) -> bool:
     return False
 
 
-def with_retries(
+def with_retries[T](
     operation: Callable[[], T],
     *,
     attempts: int = DEFAULT_ATTEMPTS,
@@ -127,7 +125,7 @@ def with_retries(
     raise AssertionError("unreachable: loop either returns or raises")
 
 
-def retrying_iter(
+def retrying_iter[T](
     make_iterator: Callable[[int], Iterator[T]],
     *,
     attempts: int = DEFAULT_ATTEMPTS,

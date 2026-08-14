@@ -6,6 +6,9 @@ import json
 
 import pytest
 
+from dapper.corpus.gcs import GcsError, bucket_root, init_gcs
+from dapper.corpus.io import is_remote_uri
+from dapper.corpus.io import join as remote_join
 from dapper.dedup.config import (
     DEFAULT_LEN_BINS,
     DEFAULT_TOKENIZER,
@@ -14,10 +17,12 @@ from dapper.dedup.config import (
     assign_len_bucket,
     parse_dedup_config,
 )
-from dapper.corpus.gcs import GcsError, bucket_root, init_gcs
-from dapper.corpus.io import is_remote_uri
-from dapper.corpus.io import join as remote_join
-from dapper.dedup.manifest import Manifest, build_manifest, read_manifest, write_manifest
+from dapper.dedup.manifest import (
+    Manifest,
+    build_manifest,
+    read_manifest,
+    write_manifest,
+)
 from dapper.dedup.normalize import normalize_pretraining_record
 
 
@@ -279,8 +284,8 @@ def test_ingest_skips_completed_sources(monkeypatch):
 
 
 def test_force_ingest_overrides_completion_marker(monkeypatch):
-    from dapper.corpus import io as corpus_io
     from dapper.archive import ingest as gcp
+    from dapper.corpus import io as corpus_io
 
     source = _hf_source()
     context = init_gcs(_config(), verify=False)
@@ -310,8 +315,8 @@ def test_force_ingest_overrides_completion_marker(monkeypatch):
 
 
 def test_ingest_reports_streaming_progress(monkeypatch):
-    from dapper.corpus import io as corpus_io
     from dapper.archive import ingest as gcp
+    from dapper.corpus import io as corpus_io
 
     source = _hf_source()
     context = init_gcs(_config(), verify=False)
@@ -353,8 +358,8 @@ def test_limited_ingest_does_not_count_as_complete(tmp_path, monkeypatch):
     Otherwise `--ingest --limit 1000` followed by a full `--ingest` skips every
     source, yielding a corpus that reports success with a few thousand records.
     """
-    from dapper.corpus import io as corpus_io
     from dapper.archive import ingest as gcp
+    from dapper.corpus import io as corpus_io
 
     source_uri = str(tmp_path / "fineweb")
 

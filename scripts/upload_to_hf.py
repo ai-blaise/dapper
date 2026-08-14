@@ -10,7 +10,6 @@ Usage:
 Requires: hf auth login (run beforehand)
 """
 
-import os
 import sys
 from pathlib import Path
 

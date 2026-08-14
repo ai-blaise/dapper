@@ -14,6 +14,111 @@ storage:
   # There is no Parquet intermediate and no second regrouping stage.
   tokens_prefix: pretraining/tokens
 
+# Shared by token counting, ordinary tokenization, and clustered packing.
+# Document text is always encoded independently; Dapper inserts the frozen EOS
+# boundary and applies padding masks itself.
+tokenizer:
+  name: zai-org/GLM-5.2
+  add_special_tokens: false
+  boundary:
+    token: eos
+    after_each_document: true
+    include_in_loss: true
+  padding:
+    token: pad
+    label_value: -100
+
+ray:
+  address: auto
+  expected_min_nodes: 2
+  # Display-only aliases. Prefer setting DAPPER_NODE_NAME independently in
+  # each node's Ray service environment (for example: head, worker-01). As a
+  # fallback, map a Ray node ID, node address, or hostname to an alias here.
+  # These values are labels, never credentials.
+  node_names: {}
+  # Internal node addresses stay out of the dashboard unless explicitly enabled.
+  show_node_addresses: false
+  # `dapper ray init` starts Ray on existing GCE VMs. Instance identity is
+  # configuration, not a credential; gcloud/OS Login owns SSH authentication.
+  # Source these two environment variables on the head before running it.
+  bootstrap:
+    provider: gcloud
+    head_name: head
+    head_address: auto
+    port: 6379
+    dashboard_host: 127.0.0.1
+    dashboard_port: 8265
+    # Fixed private ports make the VPC firewall contract auditable.
+    object_manager_port: 8076
+    node_manager_port: 8077
+    ray_client_server_port: 10001
+    min_worker_port: 10002
+    max_worker_port: 10100
+    dashboard_agent_listen_port: 52365
+    dashboard_agent_grpc_port: 52366
+    runtime_env_agent_port: 52367
+    ray_executable: ray
+    use_internal_ip: true
+    startup_timeout_seconds: 120
+    poll_seconds: 1
+    workers:
+      - name: worker-01
+        instance: ${DAPPER_RAY_WORKER_INSTANCE}
+        zone: ${DAPPER_RAY_WORKER_ZONE}
+
+cluster:
+  executor: ray
+  library: sklearn
+  method: minibatch_kmeans
+  logical_clusters: 128
+  sample_documents: 1000000
+  seed: 0
+  features:
+    word:
+      analyzer: word
+      ngram_range: [1, 2]
+      dimensions: 262144
+      weight: 0.8
+    character:
+      analyzer: char_wb
+      ngram_range: [3, 5]
+      dimensions: 131072
+      weight: 0.2
+    normalization: l2
+  fit:
+    batch_size: 8192
+    epochs: 10
+    n_init: auto
+  workers: auto
+  max_workers: null
+  cpus_per_task: 1
+  memory_gb_per_task: 3
+  task_oversubscription: 4
+  physical_shuffle_partitions: auto
+  target_partition_bytes: 1073741824
+
+pack:
+  contexts:
+    8192: 1.0
+  workers: auto
+  max_workers: null
+  cpus_per_task: 1
+  memory_gb_per_task: 4
+  task_oversubscription: 4
+  planner: best_fit
+  seed: 0
+  max_open_packs_per_context: 4096
+  max_documents_per_pack: 32
+  max_same_host_per_pack: 2
+  attention:
+    cross_document: false
+    reset_position_ids: true
+  fallback:
+    - same_physical_partition
+    - same_logical_cluster
+    - global
+    - pad
+
 tokenize:
   # Roll a shard past this many bytes, per task per bin. 250 MiB puts the
   # dominant bin at ~1 shard per task, which is already well sized.
@@ -50,9 +155,6 @@ schemas:
 
 dedup:
   schema: pretraining
-  # Token counts are tokenizer-specific; the hash of this is stamped into the
-  # curriculum manifest so a mismatch is detectable.
-  tokenizer: zai-org/GLM-5.2
   # Inclusive upper bounds. A document of exactly 8192 tokens lands in the 8192
   # bin; 8193 moves up. The final bin is unbounded, so nothing is dropped.
   len_bins: [8192, 65536, 262144]

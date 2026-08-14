@@ -10,10 +10,9 @@ convention), NOT 'messages' (TUI convention).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
-from utils.detect import detect_format
-from utils.loader import load_records
 from dapper.mix.utils import (
     first_list_item,
     json_serialize_if_nested,
@@ -23,6 +22,8 @@ from dapper.mix.utils import (
     parse_conversations,
     record_with_schema_defaults,
 )
+from utils.detect import detect_format
+from utils.loader import load_records
 
 
 class BaseAdapter(ABC):
@@ -56,7 +57,6 @@ class BaseAdapter(ABC):
         Yields:
             Records conforming to OUTPUT_SCHEMA.
         """
-        pass
 
 
 class UnifiedSchemaAdapter(BaseAdapter):
@@ -223,7 +223,7 @@ class NemotronAgenticV2Adapter(BaseAdapter):
     Ignores interactive_agent.jsonl entirely.
     """
 
-    VALID_SUBSETS = {"search", "tool_calling"}
+    VALID_SUBSETS = frozenset({"search", "tool_calling"})
 
     def transform_records(
         self, records: Iterator[dict[str, Any]], source_dataset: str

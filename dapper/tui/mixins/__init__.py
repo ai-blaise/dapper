@@ -12,9 +12,9 @@ from dapper.tui.mixins.record_table import RecordTableMixin
 from dapper.tui.mixins.vim_navigation import VimNavigationMixin
 
 __all__ = [
+    "DEFAULT_PAGE_SIZE",
     "BackgroundTaskMixin",
     "DataTableMixin",
-    "DEFAULT_PAGE_SIZE",
     "DualPaneMixin",
     "ExportMixin",
     "PaginatedRecordsMixin",

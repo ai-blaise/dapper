@@ -76,7 +76,7 @@ def check_mixture(
     results = []
     for bin_target in mixture.bins:
         available_bin = _bin_tokens(bins_data, bin_target.name)
-        needed_bin = int(round(budget * bin_target.share))
+        needed_bin = round(budget * bin_target.share)
         cells = []
         for domain in bin_target.domains:
             if domain.subdomains:
@@ -131,7 +131,7 @@ def _cell(
         domain=domain,
         subdomain=subdomain or "",
         share=share_of_bin,
-        needed=int(round(needed_bin * share_of_bin)),
+        needed=round(needed_bin * share_of_bin),
         available=_cell_tokens(bins_data, bin_name, domain, subdomain),
     )
 

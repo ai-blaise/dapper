@@ -12,7 +12,7 @@ apart is what makes "is this mixture satisfiable?" an answerable question.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from dapper.corpus import io
@@ -72,6 +72,7 @@ def build_manifest(
     shuffle_seed: int | None,
     source: str,
     deduped: bool,
+    tokenizer_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the manifest document."""
     bins, total_docs, total_tokens = merge_partials(partials_uri)
@@ -82,10 +83,11 @@ def build_manifest(
         # Both the name and the resolved hash are stamped: a Hub repo can change
         # under a stable name.
         "tokenizer": tokenizer,
+        "tokenizer_config": tokenizer_config,
         "tokenizer_hash": tokenizer_hash,
         "len_bins": list(len_bins),
         "shuffle_seed": shuffle_seed,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "total_docs": total_docs,
         "total_tokens": total_tokens,
         "bins": bins,

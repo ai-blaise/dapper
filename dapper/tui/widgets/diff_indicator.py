@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # Maximum recursion depth for diff calculation to prevent stack overflow
 MAX_DIFF_DEPTH = 100
 

@@ -33,6 +33,11 @@ dist/
 venv/
 env/
 
+# Local environment and node topology
+.env
+.env.*
+!.env.example
+
 # Testing
 .pytest_cache/
 .tox/

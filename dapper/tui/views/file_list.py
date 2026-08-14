@@ -7,6 +7,8 @@ Select a directory to descend or a file to open the record list view.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -14,11 +16,14 @@ from textual.message import Message
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
-from utils.detect import format_file_size
 from dapper.parser.cli import process_record
 from dapper.tui.data_loader import export_records, load_all_records
 from dapper.tui.keybindings import SINGLE_PANE_BINDINGS
 from dapper.tui.mixins import DataTableMixin, ExportMixin, VimNavigationMixin
+from utils.detect import format_file_size
+
+if TYPE_CHECKING:
+    from dapper.tui.app import ExportingScreen
 
 
 class FileListScreen(ExportMixin, DataTableMixin, VimNavigationMixin, Screen):
@@ -154,10 +159,14 @@ class FileListScreen(ExportMixin, DataTableMixin, VimNavigationMixin, Screen):
         self.app.push_screen(exporting_screen)
 
         # Start the background export
-        self._run_export_all_files(exporting_screen)
+        self._run_export_all_files(exporting_screen, files)
 
     @work(thread=True)
-    def _run_export_all_files(self, exporting_screen: "ExportingScreen") -> None:
+    def _run_export_all_files(
+        self,
+        exporting_screen: ExportingScreen,
+        files: list[dict],
+    ) -> None:
         """Run the export in a background thread."""
         output_dir = self._get_output_dir()
         exported_count = 0

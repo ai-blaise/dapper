@@ -8,27 +8,24 @@ with the TUI components.
 from __future__ import annotations
 
 import json
-import pytest
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 from dapper.tui.data_loader import (
-    detect_messages_field,
-    detect_uuid_field,
-    detect_tools_field,
-    extract_preview,
-    FieldMapping,
     DEFAULT_MAPPING,
-    detect_schema,
-    get_field_mapping,
-    set_schema_cache,
-    load_all_records,
-    get_record_summary,
-    clear_cache,
+    FieldMapping,
     _schema_cache,
+    clear_cache,
+    detect_messages_field,
+    detect_schema,
+    detect_tools_field,
+    detect_uuid_field,
+    extract_preview,
+    get_field_mapping,
+    get_record_summary,
+    load_all_records,
 )
-
 
 # =============================================================================
 # Helper Functions
@@ -38,8 +35,7 @@ from dapper.tui.data_loader import (
 def create_jsonl_file(filepath: Path, records: list[dict[str, Any]]) -> None:
     """Helper to create a JSONL file from records."""
     with open(filepath, "w", encoding="utf-8") as f:
-        for record in records:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        f.writelines(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
 
 
 # =============================================================================

@@ -10,8 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from dapper.dedup.config import DedupConfig, assign_len_bucket
 from dapper.corpus.io import is_remote_uri
+from dapper.dedup.config import DedupConfig
 
 # ``domain`` is substituted from each document's metadata by DataTrove's writer,
 # giving a Hive-style partition layout the curriculum can address by prefix.
