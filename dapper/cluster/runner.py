@@ -16,7 +16,9 @@ from dapper.cluster.features import (
     extract_features_task,
     fit_sample_cutoff,
     fit_model,
+    materialize_fit_sample_task,
     merge_fit_sample,
+    plan_fit_sample_shards,
     quality_sample_cutoff,
     select_fit_sample_task,
 )
@@ -272,6 +274,7 @@ def _run_cluster(
             f"{features_emitted:,} accepted, {pipeline.cluster.logical_clusters:,} required."
         )
     selected_sample = None
+    sample_uris: list[str] | None = None
     model_uri = io.join(run_uri, "model", "metadata.json")
     if io.exists(model_uri):
         with dashboard.stage(
@@ -330,9 +333,48 @@ def _run_cluster(
                     on_progress=report,
                 )
         selected_sample = merge_fit_sample(sample_metrics, sample_limit)
+        desired_sample_shards = min(stage.workers, len(ranks))
+        sample_plans = plan_fit_sample_shards(
+            selected_sample,
+            desired_sample_shards,
+        )
+        with dashboard.stage(
+            "fit-sample-materialize",
+            "Materialize compact KMeans sample",
+            total=len(sample_plans),
+            workers=min(stage.workers, len(sample_plans)),
+        ) as report:
+            materialized_metrics = run_ranked(
+                (
+                    (
+                        output_rank,
+                        (output_rank, selections, run_uri),
+                    )
+                    for output_rank, selections in enumerate(sample_plans)
+                ),
+                materialize_fit_sample_task,
+                run_uri=run_uri,
+                stage="fit-sample-materialize",
+                workers=stage.workers,
+                ray_module=ray_module,
+                cpus_per_task=stage.cpus_per_task,
+                memory_bytes_per_task=stage.memory_bytes_per_task,
+                on_progress=report,
+            )
+        sample_uris = [
+            str(metric["sample_uri"])
+            for metric in sorted(
+                materialized_metrics,
+                key=lambda metric: int(metric["sample_rank"]),
+            )
+        ]
+    fit_threads = max(
+        1,
+        max(int(node.cpu) for node in topology.nodes if node.alive),
+    )
     with dashboard.stage(
         "fit",
-        "Fit 128-cluster model (single owner)",
+        f"Fit 128-cluster model (1 owner · {fit_threads} CPU threads)",
         total=pipeline.cluster.fit_epochs,
     ) as report:
         if not io.exists(model_uri):
@@ -342,6 +384,8 @@ def _run_cluster(
                 pipeline.cluster,
                 on_progress=report,
                 selected=selected_sample,
+                sample_uris=sample_uris,
+                fit_threads=fit_threads,
             )
         else:
             report(pipeline.cluster.fit_epochs, pipeline.cluster.fit_epochs, None)
@@ -556,5 +600,5 @@ def _cluster_versions() -> dict[str, str]:
         "pyarrow",
     }
     result = {key: value for key, value in all_versions.items() if key in relevant}
-    result["cluster_execution"] = "parallel-aggregation-v2"
+    result["cluster_execution"] = "compact-fit-sample-v3"
     return result

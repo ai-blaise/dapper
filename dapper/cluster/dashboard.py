@@ -454,6 +454,9 @@ def _metric_summary(metrics: dict[str, float]) -> str:
         ("documents_considered", "docs"),
         ("sample_documents", "sample"),
         ("sample_candidates", "candidates"),
+        ("sample_rows_materialized", "sample rows"),
+        ("sample_rows_loaded", "rows loaded"),
+        ("sample_shards_loaded", "shards loaded"),
         ("distance_sample_documents", "quality sample"),
         ("ranges_planned", "ranges"),
         ("physical_partitions", "partitions"),
@@ -501,6 +504,8 @@ def _rate_summary(stage: _StageState, elapsed: float, outstanding: int) -> str:
         ("documents_assigned", "doc/s"),
         ("documents_read", "doc/s"),
         ("features_emitted", "doc/s"),
+        ("sample_rows_materialized", "row/s"),
+        ("sample_rows_loaded", "row/s"),
         ("input_bytes", "B/s"),
         ("indexed_bytes", "B/s"),
     )

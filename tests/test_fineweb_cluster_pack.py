@@ -402,7 +402,9 @@ def test_sklearn_feature_fit_and_assignment_canary(tmp_path):
         cluster_distribution,
         extract_features_task,
         fit_model,
+        materialize_fit_sample_task,
         merge_fit_sample,
+        plan_fit_sample_shards,
         select_fit_sample_task,
     )
     from dapper.cluster.ranges import build_input_ranges
@@ -463,8 +465,19 @@ def test_sklearn_feature_fit_and_assignment_canary(tmp_path):
     ]
     selected = merge_fit_sample(candidate_metrics, settings.sample_documents)
     assert len(selected) == 128
+    sample_plans = plan_fit_sample_shards(selected, 2)
+    materialized = [
+        materialize_fit_sample_task(rank, selections, run_uri)
+        for rank, selections in enumerate(sample_plans)
+    ]
+    assert sum(item["sample_rows_materialized"] for item in materialized) == 128
     assert fit_model(
-        run_uri, ranks, settings, selected=selected
+        run_uri,
+        ranks,
+        settings,
+        selected=selected,
+        sample_uris=[str(item["sample_uri"]) for item in materialized],
+        fit_threads=2,
     )["logical_clusters"] == 128
     assignment_metrics = [assign_task(rank, run_uri) for rank in ranks]
     quality = cluster_distribution(

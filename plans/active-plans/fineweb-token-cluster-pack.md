@@ -464,6 +464,12 @@ deterministic oversampling cutoff. The driver merges that bounded candidate
 set into the exact globally smallest sample; it does not rescan every feature
 index on the head.
 
+Ray workers then read each source feature matrix once and materialize only the
+selected rows into compact sparse sample shards. The fitting owner loads those
+shards into memory once, reuses them for every epoch, and explicitly enables
+the CPU threads available on its node. This preserves one deterministic model
+owner without repeating full-corpus GCS reads.
+
 One controlled fitting owner runs scikit-learn MiniBatchKMeans over deterministic
 sparse mini-batches:
 

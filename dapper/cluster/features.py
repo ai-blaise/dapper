@@ -9,6 +9,7 @@ import math
 import unicodedata
 from collections import Counter, defaultdict
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any
 from urllib.parse import urlparse
 
@@ -183,6 +184,66 @@ def merge_fit_sample(
     )
 
 
+def plan_fit_sample_shards(
+    selected: list[tuple[int, str, int, int]], desired_shards: int
+) -> list[list[tuple[int, list[int]]]]:
+    """Group consecutive feature ranks into balanced deterministic sample shards."""
+    by_rank: dict[int, list[tuple[int, int]]] = defaultdict(list)
+    for sample_hash, _document_id, rank, row_index in selected:
+        by_rank[rank].append((sample_hash, row_index))
+    ranked = [
+        (rank, [row_index for _, row_index in sorted(values)])
+        for rank, values in sorted(by_rank.items())
+    ]
+    if not ranked:
+        return []
+    desired = min(max(1, int(desired_shards)), len(ranked))
+    target_rows = math.ceil(len(selected) / desired)
+    plans: list[list[tuple[int, list[int]]]] = []
+    current: list[tuple[int, list[int]]] = []
+    current_rows = 0
+    for rank, row_indices in ranked:
+        if current and current_rows >= target_rows and len(plans) + 1 < desired:
+            plans.append(current)
+            current = []
+            current_rows = 0
+        current.append((rank, row_indices))
+        current_rows += len(row_indices)
+    if current:
+        plans.append(current)
+    return plans
+
+
+def materialize_fit_sample_task(
+    output_rank: int,
+    selections: list[tuple[int, list[int]]],
+    run_uri: str,
+) -> dict[str, Any]:
+    """Read source matrices once and persist only selected sparse rows."""
+    from scipy import sparse
+
+    pieces = []
+    for rank, row_indices in selections:
+        matrix = _read_sparse(io.join(run_uri, "features", f"{rank:05d}.npz"))
+        pieces.append(matrix[row_indices])
+    if not pieces:
+        raise RuntimeError(f"Fit sample shard {output_rank} has no selected rows.")
+    matrix = sparse.vstack(pieces, format="csr")
+    target = io.join(
+        run_uri,
+        "model",
+        "sample-features",
+        f"{output_rank:05d}.npz",
+    )
+    _write_sparse(target, matrix)
+    return {
+        "sample_rank": output_rank,
+        "sample_rows_materialized": int(matrix.shape[0]),
+        "source_feature_ranks": len(selections),
+        "sample_uri": target,
+    }
+
+
 def fit_model(
     run_uri: str,
     ranks: list[int],
@@ -190,11 +251,14 @@ def fit_model(
     on_progress: Callable[[int, int, dict[str, Any] | None], None] | None = None,
     *,
     selected: list[tuple[int, str, int, int]] | None = None,
+    sample_uris: list[str] | None = None,
+    fit_threads: int | None = None,
 ) -> dict[str, Any]:
     """Fit one estimator owner from an order-independent hash sample."""
     import joblib
     import numpy as np
     from sklearn.cluster import MiniBatchKMeans
+    from threadpoolctl import threadpool_limits
 
     limit = settings.sample_documents
     if selected is None:
@@ -216,13 +280,29 @@ def fit_model(
             f"MiniBatchKMeans requires at least {settings.logical_clusters} accepted sample documents; found {len(selected)}."
         )
 
-    # Membership is global and input-order independent. Training consumes that
-    # membership in frozen rank order so only one sparse mini-batch is resident.
+    sample_matrices = None
+    if sample_uris is not None:
+        sample_matrices = []
+        for target in sample_uris:
+            matrix = _read_sparse(target)
+            sample_matrices.append(matrix)
+            if on_progress is not None:
+                on_progress(
+                    0,
+                    settings.fit_epochs,
+                    {
+                        "sample_shards_loaded": 1,
+                        "sample_rows_loaded": int(matrix.shape[0]),
+                    },
+                )
+
     by_rank: dict[int, list[tuple[int, str, int]]] = defaultdict(list)
-    for sample_hash, doc_id, rank, row_index in selected:
-        by_rank[rank].append((sample_hash, doc_id, row_index))
-    for values in by_rank.values():
-        values.sort()
+    if sample_uris is None:
+        # Local fallback: consume selected rows from their original matrices.
+        for sample_hash, doc_id, rank, row_index in selected:
+            by_rank[rank].append((sample_hash, doc_id, row_index))
+        for values in by_rank.values():
+            values.sort()
 
     estimator = MiniBatchKMeans(
         n_clusters=settings.logical_clusters,
@@ -231,20 +311,35 @@ def fit_model(
         random_state=settings.seed,
     )
     batch_size = max(settings.logical_clusters, settings.fit_batch_size)
-    if on_progress is not None:
-        on_progress(0, settings.fit_epochs, None)
-    for epoch in range(settings.fit_epochs):
-        for batch_index, batch in enumerate(_sample_batches(run_uri, by_rank, batch_size)):
-            if batch_index == 0 and batch.shape[0] < settings.logical_clusters:
-                raise RuntimeError("The first fitting batch must contain every logical centroid.")
-            estimator.partial_fit(batch)
-        if on_progress is not None:
-            on_progress(epoch + 1, settings.fit_epochs, None)
-    counts = np.zeros(settings.logical_clusters, dtype=np.int64)
-    for batch in _sample_batches(run_uri, by_rank, batch_size):
-        counts += np.bincount(
-            estimator.predict(batch), minlength=settings.logical_clusters
+
+    def batches():
+        if sample_matrices is not None:
+            return _sample_matrix_batches(sample_matrices, batch_size)
+        return _sample_batches(run_uri, by_rank, batch_size)
+
+    thread_context = (
+        threadpool_limits(
+            limits=max(1, int(fit_threads)),
+            user_api="openmp",
         )
+        if fit_threads is not None
+        else nullcontext()
+    )
+    with thread_context:
+        if on_progress is not None:
+            on_progress(0, settings.fit_epochs, None)
+        for epoch in range(settings.fit_epochs):
+            for batch_index, batch in enumerate(batches()):
+                if batch_index == 0 and batch.shape[0] < settings.logical_clusters:
+                    raise RuntimeError("The first fitting batch must contain every logical centroid.")
+                estimator.partial_fit(batch)
+            if on_progress is not None:
+                on_progress(epoch + 1, settings.fit_epochs, None)
+        counts = np.zeros(settings.logical_clusters, dtype=np.int64)
+        for batch in batches():
+            counts += np.bincount(
+                estimator.predict(batch), minlength=settings.logical_clusters
+            )
     if len(counts) != settings.logical_clusters or np.any(counts == 0):
         empty = np.flatnonzero(counts == 0).tolist()
         raise RuntimeError(f"MiniBatchKMeans produced unusable empty centroids: {empty}.")
@@ -273,6 +368,8 @@ def fit_model(
         "n_init": settings.fit_n_init,
         "inertia": float(estimator.inertia_),
         "n_steps": int(getattr(estimator, "n_steps_", 0)),
+        "fit_threads": fit_threads,
+        "sample_feature_shards": len(sample_uris or []),
         "sklearn_version": sklearn_version,
         "feature_definition": {
             "word": {
@@ -313,6 +410,27 @@ def _sample_batches(
         while offset < selected.shape[0]:
             take = min(batch_size - pending, selected.shape[0] - offset)
             pieces.append(selected[offset : offset + take])
+            pending += take
+            offset += take
+            if pending == batch_size:
+                yield sparse.vstack(pieces, format="csr")
+                pieces = []
+                pending = 0
+    if pieces:
+        yield sparse.vstack(pieces, format="csr")
+
+
+def _sample_matrix_batches(sample_matrices: list[Any], batch_size: int):
+    """Yield bounded batches from compact sample matrices held in owner RAM."""
+    from scipy import sparse
+
+    pieces: list[Any] = []
+    pending = 0
+    for matrix in sample_matrices:
+        offset = 0
+        while offset < matrix.shape[0]:
+            take = min(batch_size - pending, matrix.shape[0] - offset)
+            pieces.append(matrix[offset : offset + take])
             pending += take
             offset += take
             if pending == batch_size:
