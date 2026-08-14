@@ -163,11 +163,20 @@ def build_gcloud_stop_command(
 
 def port_open(address: str, port: int) -> bool:
     """Return whether a TCP endpoint accepts a short local connection."""
+    return port_error(address, port) is None
+
+
+def port_error(address: str, port: int) -> str | None:
+    """Return a safe reason why a TCP endpoint cannot be reached."""
     try:
         with socket.create_connection((address, port), timeout=0.5):
-            return True
-    except OSError:
-        return False
+            return None
+    except ConnectionRefusedError:
+        return "connection refused; component is not listening"
+    except TimeoutError:
+        return "connection timed out; firewall or routing may be blocking traffic"
+    except OSError as exc:
+        return exc.strerror or exc.__class__.__name__
 
 
 def inspect_port_listener(port: int) -> PortListener | None:
@@ -192,6 +201,22 @@ def inspect_port_listener(port: int) -> PortListener | None:
             return None
         return PortListener(connection.pid, name, owned)
     return None
+
+
+def local_ipv4_addresses() -> set[str]:
+    """Return IPv4 addresses currently assigned to local network interfaces."""
+    import psutil
+
+    addresses = {"127.0.0.1"}
+    try:
+        interfaces = psutil.net_if_addrs()
+    except (OSError, psutil.Error):
+        return addresses
+    for entries in interfaces.values():
+        addresses.update(
+            entry.address for entry in entries if entry.family == socket.AF_INET
+        )
+    return addresses
 
 
 def terminate_owned_gcs_listener(listener: PortListener) -> bool:

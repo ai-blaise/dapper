@@ -195,6 +195,19 @@ def test_listener_safety_rejects_non_gcs_and_other_users():
     assert commands.terminate_owned_gcs_listener(
         PortListener(123, "redis-server", True)
     ) is False
+
+
+def test_ray_log_diagnostic_returns_latest_error(tmp_path):
+    from dapper.ray.diagnostics import latest_component_error
+
+    (tmp_path / "raylet.err").write_text(
+        "startup detail\nERROR node manager could not bind port 8077\nstack tail\n",
+        encoding="utf-8",
+    )
+
+    assert latest_component_error("raylet", log_root=tmp_path) == (
+        "ERROR node manager could not bind port 8077"
+    )
     assert commands.terminate_owned_gcs_listener(
         PortListener(123, "gcs_server", False)
     ) is False
@@ -279,6 +292,9 @@ def test_bootstrap_starts_head_and_worker_then_proves_readiness(monkeypatch):
         return subprocess.CompletedProcess(command, 0, "started", "")
 
     monkeypatch.setattr(bootstrap, "_port_open", lambda address, port: False)
+    monkeypatch.setattr(
+        bootstrap, "_verify_advertised_head_ports", lambda config, dashboard: None
+    )
     monkeypatch.setattr(bootstrap, "_require_executable", lambda name, label: None)
     result = start_ray_cluster(
         config,
@@ -314,6 +330,10 @@ def test_bootstrap_replaces_unresponsive_existing_head(monkeypatch):
         return subprocess.CompletedProcess(command, 0, "started", "")
 
     monkeypatch.setattr(bootstrap, "_port_open", lambda address, port: True)
+    monkeypatch.setattr(bootstrap, "_port_error", lambda address, port: None)
+    monkeypatch.setattr(
+        bootstrap, "_local_ipv4_addresses", lambda: {config.head_address}
+    )
     monkeypatch.setattr(shutdown, "port_open", lambda address, port: False)
     monkeypatch.setattr(bootstrap, "_require_executable", lambda name, label: None)
     monkeypatch.setattr(shutdown, "require_executable", lambda name, label: None)
@@ -348,6 +368,32 @@ def test_bootstrap_bounds_new_control_plane_readiness(monkeypatch):
 
     with pytest.raises(RayBootstrapError, match="did not become healthy"):
         start_ray_cluster(config, progress=False, process_runner=runner)
+
+
+def test_advertised_private_ports_fail_before_driver_connect(monkeypatch):
+    from dapper.ray import bootstrap
+    from dapper.ray.dashboard import RayBootstrapDashboard
+    from dapper.ray.errors import RayBootstrapError
+
+    config = _config()
+    dashboard = RayBootstrapDashboard(
+        [("head", "head", "local")], enabled=False
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "_port_error",
+        lambda address, port: (
+            "connection refused; component is not listening"
+            if port == config.node_manager_port
+            else None
+        ),
+    )
+    monkeypatch.setattr(
+        bootstrap, "_local_ipv4_addresses", lambda: {config.head_address}
+    )
+
+    with pytest.raises(RayBootstrapError, match="component is not listening"):
+        bootstrap._verify_advertised_head_ports(config, dashboard)
 
 
 def test_driver_connection_has_hard_deadline():

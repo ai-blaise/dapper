@@ -22,6 +22,12 @@ from dapper.ray.commands import (
     resolve_head_address,
 )
 from dapper.ray.commands import (
+    local_ipv4_addresses as _local_ipv4_addresses,
+)
+from dapper.ray.commands import (
+    port_error as _port_error,
+)
+from dapper.ray.commands import (
     port_open as _port_open,
 )
 from dapper.ray.commands import (
@@ -35,6 +41,7 @@ from dapper.ray.commands import (
 )
 from dapper.ray.config import GcloudWorker, RayBootstrapConfig
 from dapper.ray.dashboard import RayBootstrapDashboard
+from dapper.ray.diagnostics import latest_component_error
 from dapper.ray.errors import RayBootstrapError
 from dapper.ray.probes import (
     node_address as _node_address,
@@ -137,6 +144,7 @@ def start_ray_cluster(
         _ensure_head(resolved, dashboard, process_runner)
         try:
             _wait_for_control_plane(resolved, dashboard, process_runner)
+            _verify_advertised_head_ports(resolved, dashboard)
             if ray_module is None:
                 _configure_native_ray_deadlines(resolved.control_plane_timeout_seconds)
                 ray = _import_ray()
@@ -336,6 +344,66 @@ def _wait_for_control_plane(
         "Ray head process started, but its control plane did not become healthy "
         f"within {config.control_plane_timeout_seconds:g}s: {last_detail}. "
         "Inspect /tmp/ray/session_latest/logs/gcs_server.err on the head."
+    )
+
+
+def _verify_advertised_head_ports(
+    config: RayBootstrapConfig,
+    dashboard: RayBootstrapDashboard,
+) -> None:
+    """Prove Ray can follow GCS advertisements back to the private head IP."""
+    if config.head_address not in _local_ipv4_addresses():
+        dashboard.update_node(
+            config.head_name,
+            phase="Advertised head address is not local",
+            status="failed",
+            detail="resolved address is absent from this VM's interfaces",
+        )
+        raise RayBootstrapError(
+            "Ray's configured head address is not assigned to a local network "
+            "interface. Set ray.bootstrap.head_address to this VM's primary internal IP."
+        )
+    required = (
+        ("GCS control", config.port),
+        ("object manager", config.object_manager_port),
+        ("node manager", config.node_manager_port),
+    )
+    dashboard.update_node(
+        config.head_name,
+        phase="Checking advertised private endpoints",
+        status="checking",
+        detail="verifying local Ray components remain listening",
+    )
+    unavailable = []
+    unavailable_components: set[str] = set()
+    for label, port in required:
+        error = _port_error(config.head_address, port)
+        if error is not None:
+            unavailable.append(f"{label} {port} ({error})")
+            unavailable_components.add(
+                "gcs_server" if port == config.port else "raylet"
+            )
+    if not unavailable:
+        return
+    detail = ", ".join(unavailable)
+    component_errors = [
+        f"{component}: {diagnostic}"
+        for component in sorted(unavailable_components)
+        if (diagnostic := latest_component_error(component)) is not None
+    ]
+    log_detail = " Latest component error: " + " | ".join(component_errors) if component_errors else ""
+    dashboard.update_node(
+        config.head_name,
+        phase="Private Ray endpoints unreachable",
+        status="failed",
+        detail=detail,
+    )
+    raise RayBootstrapError(
+        "Ray is healthy over loopback, but its advertised private endpoints are "
+        f"unreachable from the head: {detail}. GCE permits traffic to a VM's own "
+        "NIC address regardless of VPC firewall rules, so inspect guest firewall "
+        "rules and /tmp/ray/session_latest/logs/{gcs_server,raylet}.err."
+        f"{log_detail}"
     )
 
 
