@@ -487,7 +487,9 @@ per resumable task. The optimized path uses Xet to materialize each file in a
 bounded `/dev/shm` spool, opens it once with PyArrow, converts 65,536-row
 batches with `orjson`, and releases the temporary file immediately. Ray
 reserves four CPUs and four GiB per transfer task by default, avoiding hundreds
-of competing high-performance Xet clients per node. Outputs use deterministic
+of competing high-performance Xet clients per node. Each Ray process is fixed
+to two Xet download streams; the dashboard reports node network RX/TX and RAM
+spool use so transfer saturation is visible. Outputs use deterministic
 `part-<native-rank>.jsonl` names; the final `_SUCCESS` marker is written only
 after every native file has its exact Parquet row count and the frozen GCS
 inventory reconciles. `--ray` requires exactly one source and cannot be

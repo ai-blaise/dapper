@@ -420,7 +420,9 @@ commit-pinned native Parquet URLs, and schedule one URL per Ray task. Each task
 uses Xet to download one pinned file into a bounded RAM-disk spool, opens it
 once, reads large PyArrow batches, serializes canonical rows with orjson, and
 immediately releases the temporary file. This avoids roughly 1,000 remote
-row-group reopens per native shard. Resume skips only tasks whose marker, input
+row-group reopens per native shard. Each Ray process uses bounded Xet
+concurrency rather than per-process high-performance mode, because task fan-out
+already supplies node-level parallelism. Resume skips only tasks whose marker, input
 URI, output, source size, and exact Parquet row count all agree; `_SUCCESS` is
 written after native-shard, record, and object reconciliation. The configured
 `archive_name` isolates full FineWeb from any previous sample archive.

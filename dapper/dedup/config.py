@@ -120,6 +120,7 @@ class DedupConfig:
     hf_ray_cpus_per_task: float
     hf_ray_memory_gb_per_task: float
     hf_ray_max_workers: int | None
+    hf_ray_xet_fixed_download_concurrency: int
     output_dir: str
     datatrove_work_dir: str
     datatrove_n_grams: int
@@ -298,6 +299,9 @@ def parse_dedup_config(
             int(hf["ray_max_workers"])
             if hf.get("ray_max_workers") is not None
             else None
+        ),
+        hf_ray_xet_fixed_download_concurrency=int(
+            hf.get("ray_xet_fixed_download_concurrency", 2)
         ),
         output_dir=str(project.get("output_dir", "outputs")),
         datatrove_work_dir=str(

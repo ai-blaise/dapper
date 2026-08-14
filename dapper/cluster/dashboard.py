@@ -40,6 +40,11 @@ def collect_node_telemetry() -> dict[str, Any]:
     import psutil
 
     memory = psutil.virtual_memory()
+    network = psutil.net_io_counters()
+    try:
+        spool = psutil.disk_usage("/dev/shm")
+    except OSError:
+        spool = None
     try:
         load_1m = float(os.getloadavg()[0])
     except (AttributeError, OSError):
@@ -58,6 +63,10 @@ def collect_node_telemetry() -> dict[str, Any]:
         "memory_available_bytes": int(memory.available),
         "memory_percent": float(memory.percent),
         "load_1m": load_1m,
+        "network_rx_bytes": int(network.bytes_recv),
+        "network_tx_bytes": int(network.bytes_sent),
+        "spool_used_bytes": int(spool.used) if spool is not None else 0,
+        "spool_total_bytes": int(spool.total) if spool is not None else 0,
         "sampled_at": time.time(),
     }
 
@@ -182,6 +191,12 @@ class PipelineDashboard:
                         "memory_available_bytes": available,
                         "memory_percent": 0.0,
                         "load_1m": 0.0,
+                        "network_rx_bytes": 0,
+                        "network_tx_bytes": 0,
+                        "network_rx_bytes_per_second": 0.0,
+                        "network_tx_bytes_per_second": 0.0,
+                        "spool_used_bytes": 0,
+                        "spool_total_bytes": 0,
                         "sampled_at": time.time(),
                     },
                 )
@@ -309,9 +324,11 @@ class PipelineDashboard:
         table.add_column("Health", width=10)
         table.add_column("CPU", justify="right")
         table.add_column("Memory", justify="right")
+        table.add_column("Network", justify="right")
+        table.add_column("RAM spool", justify="right")
         table.add_column("Load", justify="right")
         if self._topology is None:
-            table.add_row("discovering", "…", "—", "—", "—")
+            table.add_row("discovering", "…", "—", "—", "—", "—", "—")
             return table
         now = time.time()
         for node in self._topology.nodes:
@@ -329,11 +346,21 @@ class PipelineDashboard:
             if node.show_address and node.address:
                 name = f"{name} ({node.address})"
             role = "" if name == node.role else f"  [dim]{node.role}[/dim]"
+            receive = float(reading.get("network_rx_bytes_per_second", 0.0))
+            transmit = float(reading.get("network_tx_bytes_per_second", 0.0))
+            spool_used = int(reading.get("spool_used_bytes", 0))
+            spool_total = int(reading.get("spool_total_bytes", 0))
             table.add_row(
                 f"{name}{role}",
                 f"[{health_style}]{health}[/]",
                 f"{cpu:5.1f}% / {node.cpu:g} CPU",
                 f"{format_bytes(used)} / {format_bytes(total)}",
+                f"↓{format_bytes(receive)}/s ↑{format_bytes(transmit)}/s",
+                (
+                    f"{format_bytes(spool_used)} / {format_bytes(spool_total)}"
+                    if spool_total
+                    else "—"
+                ),
                 f"{float(reading.get('load_1m', 0.0)):.2f}",
             )
         return table
@@ -429,6 +456,21 @@ class PipelineDashboard:
                 readings = self._sample_nodes()
                 with self._lock:
                     for reading in readings:
+                        previous = self._telemetry.get(str(reading["node_id"])) or {}
+                        seconds = float(reading["sampled_at"]) - float(
+                            previous.get("sampled_at", reading["sampled_at"])
+                        )
+                        if seconds > 0:
+                            for direction in ("rx", "tx"):
+                                key = f"network_{direction}_bytes"
+                                reading[f"{key}_per_second"] = max(
+                                    0.0,
+                                    (
+                                        float(reading.get(key, 0))
+                                        - float(previous.get(key, reading.get(key, 0)))
+                                    )
+                                    / seconds,
+                                )
                         self._telemetry[str(reading["node_id"])] = reading
             except Exception:  # noqa: BLE001
                 # Telemetry must never take down corpus processing. An old

@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import re
 import tempfile
+import os
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -248,7 +249,7 @@ def _materialize_parquet(
         raise RuntimeError(
             f"FineWeb spool directory does not exist on this worker: {spool_root}"
         )
-    configure_hf_xet(config)
+    _configure_ray_xet(config)
     with tempfile.TemporaryDirectory(
         prefix=f"dapper-fineweb-{rank:05d}-", dir=spool_root
     ) as temporary:
@@ -260,6 +261,20 @@ def _materialize_parquet(
             local_dir=temporary,
         )
         yield str(local)
+
+
+def _configure_ray_xet(config: DedupConfig) -> None:
+    """Bound each Ray process before importing Hugging Face's Xet client.
+
+    Hub environment variables are read at import time. High-performance mode
+    is intentionally disabled here: it can allocate a 16 GiB download buffer
+    and up to 124 streams for one client, while Dapper already runs dozens of
+    independent clients per node.
+    """
+    concurrency = max(1, int(config.hf_ray_xet_fixed_download_concurrency))
+    os.environ["HF_XET_HIGH_PERFORMANCE"] = "0"
+    os.environ["HF_XET_FIXED_DOWNLOAD_CONCURRENCY"] = str(concurrency)
+    os.environ["HF_XET_CHUNK_CACHE_SIZE_BYTES"] = "0"
 
 
 def ingest_hf_ray(

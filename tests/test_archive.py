@@ -115,6 +115,7 @@ def test_hf_xet_acceleration_defaults_on():
     assert config.hf_ray_cpus_per_task == 4
     assert config.hf_ray_memory_gb_per_task == 4
     assert config.hf_ray_max_workers is None
+    assert config.hf_ray_xet_fixed_download_concurrency == 2
 
 
 def test_hf_xet_acceleration_can_be_configured():
@@ -283,6 +284,24 @@ def test_ray_archive_materializes_pinned_hf_file_in_bounded_spool(
     assert calls[0]["repo_id"] == "HuggingFaceFW/fineweb"
     assert calls[0]["revision"] == "abc123"
     assert calls[0]["filename"] == "data/part.parquet"
+
+
+def test_ray_archive_bounds_each_xet_client_before_import(monkeypatch):
+    from dataclasses import replace
+
+    from dapper.archive.ray_ingest import _configure_ray_xet
+
+    monkeypatch.setenv("HF_XET_HIGH_PERFORMANCE", "1")
+    monkeypatch.delenv("HF_XET_FIXED_DOWNLOAD_CONCURRENCY", raising=False)
+    monkeypatch.setenv("HF_XET_CHUNK_CACHE_SIZE_BYTES", "10000000000")
+
+    _configure_ray_xet(
+        replace(_config(), hf_ray_xet_fixed_download_concurrency=3)
+    )
+
+    assert os.environ["HF_XET_HIGH_PERFORMANCE"] == "0"
+    assert os.environ["HF_XET_FIXED_DOWNLOAD_CONCURRENCY"] == "3"
+    assert os.environ["HF_XET_CHUNK_CACHE_SIZE_BYTES"] == "0"
 
 
 def test_ray_archive_discards_partial_completion(tmp_path):

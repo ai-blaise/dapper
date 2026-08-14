@@ -385,7 +385,10 @@ new distributed archive.
 The archive dashboard distinguishes active tasks from durable completions. A
 native shard contributes documents and bytes only after its GCS object closes,
 so the first scheduling wave is labeled `warming up` instead of presenting an
-unstable completion-based ETA.
+unstable completion-based ETA. Its node table also reports live network RX/TX
+and `/dev/shm` spool consumption. Ray archive workers use bounded adaptive Xet
+clients; per-process high-performance mode is disabled because Dapper already
+fans out dozens of independent file transfers per node.
 
 #### Tuning throughput
 
