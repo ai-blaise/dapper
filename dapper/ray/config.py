@@ -51,6 +51,11 @@ class RayBootstrapConfig:
     def cluster_address(self) -> str:
         return f"{self.head_address}:{self.port}"
 
+    @property
+    def local_driver_address(self) -> str:
+        """Loopback endpoint used only by the driver running on the head."""
+        return f"127.0.0.1:{self.port}"
+
 
 _ALIAS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$")
 _ENV_REFERENCE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")

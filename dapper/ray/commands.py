@@ -83,13 +83,15 @@ def build_head_command(config: RayBootstrapConfig) -> list[str]:
     ]
 
 
-def build_status_command(config: RayBootstrapConfig) -> list[str]:
+def build_status_command(
+    config: RayBootstrapConfig, *, address: str | None = None
+) -> list[str]:
     """Build a bounded preflight command for an existing control plane."""
     return [
         config.ray_executable,
         "status",
         "--address",
-        config.cluster_address,
+        address or config.cluster_address,
     ]
 
 

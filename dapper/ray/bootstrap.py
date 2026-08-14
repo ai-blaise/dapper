@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -133,8 +135,15 @@ def start_ray_cluster(
             ray_executable=_resolve_executable(resolved.ray_executable, "Ray"),
         )
         _ensure_head(resolved, dashboard, process_runner)
+        _wait_for_control_plane(resolved, dashboard, process_runner)
         ray = ray_module or _import_ray()
-        _connect(ray, resolved.cluster_address, dashboard)
+        _connect(
+            ray,
+            resolved.local_driver_address,
+            dashboard,
+            head_name=resolved.head_name,
+            timeout_seconds=resolved.control_plane_timeout_seconds,
+        )
         existing = _registered_aliases(ray)
         dashboard.update_node(
             resolved.head_name,
@@ -194,7 +203,7 @@ def _ensure_head(
         )
         try:
             health = process_runner(
-                build_status_command(config),
+                build_status_command(config, address=config.local_driver_address),
                 capture_output=True,
                 text=True,
                 timeout=config.control_plane_timeout_seconds,
@@ -259,7 +268,60 @@ def _start_head(
         config.head_name,
         phase="Head process started",
         status="checking",
-        detail="waiting for control plane",
+        detail="starting bounded control-plane probes",
+    )
+
+
+def _wait_for_control_plane(
+    config: RayBootstrapConfig,
+    dashboard: RayBootstrapDashboard,
+    process_runner: ProcessRunner,
+) -> None:
+    deadline = time.monotonic() + config.control_plane_timeout_seconds
+    attempt = 0
+    last_detail = "no response"
+    dashboard.set_cluster("Waiting for control plane", address=config.cluster_address)
+    while time.monotonic() < deadline:
+        attempt += 1
+        remaining = max(0.1, deadline - time.monotonic())
+        dashboard.update_node(
+            config.head_name,
+            phase="Probing Ray control plane",
+            status="checking",
+            detail=f"health attempt {attempt}",
+        )
+        try:
+            completed = process_runner(
+                build_status_command(config, address=config.local_driver_address),
+                capture_output=True,
+                text=True,
+                timeout=min(3.0, remaining),
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            last_detail = "health probe timed out"
+        else:
+            if completed.returncode == 0:
+                dashboard.update_node(
+                    config.head_name,
+                    phase="Ray control plane ready",
+                    status="checking",
+                    detail=f"health passed on attempt {attempt}",
+                )
+                return
+            last_detail = _process_error(completed)
+        if time.monotonic() < deadline:
+            time.sleep(min(config.poll_seconds, max(0.0, deadline - time.monotonic())))
+    dashboard.update_node(
+        config.head_name,
+        phase="Control plane readiness timed out",
+        status="failed",
+        detail=last_detail,
+    )
+    raise RayBootstrapError(
+        "Ray head process started, but its control plane did not become healthy "
+        f"within {config.control_plane_timeout_seconds:g}s: {last_detail}. "
+        "Inspect /tmp/ray/session_latest/logs/gcs_server.err on the head."
     )
 
 
@@ -315,12 +377,48 @@ def _launch_workers(
             )
 
 
-def _connect(ray: Any, address: str, dashboard: RayBootstrapDashboard) -> None:
-    dashboard.set_cluster("Connecting", address=address)
+class _DriverConnectTimeout(BaseException):
+    """Interrupt Ray native retries without being swallowed by Exception handlers."""
+
+
+def _connect(
+    ray: Any,
+    address: str,
+    dashboard: RayBootstrapDashboard,
+    *,
+    head_name: str,
+    timeout_seconds: float,
+) -> None:
+    dashboard.set_cluster("Connecting")
+    dashboard.update_node(
+        head_name,
+        phase="Connecting Dapper driver",
+        status="checking",
+        detail=f"deadline {timeout_seconds:g}s",
+    )
+
+    def timeout_handler(signum, frame) -> None:
+        del signum, frame
+        raise _DriverConnectTimeout
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.getitimer(signal.ITIMER_REAL)
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
     try:
         ray.init(address=address, ignore_reinit_error=True, logging_level="ERROR")
+    except _DriverConnectTimeout as exc:
+        with suppress(Exception):
+            ray.shutdown()
+        raise RayBootstrapError(
+            f"Ray control plane is healthy, but the Dapper driver connection "
+            f"did not finish within {timeout_seconds:g}s."
+        ) from exc
     except Exception as exc:
         raise RayBootstrapError(f"Ray head started but the driver could not connect: {exc}") from exc
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+        signal.signal(signal.SIGALRM, previous_handler)
 
 
 def _wait_for_aliases(

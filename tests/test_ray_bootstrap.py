@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+from dataclasses import replace
 
 import pytest
 
@@ -135,6 +136,7 @@ def test_commands_bind_dashboard_locally_and_use_private_gcloud_ssh():
     gcloud_stop = build_gcloud_stop_command(config, worker)
     remote = build_worker_remote_command(config, worker)
     status = build_status_command(config)
+    local_status = build_status_command(config, address=config.local_driver_address)
     stop = build_stop_command(config)
     assert "--dashboard-host" in head
     assert head[head.index("--dashboard-host") + 1] == "127.0.0.1"
@@ -148,6 +150,12 @@ def test_commands_bind_dashboard_locally_and_use_private_gcloud_ssh():
     assert '"$ray_exec" stop --force' in remote
     assert '"$ray_exec" start' in remote
     assert status == ["/bin/true", "status", "--address", "10.0.0.1:26379"]
+    assert local_status == [
+        "/bin/true",
+        "status",
+        "--address",
+        "127.0.0.1:26379",
+    ]
     assert stop == ["/bin/true", "stop", "--force"]
     assert subprocess.run(["sh", "-n", "-c", remote], check=False).returncode == 0
     assert "stop --force" in gcloud_stop[-1]
@@ -263,7 +271,7 @@ def test_bootstrap_starts_head_and_worker_then_proves_readiness(monkeypatch):
 
     def runner(command, **kwargs):
         commands.append(command)
-        if command[0] == "/bin/true":
+        if command[0] == "/bin/true" and command[1] == "start":
             fake_ray.add("head")
         elif command[0] == "gcloud":
             fake_ray.add("worker-01")
@@ -289,11 +297,15 @@ def test_bootstrap_replaces_unresponsive_existing_head(monkeypatch):
     config = _config()
     fake_ray = _FakeRay()
     commands = []
+    status_attempts = 0
 
     def runner(command, **kwargs):
+        nonlocal status_attempts
         commands.append(command)
         if command[1] == "status":
-            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            status_attempts += 1
+            if status_attempts == 1:
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
         if command[1] == "start":
             fake_ray.add("head")
         elif command[0] == "gcloud":
@@ -313,6 +325,59 @@ def test_bootstrap_replaces_unresponsive_existing_head(monkeypatch):
 
     assert result.nodes == 2
     assert [command[1] for command in commands[:3]] == ["status", "stop", "start"]
+
+
+def test_bootstrap_bounds_new_control_plane_readiness(monkeypatch):
+    from dapper.ray import bootstrap
+    from dapper.ray.errors import RayBootstrapError
+
+    config = replace(
+        _config(), control_plane_timeout_seconds=0.01, poll_seconds=0.001
+    )
+
+    def runner(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command,
+            1 if command[1] == "status" else 0,
+            "",
+            "control plane unavailable",
+        )
+
+    monkeypatch.setattr(bootstrap, "_port_open", lambda address, port: False)
+
+    with pytest.raises(RayBootstrapError, match="did not become healthy"):
+        start_ray_cluster(config, progress=False, process_runner=runner)
+
+
+def test_driver_connection_has_hard_deadline():
+    from dapper.ray import bootstrap
+    from dapper.ray.dashboard import RayBootstrapDashboard
+    from dapper.ray.errors import RayBootstrapError
+
+    class HangingRay:
+        shutdown_called = False
+
+        def init(self, **kwargs):
+            signal.pause()
+
+        def shutdown(self):
+            self.shutdown_called = True
+
+    ray = HangingRay()
+    dashboard = RayBootstrapDashboard(
+        [("head", "head", "local")], enabled=False
+    )
+
+    with pytest.raises(RayBootstrapError, match="did not finish"):
+        bootstrap._connect(
+            ray,
+            "127.0.0.1:26379",
+            dashboard,
+            head_name="head",
+            timeout_seconds=0.01,
+        )
+
+    assert ray.shutdown_called is True
 
 
 def test_stop_shuts_down_workers_and_releases_head_port(monkeypatch):
