@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from dapper.corpus import io
+from dapper.identifiers import record_identifier_contract
 
 MANIFEST_DIRNAME = "_manifest"
 MANIFEST_FILENAME = "manifest.json"
@@ -87,6 +88,7 @@ def build_manifest(
         "tokenizer_hash": tokenizer_hash,
         "len_bins": list(len_bins),
         "shuffle_seed": shuffle_seed,
+        "record_identifier": record_identifier_contract(),
         "created_at": datetime.now(UTC).isoformat(),
         "total_docs": total_docs,
         "total_tokens": total_tokens,

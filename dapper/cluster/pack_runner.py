@@ -32,6 +32,10 @@ from dapper.config import load_config
 from dapper.corpus import io
 from dapper.corpus.gcs import init_gcs
 from dapper.dedup.config import parse_dedup_config
+from dapper.identifiers import (
+    RECORD_IDENTIFIER_VERSION,
+    record_identifier_contract,
+)
 from dapper.tokenizer import resolve_tokenizer
 
 
@@ -125,6 +129,10 @@ def _run_clustered_pack(
             raise PackRunError("Packing policy changed since this pack run started.")
         if resume_payload.get("versions") != dependency_versions():
             raise PackRunError("Code or packing dependency versions changed since this run started.")
+        if resume_payload.get("record_identifier_version") != RECORD_IDENTIFIER_VERSION:
+            raise PackRunError(
+                "Record identifier format changed since this pack run started."
+            )
         topology = topology_from_dict(resume_payload["topology"])
     else:
         topology = discovered_topology
@@ -136,6 +144,7 @@ def _run_clustered_pack(
             "pack": pipeline.to_dict()["pack"],
             "topology": stage_topology_identity(topology, "pack"),
             "versions": dependency_versions(),
+            "record_identifier_version": RECORD_IDENTIFIER_VERSION,
         }
     )
     if resume_payload is not None:
@@ -156,6 +165,7 @@ def _run_clustered_pack(
         "config": pipeline.to_dict()["pack"],
         "topology": topology.to_dict(),
         "versions": dependency_versions(),
+        "record_identifier_version": RECORD_IDENTIFIER_VERSION,
         "created_at": utc_now(),
         "status": "planned" if dry_run else "running",
     }
@@ -458,6 +468,7 @@ def _finalize_pack_manifest(
         "tokenizer": run_payload["tokenizer"],
         "contexts": run_payload["config"]["contexts"],
         "packing_policy": run_payload["config"],
+        "record_identifier": record_identifier_contract(),
         "fallback_pack_counts": dict(sorted(fallback.items())),
         "fallback_pack_shares": {
             round_number: count / totals["packs"] if totals["packs"] else 0.0

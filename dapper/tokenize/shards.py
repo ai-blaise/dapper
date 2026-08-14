@@ -23,15 +23,12 @@ import numpy as np
 from datatrove.pipeline.base import PipelineStep
 
 from dapper.corpus import io
+from dapper.identifiers import record_uuid
 
 # Metadata that never belongs in a sample sidecar: `text` is recoverable from
 # staged-input by `id` and would roughly double shard size, and `input_ids`
 # lives in the .npy rather than being repeated as JSON.
 _SIDECAR_EXCLUDE = frozenset({"text", "input_ids"})
-
-# Sample basename width. 6 digits holds 1M samples per shard; shards roll at a
-# byte threshold long before that.
-_KEY_WIDTH = 6
 
 # Rough per-sample tar cost: two 512-byte headers plus padding. Used only to
 # decide when to roll, since TarWriter does not report bytes written.
@@ -128,6 +125,7 @@ class TarShardWriter(PipelineStep):
 
     def run(self, data, rank: int = 0, world_size: int = 1):
         writers: dict[str, _BinWriter] = {}
+        output_ordinal = 0
         # (bin, domain, subdomain) -> [n_docs, n_tokens]
         cells: dict[tuple[str, str, str], list[int]] = {}
 
@@ -148,7 +146,24 @@ class TarShardWriter(PipelineStep):
                         limit=self._limit_for(bin_name),
                     )
                     writers[bin_name] = writer
-                writer.add(ids, _sidecar(meta))
+                source_document_id = str(
+                    getattr(document, "id", "") or meta.get("id") or ""
+                )
+                sample_uuid = record_uuid(
+                    "tokenized-document",
+                    self.source_name,
+                    rank,
+                    output_ordinal,
+                    source_document_id,
+                    meta.get("file_path") or "",
+                )
+                sidecar = _sidecar(meta)
+                if sidecar.get("uuid") not in {None, sample_uuid}:
+                    sidecar.setdefault("source_uuid", sidecar["uuid"])
+                sidecar["uuid"] = sample_uuid
+                sidecar["source_document_id"] = source_document_id
+                writer.add(ids, sidecar, key=sample_uuid)
+                output_ordinal += 1
 
                 key = (
                     bin_name,
@@ -218,10 +233,9 @@ class _BinWriter:
         self.written = 0
         self.count = 0
 
-    def add(self, ids, sidecar: dict[str, Any]) -> None:
+    def add(self, ids, sidecar: dict[str, Any], *, key: str) -> None:
         if self._tar is None:
             self._open()
-        key = str(self.count).zfill(_KEY_WIDTH)
         array = np.asarray(ids, dtype=np.int32)
         # The library's encoder turns these into `<key>.npy` and `<key>.json`
         # members; `__key__` is the shared basename WebDataset groups on.

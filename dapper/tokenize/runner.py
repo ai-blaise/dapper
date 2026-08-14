@@ -21,6 +21,7 @@ from dapper.config import load_config
 from dapper.corpus import io
 from dapper.corpus.gcs import count_shards, init_gcs
 from dapper.dedup.config import DedupConfig, SourceConfig, parse_dedup_config
+from dapper.identifiers import RECORD_IDENTIFIER_VERSION
 from dapper.tokenize.report import (
     TokenizeReport,
     format_tokenize_plan,
@@ -151,6 +152,7 @@ def run_tokenize(
             "len_bins": list(config.len_bins),
             "shuffle_seed": config.shuffle_seed if config.shuffle else None,
             "input_uri": input_uri,
+            "record_identifier_version": RECORD_IDENTIFIER_VERSION,
         },
     )
 
@@ -204,6 +206,11 @@ def _skip_reason(run_uri: str, config: DedupConfig, *, force: bool) -> str | Non
             f"{config.tokenizer!r}. Token IDs from two tokenizers are not "
             "interchangeable"
         )
+    if payload.get("record_identifier_version") != RECORD_IDENTIFIER_VERSION:
+        return (
+            "already tokenized without the current per-record UUID contract; "
+            "rerun with --force to replace the legacy shards"
+        )
     return "already tokenized (_SUCCESS marker present)"
 
 
@@ -233,6 +240,12 @@ def _guard_run(run_uri: str, config: DedupConfig, *, force: bool) -> None:
         mismatches.append(
             f"len_bins {previous.get('len_bins')} -> {list(config.len_bins)}"
         )
+    if previous.get("record_identifier_version") != RECORD_IDENTIFIER_VERSION:
+        mismatches.append(
+            "record identifiers "
+            f"{previous.get('record_identifier_version')!r} -> "
+            f"{RECORD_IDENTIFIER_VERSION!r}"
+        )
     if not mismatches:
         return
     raise TokenizeRunError(
@@ -258,6 +271,7 @@ def _write_run_marker(run_uri: str, config: DedupConfig) -> None:
             # Recorded but not enforced: a differently seeded resume yields a
             # differently ordered but equally valid corpus.
             "shuffle_seed": config.shuffle_seed if config.shuffle else None,
+            "record_identifier_version": RECORD_IDENTIFIER_VERSION,
             "started_at": datetime.now(UTC).isoformat(),
         },
     )

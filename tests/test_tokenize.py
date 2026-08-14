@@ -185,6 +185,7 @@ def _marker_payload(**overrides):
         "tokenizer": "zai-org/GLM-5.2",
         "len_bins": [8192, 65536, 262144],
         "shuffle_seed": 0,
+        "record_identifier_version": "uuid5-v1",
     }
     payload.update(overrides)
     return payload
@@ -212,6 +213,16 @@ def test_guard_refuses_changed_bin_edges(tmp_path):
 
     run = _run_marker(tmp_path, _marker_payload(len_bins=[1024, 8192]))
     with pytest.raises(TokenizeRunError, match="len_bins"):
+        _guard_run(run, _config(), force=False)
+
+
+def test_guard_refuses_legacy_partial_without_record_uuids(tmp_path):
+    from dapper.tokenize.runner import TokenizeRunError, _guard_run
+
+    payload = _marker_payload()
+    payload.pop("record_identifier_version")
+    run = _run_marker(tmp_path, payload)
+    with pytest.raises(TokenizeRunError, match="record identifiers"):
         _guard_run(run, _config(), force=False)
 
 

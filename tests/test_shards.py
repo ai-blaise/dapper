@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tarfile
+import uuid
 
 import pytest
 
@@ -60,12 +61,11 @@ def test_sample_is_npy_plus_json(tmp_path):
     writer = TarShardWriter(str(tmp_path), "fineweb", shard_bytes=10**9)
     list(writer.run(_docs(2), rank=0))
     shard = next((tmp_path / "8192").glob("*.tar"))
-    assert sorted(_members(shard)) == [
-        "000000.json",
-        "000000.npy",
-        "000001.json",
-        "000001.npy",
-    ]
+    members = _members(shard)
+    keys = {name.split(".", 1)[0] for name in members}
+    assert len(keys) == 2
+    assert {name.rsplit(".", 1)[1] for name in members} == {"json", "npy"}
+    assert all(str(uuid.UUID(key)) == key for key in keys)
 
 
 def test_shards_round_trip_through_the_real_reader(tmp_path):
@@ -88,18 +88,50 @@ def test_shards_round_trip_through_the_real_reader(tmp_path):
     assert first["npy"].dtype.name == "int32"
     assert first["json"]["domain"] == "code"
     assert first["json"]["subdomain"] == "repo_connected"
+    assert first["json"]["uuid"] == first["__key__"]
 
 
 def test_sidecar_carries_tags_and_omits_text_and_ids(tmp_path):
-    """Tags ride through untouched; text lives in staged-input, ids in the npy."""
+    """Tags and identity ride through; text and token arrays are not repeated."""
     writer = TarShardWriter(str(tmp_path), "fineweb", shard_bytes=10**9)
     list(writer.run(_docs(1, domain="code", subdomain="repo_connected"), rank=0))
     shard = next((tmp_path / "8192").glob("*.tar"))
     with tarfile.open(shard) as tf:
-        meta = json.loads(tf.extractfile("000000.json").read())
+        json_member = next(name for name in tf.getnames() if name.endswith(".json"))
+        meta = json.loads(tf.extractfile(json_member).read())
     assert meta["domain"] == "code"
     assert meta["subdomain"] == "repo_connected"
+    assert str(uuid.UUID(meta["uuid"])) == meta["uuid"]
+    assert meta["source_document_id"] == "doc-0"
     assert "text" not in meta and "input_ids" not in meta
+
+
+def test_record_uuids_are_unique_across_bins_and_ranks(tmp_path):
+    writer = TarShardWriter(str(tmp_path), "fineweb", shard_bytes=10**9)
+    list(writer.run(_docs(2, bucket=8192) + _docs(2, bucket=65536), rank=0))
+    list(writer.run(_docs(2, bucket=8192), rank=1))
+    keys = []
+    for shard in tmp_path.glob("*/*.tar"):
+        keys.extend({name.split(".", 1)[0] for name in _members(shard)})
+    assert len(keys) == 6
+    assert len(set(keys)) == 6
+
+
+def test_record_uuid_is_stable_when_a_rank_retries(tmp_path):
+    first = tmp_path / "first"
+    retry = tmp_path / "retry"
+    for target in (first, retry):
+        writer = TarShardWriter(str(target), "fineweb", shard_bytes=10**9)
+        list(writer.run(_docs(3), rank=7))
+    first_keys = {
+        name.split(".", 1)[0]
+        for name in _members(next((first / "8192").glob("*.tar")))
+    }
+    retry_keys = {
+        name.split(".", 1)[0]
+        for name in _members(next((retry / "8192").glob("*.tar")))
+    }
+    assert first_keys == retry_keys
 
 
 def test_shard_name_carries_source(tmp_path):
@@ -235,6 +267,12 @@ def test_manifest_stamps_tokenizer_and_bins(tmp_path):
     assert manifest["tokenizer"] == "zai-org/GLM-5.2"
     assert manifest["len_bins"] == [8192]
     assert manifest["shuffle_seed"] == 3
+    assert manifest["record_identifier"] == {
+        "field": "uuid",
+        "format": "uuid5",
+        "version": "uuid5-v1",
+        "webdataset_key": True,
+    }
 
 
 def test_subdomains_nest_under_their_domain(tmp_path):

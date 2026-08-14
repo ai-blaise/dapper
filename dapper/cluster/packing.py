@@ -10,8 +10,9 @@ from typing import Any
 import numpy as np
 
 from dapper.cluster.config import PackSettings, TokenizerConfig
-from dapper.cluster.state import identity, read_parquet, stable_int, write_parquet
+from dapper.cluster.state import read_parquet, stable_int, write_parquet
 from dapper.corpus import io
+from dapper.identifiers import record_uuid
 from dapper.tokenizer import TokenizerIdentity, resolve_tokenizer
 
 _TOKENIZER_CACHE: dict[tuple[str, str], Any] = {}
@@ -332,12 +333,19 @@ def materialize(group: PackGroup, tokenizer: TokenizerIdentity, *, fallback_roun
         labels[-pad_tokens:] = tokenizer.padding_label_value
     logical_clusters = sorted({segment.logical_cluster_id for segment in group.segments})
     physical = sorted({segment.physical_partition for segment in group.segments})
-    pack_id = identity(
-        {
-            "context": group.context_length,
-            "segments": [(s.document_id, s.chunk_index) for s in group.segments],
-        },
-        length=32,
+    pack_id = record_uuid(
+        "packed-sample",
+        group.context_length,
+        [
+            {
+                "document_id": segment.document_id,
+                "chunk_index": segment.chunk_index,
+                "chunk_count": segment.chunk_count,
+                "logical_cluster_id": segment.logical_cluster_id,
+                "physical_partition": segment.physical_partition,
+            }
+            for segment in group.segments
+        ],
     )
     return {
         "pack_id": pack_id,
@@ -345,6 +353,7 @@ def materialize(group: PackGroup, tokenizer: TokenizerIdentity, *, fallback_roun
         "labels": labels,
         "attention_mask": attention,
         "metadata": {
+            "uuid": pack_id,
             "pack_id": pack_id,
             "document_spans": spans,
             "document_ids": document_ids,

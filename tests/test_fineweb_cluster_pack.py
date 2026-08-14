@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tarfile
+import uuid
 from itertools import pairwise
 
 import numpy as np
@@ -374,10 +375,14 @@ def test_materialization_accounts_eos_and_pad_masks():
         ),
     )
     sample = materialize(group, frozen, fallback_round=3)
+    retry = materialize(group, frozen, fallback_round=3)
     np.testing.assert_array_equal(sample["input_ids"], [10, 11, 12, 7, 13, 7, 0, 0])
     np.testing.assert_array_equal(sample["labels"], [10, 11, 12, 7, 13, 7, -100, -100])
     np.testing.assert_array_equal(sample["attention_mask"], [1, 1, 1, 1, 1, 1, 0, 0])
     assert sample["metadata"]["document_spans"] == [[0, 3], [4, 5]]
+    assert sample["metadata"]["uuid"] == sample["pack_id"]
+    assert str(uuid.UUID(sample["pack_id"])) == sample["pack_id"]
+    assert retry["pack_id"] == sample["pack_id"]
     assert sample["metadata"]["source_tokens"] + sample["metadata"]["eos_tokens"] + sample["metadata"]["pad_tokens"] == 8
 
 
@@ -402,8 +407,12 @@ def test_packed_webdataset_contains_all_training_arrays(tmp_path):
     )
     shard = next((tmp_path / "context-8").glob("*.tar"))
     with tarfile.open(shard) as archive:
-        suffixes = {name.split(".", 1)[1] for name in archive.getnames()}
+        names = archive.getnames()
+        suffixes = {name.split(".", 1)[1] for name in names}
+        keys = {name.split(".", 1)[0] for name in names}
     assert suffixes == {"input_ids.npy", "labels.npy", "attention_mask.npy", "json"}
+    assert len(keys) == 1
+    assert str(uuid.UUID(keys.pop()))
 
 
 def test_cluster_command_is_registered():
