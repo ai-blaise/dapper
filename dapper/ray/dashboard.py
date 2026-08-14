@@ -69,7 +69,7 @@ class RayBootstrapDashboard:
             self._live = Live(
                 self._render(),
                 console=self.console,
-                refresh_per_second=4,
+                auto_refresh=False,
                 transient=False,
                 redirect_stdout=True,
                 redirect_stderr=True,

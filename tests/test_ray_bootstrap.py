@@ -11,6 +11,8 @@ from dapper.ray import commands
 from dapper.ray.bootstrap import (
     build_gcloud_command,
     build_head_command,
+    build_status_command,
+    build_stop_command,
     build_worker_remote_command,
     start_ray_cluster,
 )
@@ -95,12 +97,21 @@ def test_commands_bind_dashboard_locally_and_use_private_gcloud_ssh():
     head = build_head_command(config)
     gcloud = build_gcloud_command(config, worker)
     remote = build_worker_remote_command(config, worker)
+    status = build_status_command(config)
+    stop = build_stop_command(config)
     assert "--dashboard-host" in head
     assert head[head.index("--dashboard-host") + 1] == "127.0.0.1"
     assert "--internal-ip" in gcloud
     assert "--ssh-key-file" not in gcloud
     assert "DAPPER_NODE_NAME=worker-01" in remote
     assert "10.0.0.1:6379" in remote
+    assert "command -v ray" in remote
+    assert "command -v dapper" in remote
+    assert '"$ray_exec" stop --force' in remote
+    assert '"$ray_exec" start' in remote
+    assert status == ["/bin/true", "status", "--address", "10.0.0.1:6379"]
+    assert stop == ["/bin/true", "stop", "--force"]
+    assert subprocess.run(["sh", "-n", "-c", remote], check=False).returncode == 0
 
 
 def test_ray_executable_falls_back_to_active_python_environment(
@@ -210,6 +221,36 @@ def test_bootstrap_starts_head_and_worker_then_proves_readiness(monkeypatch):
     assert result.cpu == 8
     assert any(command[0] == "gcloud" for command in commands)
     assert fake_ray.shutdown_called is True
+
+
+def test_bootstrap_replaces_unresponsive_existing_head(monkeypatch):
+    from dapper.ray import bootstrap
+
+    config = _config()
+    fake_ray = _FakeRay()
+    commands = []
+
+    def runner(command, **kwargs):
+        commands.append(command)
+        if command[1] == "status":
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        if command[1] == "start":
+            fake_ray.add("head")
+        elif command[0] == "gcloud":
+            fake_ray.add("worker-01")
+        return subprocess.CompletedProcess(command, 0, "started", "")
+
+    monkeypatch.setattr(bootstrap, "_port_open", lambda address, port: True)
+    monkeypatch.setattr(bootstrap, "_require_executable", lambda name, label: None)
+    result = start_ray_cluster(
+        config,
+        progress=False,
+        process_runner=runner,
+        ray_module=fake_ray,
+    )
+
+    assert result.nodes == 2
+    assert [command[1] for command in commands[:3]] == ["status", "stop", "start"]
 
 
 def test_ray_command_is_registered():

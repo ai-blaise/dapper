@@ -13,6 +13,8 @@ from typing import Any
 from dapper.ray.commands import (
     build_gcloud_command,
     build_head_command,
+    build_status_command,
+    build_stop_command,
     build_worker_remote_command,
     resolve_head_address,
 )
@@ -50,6 +52,8 @@ __all__ = [
     "RayBootstrapResult",
     "build_gcloud_command",
     "build_head_command",
+    "build_status_command",
+    "build_stop_command",
     "build_worker_remote_command",
     "start_ray_cluster",
 ]
@@ -183,7 +187,71 @@ def _ensure_head(
             status="checking",
             detail="validating Ray control plane",
         )
-        return
+        try:
+            health = process_runner(
+                build_status_command(config),
+                capture_output=True,
+                text=True,
+                timeout=config.control_plane_timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            health = None
+            detail = (
+                "control plane did not answer within "
+                f"{config.control_plane_timeout_seconds:g}s"
+            )
+        else:
+            if health.returncode == 0:
+                dashboard.update_node(
+                    config.head_name,
+                    phase="Existing head is healthy",
+                    status="checking",
+                    detail="reusing the active Ray control plane",
+                )
+                return
+            detail = _process_error(health)
+        dashboard.update_node(
+            config.head_name,
+            phase="Stale head detected",
+            status="stale",
+            detail=detail,
+        )
+        _stop_stale_head(config, dashboard, process_runner)
+    _start_head(config, dashboard, process_runner)
+
+
+def _stop_stale_head(
+    config: RayBootstrapConfig,
+    dashboard: RayBootstrapDashboard,
+    process_runner: ProcessRunner,
+) -> None:
+    dashboard.update_node(
+        config.head_name,
+        phase="Stopping stale local Ray processes",
+        status="starting",
+        detail="preparing a clean control plane",
+    )
+    try:
+        process_runner(
+            build_stop_command(config),
+            capture_output=True,
+            text=True,
+            timeout=config.control_plane_timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RayBootstrapError(
+            "Timed out while stopping stale local Ray processes. "
+            f"Run {config.ray_executable} stop --force, then retry."
+        ) from exc
+
+
+def _start_head(
+    config: RayBootstrapConfig,
+    dashboard: RayBootstrapDashboard,
+    process_runner: ProcessRunner,
+) -> None:
     dashboard.update_node(
         config.head_name,
         phase="Starting local Ray head",
@@ -260,16 +328,11 @@ def _launch_workers(
                     worker.name, phase="Remote start failed", status="failed", detail=detail
                 )
                 raise RayBootstrapError(f"Could not start {worker.name}: {detail}")
-            already = "DAPPER_RAY_ALREADY_RUNNING" in (completed.stdout or "")
             dashboard.update_node(
                 worker.name,
                 phase="Waiting for Ray registration",
                 status="waiting",
-                detail=(
-                    "existing raylet must match this cluster"
-                    if already
-                    else "remote raylet started"
-                ),
+                detail="remote raylet started against this head",
             )
 
 

@@ -59,6 +59,8 @@ ray:
     runtime_env_agent_port: 52367
     ray_executable: ray
     use_internal_ip: true
+    # Bound validation of an already-open control port before replacing stale Ray.
+    control_plane_timeout_seconds: 15
     startup_timeout_seconds: 120
     poll_seconds: 1
     workers:

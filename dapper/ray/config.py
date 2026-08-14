@@ -38,6 +38,7 @@ class RayBootstrapConfig:
     dashboard_agent_grpc_port: int
     runtime_env_agent_port: int
     ray_executable: str
+    control_plane_timeout_seconds: float
     startup_timeout_seconds: float
     poll_seconds: float
     use_internal_ip: bool
@@ -151,6 +152,10 @@ def parse_ray_bootstrap_config(
             "ray.bootstrap.runtime_env_agent_port",
         ),
         ray_executable=str(bootstrap.get("ray_executable", "ray")),
+        control_plane_timeout_seconds=_positive_float(
+            bootstrap.get("control_plane_timeout_seconds", 15),
+            "ray.bootstrap.control_plane_timeout_seconds",
+        ),
         startup_timeout_seconds=_positive_float(
             bootstrap.get("startup_timeout_seconds", 120),
             "ray.bootstrap.startup_timeout_seconds",

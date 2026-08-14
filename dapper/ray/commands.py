@@ -65,12 +65,26 @@ def build_head_command(config: RayBootstrapConfig) -> list[str]:
     ]
 
 
+def build_status_command(config: RayBootstrapConfig) -> list[str]:
+    """Build a bounded preflight command for an existing control plane."""
+    return [
+        config.ray_executable,
+        "status",
+        "--address",
+        config.cluster_address,
+    ]
+
+
+def build_stop_command(config: RayBootstrapConfig) -> list[str]:
+    """Build the command used to remove stale local Ray processes."""
+    return [config.ray_executable, "stop", "--force"]
+
+
 def build_worker_remote_command(
     config: RayBootstrapConfig, worker: GcloudWorker
 ) -> str:
     """Build the quoted command run on a worker through private SSH."""
-    start = [
-        config.ray_executable,
+    start_arguments = [
         "start",
         "--address",
         config.cluster_address,
@@ -79,12 +93,22 @@ def build_worker_remote_command(
         *_ray_node_port_args(config),
     ]
     environment = shlex.join([f"DAPPER_NODE_NAME={worker.name}"])
-    launch = f"env {environment} {shlex.join(start)}"
-    return (
-        "if pgrep -x raylet >/dev/null 2>&1; then "
-        "echo DAPPER_RAY_ALREADY_RUNNING; "
-        f"else {launch}; fi"
+    configured = shlex.quote(config.ray_executable)
+    discover = (
+        'if command -v ray >/dev/null 2>&1; then ray_exec="$(command -v ray)"; '
+        "elif command -v dapper >/dev/null 2>&1 && "
+        '[ -x "$(dirname "$(command -v dapper)")/ray" ]; then '
+        'ray_exec="$(dirname "$(command -v dapper)")/ray"; '
+        f"elif [ -x {configured} ]; then ray_exec={configured}; "
+        "else echo 'Dapper worker error: Ray executable not found; install Dapper "
+        "with its locked dependencies on this node.' >&2; exit 127; fi"
     )
+    launch = f'env {environment} "$ray_exec" {shlex.join(start_arguments)}'
+    stop = '"$ray_exec" stop --force'
+    # This command is sent only to explicitly configured workers which are not
+    # registered with the current head. Any local raylet is therefore stale or
+    # belongs to another cluster and must not prevent a clean registration.
+    return f"{discover}; {stop} >/dev/null 2>&1 || true; {launch}"
 
 
 def build_gcloud_command(
