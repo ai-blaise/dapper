@@ -120,7 +120,12 @@ def parse_ray_bootstrap_config(
         provider=provider,
         head_name=head_name,
         head_address=str(bootstrap.get("head_address", "auto")),
-        port=_port(bootstrap.get("port", 6379), "ray.bootstrap.port"),
+        port=_port(
+            _required_env_value(
+                bootstrap.get("port"), "ray.bootstrap.port", environment
+            ),
+            "ray.bootstrap.port",
+        ),
         dashboard_port=_port(
             bootstrap.get("dashboard_port", 8265), "ray.bootstrap.dashboard_port"
         ),

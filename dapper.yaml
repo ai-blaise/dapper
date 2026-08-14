@@ -40,12 +40,12 @@ ray:
   show_node_addresses: false
   # `dapper ray init` starts Ray on existing GCE VMs. Instance identity is
   # configuration, not a credential; gcloud/OS Login owns SSH authentication.
-  # Source these two environment variables on the head before running it.
+  # Resolve private topology values from the head node's untracked .env file.
   bootstrap:
     provider: gcloud
     head_name: head
     head_address: auto
-    port: 6379
+    port: ${DAPPER_RAY_PORT}
     dashboard_host: 127.0.0.1
     dashboard_port: 8265
     # Fixed private ports make the VPC firewall contract auditable.

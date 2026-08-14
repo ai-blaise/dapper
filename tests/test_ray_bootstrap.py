@@ -36,6 +36,7 @@ def _raw():
                 "provider": "gcloud",
                 "head_name": "head",
                 "head_address": "10.0.0.1",
+                "port": "${DAPPER_RAY_PORT}",
                 "ray_executable": "/bin/true",
                 "workers": [
                     {
@@ -51,7 +52,12 @@ def _raw():
 
 def _config():
     return parse_ray_bootstrap_config(
-        _raw(), environ={"WORKER_INSTANCE": "ray-worker-1", "WORKER_ZONE": "us-east1-b"}
+        _raw(),
+        environ={
+            "DAPPER_RAY_PORT": "26379",
+            "WORKER_INSTANCE": "ray-worker-1",
+            "WORKER_ZONE": "us-east1-b",
+        },
     )
 
 
@@ -67,20 +73,43 @@ def test_bootstrap_missing_environment_value_is_actionable():
         parse_ray_bootstrap_config(_raw(), environ={})
 
 
+def test_bootstrap_requires_private_control_port_environment_value():
+    with pytest.raises(RayBootstrapConfigError, match="DAPPER_RAY_PORT"):
+        parse_ray_bootstrap_config(
+            _raw(),
+            environ={"WORKER_INSTANCE": "worker", "WORKER_ZONE": "zone"},
+        )
+
+
+def test_bootstrap_validates_environment_control_port():
+    with pytest.raises(RayBootstrapConfigError, match="between 1 and 65535"):
+        parse_ray_bootstrap_config(
+            _raw(),
+            environ={
+                "DAPPER_RAY_PORT": "70000",
+                "WORKER_INSTANCE": "worker",
+                "WORKER_ZONE": "zone",
+            },
+        )
+
+
 def test_ray_env_file_loads_only_scoped_values_without_overwriting(tmp_path, monkeypatch):
     target = tmp_path / ".env"
     target.write_text(
         "DAPPER_RAY_WORKER_INSTANCE=from-file\n"
         "DAPPER_RAY_WORKER_ZONE='us-east1-b'\n"
+        "DAPPER_RAY_PORT=26379\n"
         "UNRELATED_SECRET=do-not-load\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DAPPER_RAY_WORKER_INSTANCE", "already-exported")
     monkeypatch.delenv("DAPPER_RAY_WORKER_ZONE", raising=False)
+    monkeypatch.delenv("DAPPER_RAY_PORT", raising=False)
     monkeypatch.delenv("UNRELATED_SECRET", raising=False)
     load_ray_environment(target)
     assert os.environ["DAPPER_RAY_WORKER_INSTANCE"] == "already-exported"
     assert os.environ["DAPPER_RAY_WORKER_ZONE"] == "us-east1-b"
+    assert os.environ["DAPPER_RAY_PORT"] == "26379"
     assert "UNRELATED_SECRET" not in os.environ
 
 
@@ -90,7 +119,11 @@ def test_bootstrap_rejects_shell_syntax_in_node_alias():
     with pytest.raises(RayBootstrapConfigError, match="letters"):
         parse_ray_bootstrap_config(
             raw,
-            environ={"WORKER_INSTANCE": "worker", "WORKER_ZONE": "zone"},
+            environ={
+                "DAPPER_RAY_PORT": "26379",
+                "WORKER_INSTANCE": "worker",
+                "WORKER_ZONE": "zone",
+            },
         )
 
 
@@ -109,12 +142,12 @@ def test_commands_bind_dashboard_locally_and_use_private_gcloud_ssh():
     assert "--internal-ip" in gcloud_stop
     assert "--ssh-key-file" not in gcloud
     assert "DAPPER_NODE_NAME=worker-01" in remote
-    assert "10.0.0.1:6379" in remote
+    assert "10.0.0.1:26379" in remote
     assert "command -v ray" in remote
     assert "command -v dapper" in remote
     assert '"$ray_exec" stop --force' in remote
     assert '"$ray_exec" start' in remote
-    assert status == ["/bin/true", "status", "--address", "10.0.0.1:6379"]
+    assert status == ["/bin/true", "status", "--address", "10.0.0.1:26379"]
     assert stop == ["/bin/true", "stop", "--force"]
     assert subprocess.run(["sh", "-n", "-c", remote], check=False).returncode == 0
     assert "stop --force" in gcloud_stop[-1]
@@ -297,7 +330,7 @@ def test_stop_shuts_down_workers_and_releases_head_port(monkeypatch):
     result = stop_ray_cluster(config, progress=False, process_runner=runner)
 
     assert result.nodes == 2
-    assert result.port == 6379
+    assert result.port == 26379
     assert any(command[0] == "gcloud" for command in commands)
     assert ["/bin/true", "stop", "--force"] in commands
 
