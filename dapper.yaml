@@ -53,7 +53,7 @@ ray:
     node_manager_port: 8077
     ray_client_server_port: 10001
     min_worker_port: 10002
-    max_worker_port: 10100
+    max_worker_port: 10500
     dashboard_agent_listen_port: 52365
     dashboard_agent_grpc_port: 52366
     runtime_env_agent_port: 52367

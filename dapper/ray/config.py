@@ -52,9 +52,9 @@ class RayBootstrapConfig:
         return f"{self.head_address}:{self.port}"
 
     @property
-    def local_driver_address(self) -> str:
-        """Loopback endpoint used only by the driver running on the head."""
-        return f"127.0.0.1:{self.port}"
+    def worker_port_capacity(self) -> int:
+        """Number of Ray worker processes allowed by the fixed port range."""
+        return self.max_worker_port - self.min_worker_port + 1
 
 
 _ALIAS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$")
@@ -115,13 +115,13 @@ def parse_ray_bootstrap_config(
         bootstrap.get("min_worker_port", 10002), "ray.bootstrap.min_worker_port"
     )
     max_worker_port = _port(
-        bootstrap.get("max_worker_port", 10100), "ray.bootstrap.max_worker_port"
+        bootstrap.get("max_worker_port", 10500), "ray.bootstrap.max_worker_port"
     )
     if min_worker_port > max_worker_port:
         raise RayBootstrapConfigError(
             "ray.bootstrap.min_worker_port must not exceed max_worker_port."
         )
-    return RayBootstrapConfig(
+    config = RayBootstrapConfig(
         provider=provider,
         head_name=head_name,
         head_address=str(bootstrap.get("head_address", "auto")),
@@ -179,6 +179,40 @@ def parse_ray_bootstrap_config(
         expected_nodes=expected_nodes,
         workers=tuple(workers),
     )
+    _validate_port_contract(config)
+    return config
+
+
+def _validate_port_contract(config: RayBootstrapConfig) -> None:
+    """Reject fixed Ray endpoints that collide with one another."""
+    fixed = {
+        "ray.bootstrap.port": config.port,
+        "ray.bootstrap.dashboard_port": config.dashboard_port,
+        "ray.bootstrap.object_manager_port": config.object_manager_port,
+        "ray.bootstrap.node_manager_port": config.node_manager_port,
+        "ray.bootstrap.ray_client_server_port": config.ray_client_server_port,
+        "ray.bootstrap.dashboard_agent_listen_port": config.dashboard_agent_listen_port,
+        "ray.bootstrap.dashboard_agent_grpc_port": config.dashboard_agent_grpc_port,
+        "ray.bootstrap.runtime_env_agent_port": config.runtime_env_agent_port,
+    }
+    by_port: dict[int, list[str]] = {}
+    for label, port in fixed.items():
+        by_port.setdefault(port, []).append(label)
+    duplicates = [labels for labels in by_port.values() if len(labels) > 1]
+    if duplicates:
+        raise RayBootstrapConfigError(
+            "Ray fixed ports must be distinct; conflict: " + ", ".join(duplicates[0])
+        )
+    overlap = [
+        label
+        for label, port in fixed.items()
+        if config.min_worker_port <= port <= config.max_worker_port
+    ]
+    if overlap:
+        raise RayBootstrapConfigError(
+            f"{overlap[0]} overlaps the Ray worker port range "
+            f"{config.min_worker_port}-{config.max_worker_port}."
+        )
 
 
 def load_ray_environment(path: str | Path | None = None) -> Path | None:

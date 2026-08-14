@@ -95,6 +95,21 @@ def test_bootstrap_validates_environment_control_port():
         )
 
 
+def test_bootstrap_rejects_fixed_port_inside_worker_range():
+    raw = _raw()
+    raw["ray"]["bootstrap"]["object_manager_port"] = 10050
+
+    with pytest.raises(RayBootstrapConfigError, match="overlaps"):
+        parse_ray_bootstrap_config(
+            raw,
+            environ={
+                "DAPPER_RAY_PORT": "26379",
+                "WORKER_INSTANCE": "worker",
+                "WORKER_ZONE": "zone",
+            },
+        )
+
+
 def test_ray_env_file_loads_only_scoped_values_without_overwriting(tmp_path, monkeypatch):
     target = tmp_path / ".env"
     target.write_text(
@@ -137,7 +152,6 @@ def test_commands_bind_dashboard_locally_and_use_private_gcloud_ssh():
     gcloud_stop = build_gcloud_stop_command(config, worker)
     remote = build_worker_remote_command(config, worker)
     status = build_status_command(config)
-    local_status = build_status_command(config, address=config.local_driver_address)
     stop = build_stop_command(config)
     assert "--dashboard-host" in head
     assert head[head.index("--dashboard-host") + 1] == "127.0.0.1"
@@ -151,14 +165,9 @@ def test_commands_bind_dashboard_locally_and_use_private_gcloud_ssh():
     assert '"$ray_exec" stop --force' in remote
     assert '"$ray_exec" start' in remote
     assert status == ["/bin/true", "status", "--address", "10.0.0.1:26379"]
-    assert local_status == [
-        "/bin/true",
-        "status",
-        "--address",
-        "127.0.0.1:26379",
-    ]
     assert stop == ["/bin/true", "stop", "--force"]
     assert subprocess.run(["sh", "-n", "-c", remote], check=False).returncode == 0
+    assert "required_worker_ports" in remote
     assert "stop --force" in gcloud_stop[-1]
     assert "raylet is still running" in gcloud_stop[-1]
 
@@ -241,6 +250,7 @@ class _FakeRay:
     def __init__(self):
         self.registered = []
         self.shutdown_called = False
+        self.init_kwargs = None
 
     def add(self, alias):
         node_id = ("a" if alias == "head" else "b") * 56
@@ -258,7 +268,7 @@ class _FakeRay:
         )
 
     def init(self, **kwargs):
-        return None
+        self.init_kwargs = kwargs
 
     def nodes(self):
         return list(self.registered)
@@ -306,6 +316,8 @@ def test_bootstrap_starts_head_and_worker_then_proves_readiness(monkeypatch):
     assert result.cpu == 8
     assert any(command[0] == "gcloud" for command in commands)
     assert fake_ray.shutdown_called is True
+    assert fake_ray.init_kwargs["address"] == "10.0.0.1:26379"
+    assert fake_ray.init_kwargs["_node_ip_address"] == "10.0.0.1"
 
 
 def test_bootstrap_replaces_unresponsive_existing_head(monkeypatch):
@@ -396,6 +408,34 @@ def test_advertised_private_ports_fail_before_driver_connect(monkeypatch):
         bootstrap._verify_advertised_head_ports(config, dashboard)
 
 
+def test_worker_port_capacity_fails_before_ray_start(monkeypatch):
+    from dapper.ray import bootstrap
+    from dapper.ray.dashboard import RayBootstrapDashboard
+    from dapper.ray.errors import RayBootstrapError
+
+    config = replace(_config(), max_worker_port=10020)
+    dashboard = RayBootstrapDashboard(
+        [("head", "head", "local")], enabled=False
+    )
+    monkeypatch.setattr(bootstrap.os, "cpu_count", lambda: 20)
+
+    with pytest.raises(RayBootstrapError, match="requires at least 36"):
+        bootstrap._verify_local_worker_port_capacity(config, dashboard)
+
+
+def test_worker_port_capacity_includes_driver_and_actor_headroom(monkeypatch):
+    from dapper.ray import bootstrap
+    from dapper.ray.dashboard import RayBootstrapDashboard
+
+    config = replace(_config(), max_worker_port=10037)
+    dashboard = RayBootstrapDashboard(
+        [("head", "head", "local")], enabled=False
+    )
+    monkeypatch.setattr(bootstrap.os, "cpu_count", lambda: 20)
+
+    bootstrap._verify_local_worker_port_capacity(config, dashboard)
+
+
 def test_driver_connection_has_hard_deadline():
     from dapper.ray import bootstrap
     from dapper.ray.dashboard import RayBootstrapDashboard
@@ -416,9 +456,10 @@ def test_driver_connection_has_hard_deadline():
         with pytest.raises(RayBootstrapError, match="did not finish"):
             bootstrap._connect(
                 ray,
-                "127.0.0.1:26379",
+                "10.0.0.1:26379",
                 dashboard,
                 head_name="head",
+                node_ip_address="10.0.0.1",
                 timeout_seconds=0.01,
             )
     finally:

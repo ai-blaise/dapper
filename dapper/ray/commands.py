@@ -17,6 +17,11 @@ from dapper.ray.config import GcloudWorker, RayBootstrapConfig
 from dapper.ray.errors import RayBootstrapError
 
 
+# Ray prestarts roughly one Python worker per visible CPU. Extra ports are
+# needed for drivers and actors that coexist with that idle worker pool.
+WORKER_PORT_HEADROOM = 16
+
+
 @dataclass(frozen=True)
 class PortListener:
     """Minimal, non-sensitive identity for a local listening process."""
@@ -114,12 +119,16 @@ def build_worker_remote_command(
     ]
     environment = shlex.join([f"DAPPER_NODE_NAME={worker.name}"])
     discover = _worker_ray_discovery(config)
+    capacity_check = _worker_port_capacity_check(config)
     launch = f'env {environment} "$ray_exec" {shlex.join(start_arguments)}'
     stop = '"$ray_exec" stop --force'
     # This command is sent only to explicitly configured workers which are not
     # registered with the current head. Any local raylet is therefore stale or
     # belongs to another cluster and must not prevent a clean registration.
-    return f"{discover}; {stop} >/dev/null 2>&1 || true; {launch}"
+    return (
+        f"{discover}; {capacity_check}; "
+        f"{stop} >/dev/null 2>&1 || true; {launch}"
+    )
 
 
 def build_worker_stop_remote_command(config: RayBootstrapConfig) -> str:
@@ -290,6 +299,28 @@ def _worker_ray_discovery(config: RayBootstrapConfig) -> str:
         f"elif [ -x {configured} ]; then ray_exec={configured}; "
         "else echo 'Dapper worker error: Ray executable not found; install Dapper "
         "with its locked dependencies on this node.' >&2; exit 127; fi"
+    )
+
+
+def required_worker_ports(visible_cpus: int) -> int:
+    """Return the minimum safe worker-port pool for a Ray node."""
+    return max(1, visible_cpus) + WORKER_PORT_HEADROOM
+
+
+def _worker_port_capacity_check(config: RayBootstrapConfig) -> str:
+    """Build a POSIX-shell guard against a remote raylet registration stall."""
+    capacity = config.worker_port_capacity
+    return (
+        'visible_cpus="$(getconf _NPROCESSORS_ONLN 2>/dev/null '
+        '|| nproc 2>/dev/null || echo 1)"; '
+        "case \"$visible_cpus\" in ''|*[!0-9]*) visible_cpus=1;; esac; "
+        f"required_worker_ports=$((visible_cpus + {WORKER_PORT_HEADROOM})); "
+        f"if [ {capacity} -lt \"$required_worker_ports\" ]; then "
+        f"echo \"Dapper worker error: Ray worker port range has {capacity} ports "
+        f"but $visible_cpus CPUs require at least $required_worker_ports. "
+        "Increase ray.bootstrap.max_worker_port and its matching private VPC "
+        "rule.\" >&2; "
+        "exit 78; fi"
     )
 
 

@@ -33,6 +33,7 @@ from dapper.ray.commands import (
 from dapper.ray.commands import (
     process_error as _process_error,
 )
+from dapper.ray.commands import required_worker_ports as _required_worker_ports
 from dapper.ray.commands import (
     require_executable as _require_executable,
 )
@@ -141,6 +142,7 @@ def start_ray_cluster(
             resolved,
             ray_executable=_resolve_executable(resolved.ray_executable, "Ray"),
         )
+        _verify_local_worker_port_capacity(resolved, dashboard)
         _ensure_head(resolved, dashboard, process_runner)
         try:
             _wait_for_control_plane(resolved, dashboard, process_runner)
@@ -152,9 +154,10 @@ def start_ray_cluster(
                 ray = ray_module
             _connect(
                 ray,
-                resolved.local_driver_address,
+                resolved.cluster_address,
                 dashboard,
                 head_name=resolved.head_name,
+                node_ip_address=resolved.head_address,
                 timeout_seconds=resolved.control_plane_timeout_seconds,
             )
         except RayBootstrapError as exc:
@@ -225,7 +228,7 @@ def _ensure_head(
         )
         try:
             health = process_runner(
-                build_status_command(config, address=config.local_driver_address),
+                build_status_command(config, address=config.cluster_address),
                 capture_output=True,
                 text=True,
                 timeout=config.control_plane_timeout_seconds,
@@ -314,7 +317,7 @@ def _wait_for_control_plane(
         )
         try:
             completed = process_runner(
-                build_status_command(config, address=config.local_driver_address),
+                build_status_command(config, address=config.cluster_address),
                 capture_output=True,
                 text=True,
                 timeout=min(3.0, remaining),
@@ -399,11 +402,41 @@ def _verify_advertised_head_ports(
         detail=detail,
     )
     raise RayBootstrapError(
-        "Ray is healthy over loopback, but its advertised private endpoints are "
+        "Ray status succeeded, but its advertised private endpoints are "
         f"unreachable from the head: {detail}. GCE permits traffic to a VM's own "
         "NIC address regardless of VPC firewall rules, so inspect guest firewall "
         "rules and /tmp/ray/session_latest/logs/{gcs_server,raylet}.err."
         f"{log_detail}"
+    )
+
+
+def _verify_local_worker_port_capacity(
+    config: RayBootstrapConfig,
+    dashboard: RayBootstrapDashboard,
+) -> None:
+    """Ensure Ray can prestart workers without exhausting its fixed ports."""
+    visible_cpus = os.cpu_count() or 1
+    required = _required_worker_ports(visible_cpus)
+    capacity = config.worker_port_capacity
+    dashboard.update_node(
+        config.head_name,
+        phase="Checking Ray worker-port capacity",
+        status="checking",
+        detail=f"{visible_cpus} CPUs · {capacity} worker ports",
+    )
+    if capacity >= required:
+        return
+    dashboard.update_node(
+        config.head_name,
+        phase="Worker-port range is too small",
+        status="failed",
+        detail=f"{capacity} available · {required} required",
+    )
+    raise RayBootstrapError(
+        f"Ray worker port range {config.min_worker_port}-{config.max_worker_port} "
+        f"contains {capacity} ports, but the head exposes {visible_cpus} CPUs and "
+        f"requires at least {required}. Increase ray.bootstrap.max_worker_port "
+        "and its matching private VPC rule."
     )
 
 
@@ -465,6 +498,7 @@ def _connect(
     dashboard: RayBootstrapDashboard,
     *,
     head_name: str,
+    node_ip_address: str,
     timeout_seconds: float,
 ) -> None:
     dashboard.set_cluster("Connecting")
@@ -478,7 +512,12 @@ def _connect(
 
     def connect_driver() -> None:
         try:
-            ray.init(address=address, ignore_reinit_error=True, logging_level="ERROR")
+            ray.init(
+                address=address,
+                _node_ip_address=node_ip_address,
+                ignore_reinit_error=True,
+                logging_level="ERROR",
+            )
         # The worker thread must hand every outcome, including SystemExit from
         # Ray internals, back to the supervising main thread.
         except BaseException as exc:  # noqa: BLE001
@@ -492,17 +531,34 @@ def _connect(
         daemon=True,
     )
     thread.start()
-    thread.join(timeout_seconds)
+    deadline = time.monotonic() + timeout_seconds
+    last_second: int | None = None
+    while thread.is_alive():
+        remaining = max(0.0, deadline - time.monotonic())
+        if remaining <= 0:
+            break
+        seconds = max(1, int(remaining + 0.999))
+        if seconds != last_second:
+            dashboard.update_node(
+                head_name,
+                phase="Connecting Dapper driver",
+                status="checking",
+                detail=f"timeout in {seconds}s",
+            )
+            last_second = seconds
+        thread.join(min(0.25, remaining))
     if thread.is_alive():
+        diagnostic = latest_component_error("raylet")
         dashboard.update_node(
             head_name,
             phase="Driver connection timed out",
             status="failed",
-            detail=f"native Ray call exceeded {timeout_seconds:g}s",
+            detail=diagnostic or f"native Ray call exceeded {timeout_seconds:g}s",
         )
         raise RayBootstrapError(
             f"Ray control plane is healthy, but the Dapper driver connection "
             f"did not finish within {timeout_seconds:g}s."
+            + (f" Latest raylet error: {diagnostic}" if diagnostic else "")
         )
     error = outcome.get_nowait()
     if error is not None:
