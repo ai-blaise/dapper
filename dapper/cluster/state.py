@@ -100,14 +100,16 @@ def run_ranked(
     task_list = list(tasks)
     total = len(task_list)
     pending = []
+    completed = _discover_completed_ranks(
+        run_uri,
+        stage,
+        {rank for rank, _ in task_list},
+    )
     results: list[dict[str, Any]] = []
     for rank, args in task_list:
-        marker = rank_marker(run_uri, stage, rank)
-        if io.exists(marker):
-            payload = io.read_json(marker)
-            if payload.get("rank") == rank and payload.get("stage") == stage and payload.get("complete") is True:
-                results.append(payload.get("metrics") or {})
-                continue
+        if rank in completed:
+            results.append(completed[rank])
+            continue
         pending.append((rank, args))
 
     if on_progress is not None:
@@ -150,6 +152,42 @@ def run_ranked(
             for future in as_completed(futures):
                 record(future.result())
     return results
+
+
+def _discover_completed_ranks(
+    run_uri: str,
+    stage: str,
+    expected_ranks: set[int],
+) -> dict[int, dict[str, Any]]:
+    """List a stage once, then validate only the markers that actually exist."""
+    if not expected_ranks:
+        return {}
+    prefix = io.join(run_uri, "logs", stage)
+    targets = io.glob(prefix, "*.complete.json")
+    if not targets:
+        return {}
+
+    def load(target: str) -> tuple[int, dict[str, Any]] | None:
+        payload = io.read_json(target)
+        try:
+            rank = int(payload.get("rank"))
+        except (TypeError, ValueError):
+            return None
+        if (
+            rank not in expected_ranks
+            or payload.get("stage") != stage
+            or payload.get("complete") is not True
+        ):
+            return None
+        return rank, payload.get("metrics") or {}
+
+    completed: dict[int, dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=min(32, len(targets))) as pool:
+        for loaded in pool.map(load, targets):
+            if loaded is not None:
+                rank, metrics = loaded
+                completed[rank] = metrics
+    return completed
 
 
 def _execute_rank(function: Callable[..., dict[str, Any]], args: tuple[Any, ...], run_uri: str, stage: str, rank: int) -> dict[str, Any]:

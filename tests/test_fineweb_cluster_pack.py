@@ -312,7 +312,8 @@ def test_dashboard_keeps_completed_stages_in_its_final_render():
     assert "3 packs" in rendered
 
 
-def test_rank_progress_reports_live_and_resumed_metrics(tmp_path):
+def test_rank_progress_reports_live_and_resumed_metrics(tmp_path, monkeypatch):
+    from dapper.cluster import state
     from dapper.cluster.state import run_ranked
 
     updates = []
@@ -334,6 +335,18 @@ def test_rank_progress_reports_live_and_resumed_metrics(tmp_path):
     )
     assert [item[0] for item in updates] == [0, 1, 2]
 
+    glob_calls = []
+    original_glob = state.io.glob
+
+    def _glob(uri, pattern):
+        glob_calls.append((uri, pattern))
+        return original_glob(uri, pattern)
+
+    def _unexpected_exists(*_args, **_kwargs):
+        raise AssertionError("resume discovery must not probe every rank")
+
+    monkeypatch.setattr(state.io, "glob", _glob)
+    monkeypatch.setattr(state.io, "exists", _unexpected_exists)
     resumed = []
     run_ranked(
         [(0, (2,)), (1, (3,))],
@@ -344,6 +357,7 @@ def test_rank_progress_reports_live_and_resumed_metrics(tmp_path):
         **arguments,
     )
     assert resumed == [(2, 2, {"documents_read": 5})]
+    assert len(glob_calls) == 1
 
 
 def test_fineweb_tokenize_defaults_to_complete_workflow(monkeypatch):
