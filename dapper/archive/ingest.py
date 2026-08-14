@@ -59,7 +59,9 @@ class IngestReport:
         return self.skipped_reason is not None
 
 
-def source_is_complete(source_uri: str) -> bool:
+def source_is_complete(
+    source_uri: str, *, source: SourceConfig | None = None
+) -> bool:
     """True when a previous run read this source to exhaustion.
 
     A ``--limit`` run stops early by design, so its marker records the limit and
@@ -72,7 +74,18 @@ def source_is_complete(source_uri: str) -> bool:
     if not io.exists(marker):
         return False
     try:
-        return io.read_json(marker).get("limit") is None
+        payload = io.read_json(marker)
+        if source is not None and any(
+            key in payload
+            for key in ("dataset_config", "split", "archive_name")
+        ):
+            if payload.get("dataset_config") != source.dataset_config:
+                return False
+            if payload.get("split") != (source.split or "train"):
+                return False
+            if payload.get("archive_name") != source.staged_name:
+                return False
+        return payload.get("limit") is None
     except (ValueError, KeyError, AttributeError):
         # A marker we cannot parse predates this field. Treat it as complete:
         # it was only ever written after a full pass.
@@ -119,7 +132,7 @@ def ingest_hf(
     progress_callback: ProgressCallback | None = None,
 ) -> IngestReport:
     """Stream one HuggingFace dataset into GCS as normalized JSONL shards."""
-    destination = context.source_uri(source.name)
+    destination = context.source_uri(source.staged_name)
     if not is_supported(source):
         return IngestReport(
             source_name=source.name,
@@ -131,7 +144,7 @@ def ingest_hf(
 
     # A completed source is skipped so a failed multi-day run can be resumed by
     # simply re-invoking archive.
-    if not force and source_is_complete(destination):
+    if not force and source_is_complete(destination, source=source):
         return IngestReport(
             source_name=source.name,
             destination_uri=destination,
@@ -194,6 +207,9 @@ def ingest_hf(
         {
             "source": source.name,
             "repo": source.repo,
+            "dataset_config": source.dataset_config,
+            "split": source.split or "train",
+            "archive_name": source.staged_name,
             "records": total,
             "shards": shards,
             "limit": limit,
@@ -273,7 +289,7 @@ def ingest_all(
             )
             return IngestReport(
                 source_name=source.name,
-                destination_uri=context.source_uri(source.name),
+                destination_uri=context.source_uri(source.staged_name),
                 records=0,
                 shards=0,
                 skipped_reason=f"{type(exc).__name__}: {exc}",
@@ -321,10 +337,10 @@ def plan_ingest(
     targets = list(sources) if sources is not None else archivable_sources(config)
     plan = []
     for source in targets:
-        destination = context.source_uri(source.name)
+        destination = context.source_uri(source.staged_name)
         if not is_supported(source):
             reason = f"no loader for type: {source.type}"
-        elif not force and source_is_complete(destination):
+        elif not force and source_is_complete(destination, source=source):
             reason = "already archived (_SUCCESS marker present)"
         else:
             reason = None
@@ -380,12 +396,15 @@ def _stream_hf_records(
         # Two offsets compose here: `skip` is what a previous run already
         # archived, `delivered` is what this stream yielded before it broke.
         start = skip + delivered
+        load_kwargs: dict[str, Any] = {}
+        if config.hf_trust_remote_code:
+            load_kwargs["trust_remote_code"] = True
         dataset = load_dataset(
             source.repo,
             source.dataset_config,
             split=source.split,
             streaming=True,
-            trust_remote_code=config.hf_trust_remote_code,
+            **load_kwargs,
         )
         for index, record in enumerate(dataset):
             if limit is not None and index >= limit:

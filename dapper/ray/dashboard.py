@@ -19,6 +19,7 @@ from utils.display import (
     BAD,
     BORDER,
     GOOD,
+    LIVE_REFRESH_PER_SECOND,
     MUTED,
     PANEL_BORDER,
     WARN,
@@ -67,9 +68,10 @@ class RayBootstrapDashboard:
     def __enter__(self) -> Self:
         if self.enabled:
             self._live = Live(
-                self._render(),
                 console=self.console,
-                auto_refresh=False,
+                get_renderable=self._render,
+                auto_refresh=True,
+                refresh_per_second=LIVE_REFRESH_PER_SECOND,
                 transient=False,
                 redirect_stdout=True,
                 redirect_stderr=True,
@@ -81,7 +83,6 @@ class RayBootstrapDashboard:
         if exc is not None:
             with self._lock:
                 self._cluster_status = "Failed"
-        self.refresh()
         if self._live is not None:
             self._live.stop()
             self._live = None
@@ -92,7 +93,6 @@ class RayBootstrapDashboard:
             self._cluster_status = status
             if address is not None:
                 self._cluster_address = address if self.show_addresses else "private VPC"
-        self.refresh()
 
     def update_node(
         self,
@@ -129,12 +129,6 @@ class RayBootstrapDashboard:
                 f"{name}: {phase or node.phase} — {status or node.status}"
                 + (f" ({detail})" if detail else "")
             )
-        self.refresh()
-
-    def refresh(self) -> None:
-        live = self._live
-        if live is not None:
-            live.update(self._render(), refresh=True)
 
     def _render(self):
         with self._lock:

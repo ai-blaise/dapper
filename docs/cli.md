@@ -349,6 +349,7 @@ like success.
 dapper archive --limit 100                 # cheap test slice
 dapper archive --sources c4,cosmopedia     # just two sources
 dapper archive --sources allenai/c4        # repo refs work too
+dapper archive --sources fineweb --ray     # one native file per Ray task
 dapper archive --dry-run                   # what would happen
 dapper archive check                       # complete vs remaining sources
 dapper archive check --sources c4,fineweb  # check only a subset
@@ -479,14 +480,39 @@ archive is recovered by re-running the same command. Use `--force` to re-pull a
 source anyway. Sources stream concurrently (`--workers`, default 4) since the
 work is network-bound.
 
+For one web-scale Hugging Face source, `--ray` parallelizes inside the source
+instead. The head resolves the immutable native-file manifest once, connects
+to the configured private Ray cluster, and schedules one pinned Parquet file
+per resumable task. Outputs use deterministic `part-<native-rank>.jsonl` names;
+the final `_SUCCESS` marker is written only after every native file and the
+frozen GCS inventory reconcile. `--ray` requires exactly one source and cannot
+be combined with `--limit`.
+
+`dapper ray init` discovers workers from numbered entries in the untracked
+`.env`. Each existing GCE VM needs an `INSTANCE` / `ZONE` pair; adding a worker
+does not require editing YAML:
+
+```dotenv
+DAPPER_RAY_WORKER_01_INSTANCE=ray-worker-a
+DAPPER_RAY_WORKER_01_ZONE=us-east1-b
+DAPPER_RAY_WORKER_02_INSTANCE=ray-worker-b
+DAPPER_RAY_WORKER_02_ZONE=us-east1-b
+```
+
+The numeric suffix also supplies the default display alias (`worker-01`,
+`worker-02`). Dapper derives the expected node count as head plus discovered
+workers. The old singular `DAPPER_RAY_WORKER_INSTANCE` / `_ZONE` pair remains
+accepted for a one-worker deployment.
+
 > **A `--limit` run does not mark sources complete.** The marker records the
 > limit, so `dapper archive --limit 1000` followed by a full `dapper archive`
 > re-archives everything rather than skipping it as already done.
 
 > **Bandwidth note.** There is no server-side HF-to-GCS transfer: every byte is
-> downloaded to the machine running `dapper archive` and uploaded from it. For
-> a test slice this is irrelevant; for the full corpus your uplink is the
-> ceiling, so run it on a VM in the bucket's region.
+> downloaded and uploaded by the process handling its shard. With `--ray`, that
+> traffic is distributed across the registered workers. Keep those VMs near
+> the bucket and expect aggregate Hugging Face and GCS bandwidth to set the
+> ceiling.
 
 Sources come from the `corpus:` block in `dapper.yaml`, grouped by the loader
 that reads them:
@@ -501,7 +527,8 @@ corpus:
     huggingface:
       - name: fineweb
         repo: "HuggingFaceFW/fineweb"
-        dataset_config: sample-10BT
+        dataset_config: default
+        archive_name: fineweb-default
         domain: general_web
         license: ODC-By-1.0
 ```
@@ -510,10 +537,11 @@ The block key supplies the type, so no entry repeats `type: huggingface`.
 `corpus.defaults` is merged beneath every entry, and an entry always wins over
 a default.
 
-`dataset_config` selects a named subset published by the dataset's authors —
-`sample-10BT` is a ~10B-token slice of FineWeb, against `default` at ~15T.
-Scaling up is a one-word edit. The samples are independent draws rather than
-nested subsets, so replace the value instead of adding a second entry.
+`dataset_config` selects a configuration published by the dataset's authors.
+The checked-in `default` selects full FineWeb; `sample-10BT` selects only its
+~10B-token sample. `archive_name` gives configurations separate staged GCS
+directories, preventing an existing sample `_SUCCESS` marker from being
+mistaken for completion of the full corpus.
 
 Set `text_field` / `id_field` on a source only when auto-detection picks the
 wrong column; an explicit value always wins over sniffing.
@@ -581,7 +609,8 @@ corpus:
     huggingface:
       - name: fineweb
         repo: "HuggingFaceFW/fineweb"
-        dataset_config: sample-10BT
+        dataset_config: default
+        archive_name: fineweb-default
         domain: general_web
         license: ODC-By-1.0
 

@@ -125,6 +125,14 @@ def archive_main(argv: Sequence[str] | None = None) -> None:
         help="Number of sources to stream concurrently. Default 4.",
     )
     parser.add_argument(
+        "--ray",
+        action="store_true",
+        help=(
+            "Distribute one exhaustive Hugging Face source by its native "
+            "Parquet shards across the connected Ray cluster."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Resolve the catalog and bucket layout, print the plan, write nothing.",
@@ -139,6 +147,7 @@ def archive_main(argv: Sequence[str] | None = None) -> None:
             limit=args.limit,
             force=args.force,
             workers=args.workers,
+            ray=args.ray,
             dry_run=args.dry_run,
             progress=not args.no_progress,
         )

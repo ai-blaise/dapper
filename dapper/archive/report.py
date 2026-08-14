@@ -280,6 +280,7 @@ def format_catalog_show(source: SourceConfig) -> str:
         ("repo", source.repo),
         ("path", source.path),
         ("dataset_config", source.dataset_config),
+        ("archive_name", source.staged_name),
         ("split", source.split),
         ("domain", source.domain or "unknown"),
         ("license", source.license),

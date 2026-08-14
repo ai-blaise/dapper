@@ -40,6 +40,7 @@ BAD = "red"
 WARN = "yellow"
 BORDER = "dim blue"     # table borders
 PANEL_BORDER = "blue"   # panel borders
+LIVE_REFRESH_PER_SECOND = 2.0  # smooth enough for progress without SSH flicker
 
 
 def title(text: str, *, subtitle: str | None = None) -> Text:

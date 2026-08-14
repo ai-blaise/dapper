@@ -80,7 +80,7 @@ def run_tokenize(
     # A dry run still verifies credentials: printing a confident plan and then
     # failing on auth would defeat the point.
     context = init_gcs(config)
-    input_uri = context.output_uri if deduped else context.source_uri(source.name)
+    input_uri = context.output_uri if deduped else context.source_uri(source.staged_name)
     tokens_uri = context.tokens_uri
     run_uri = io.join(tokens_uri, RUNS_DIRNAME, label)
 

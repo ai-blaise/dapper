@@ -48,11 +48,13 @@ def run_archive(
     limit: int | None = None,
     force: bool = False,
     workers: int | None = None,
+    ray: bool = False,
     dry_run: bool = False,
     progress: bool = True,
 ) -> CommandResult:
     """Stream configured corpus sources into the GCS archive."""
-    dedup_config = parse_dedup_config(load_config(config_path))
+    raw = load_config(config_path)
+    dedup_config = parse_dedup_config(raw)
     targets = (
         resolve_sources(sources.split(","), dedup_config) if sources else None
     )
@@ -64,6 +66,39 @@ def run_archive(
     if dry_run:
         plan = plan_ingest(context, dedup_config, sources=targets, force=force)
         return CommandResult(format_archive_plan(context, plan))
+
+    if ray:
+        from dapper.archive.ray_ingest import ingest_hf_ray
+        from dapper.cluster.config import parse_pipeline_config
+        from dapper.cluster.dashboard import PipelineDashboard
+
+        selected = list(targets or archivable_sources(dedup_config))
+        if limit is not None:
+            raise ValueError(
+                "Ray-parallel archive requires an exhaustive source; remove "
+                "--limit or omit --ray for a small test slice."
+            )
+        if len(selected) != 1:
+            raise ValueError(
+                "Ray-parallel archive currently requires exactly one --sources entry."
+            )
+        source = selected[0]
+        dashboard = PipelineDashboard(source.name, enabled=progress)
+        dashboard.set_dataset_config(source.dataset_config)
+        with dashboard:
+            report = ingest_hf_ray(
+                source,
+                context,
+                dedup_config,
+                parse_pipeline_config(raw),
+                dashboard,
+                force=force,
+            )
+        failed = report.failed
+        return CommandResult(
+            format_archive_report(context, [report]),
+            EXIT_PARTIAL if failed else EXIT_OK,
+        )
 
     reports = ingest_all(
         context,
@@ -91,7 +126,7 @@ def run_archive_delete(
     targets = resolve_sources([name], dedup_config)
     context = init_gcs(dedup_config)
     source = targets[0]
-    uri = context.source_uri(source.name)
+    uri = context.source_uri(source.staged_name)
     deleted = io.delete(uri, recursive=True)
     if deleted:
         message = f"Deleted archived dataset {source.name}: {uri}"
@@ -116,8 +151,10 @@ def run_archive_check(
     entries = [
         ArchiveCheckEntry(
             source_name=source.name,
-            destination_uri=context.source_uri(source.name),
-            complete=source_is_complete(context.source_uri(source.name)),
+            destination_uri=context.source_uri(source.staged_name),
+            complete=source_is_complete(
+                context.source_uri(source.staged_name), source=source
+            ),
         )
         for source in targets
     ]

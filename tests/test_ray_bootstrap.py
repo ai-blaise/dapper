@@ -70,6 +70,64 @@ def test_bootstrap_resolves_only_explicit_environment_references():
     assert config.show_node_addresses is False
 
 
+def test_bootstrap_discovers_numbered_workers_from_environment():
+    raw = _raw()
+    del raw["ray"]["expected_min_nodes"]
+    raw["ray"]["bootstrap"].pop("workers")
+    raw["ray"]["bootstrap"]["worker_env_prefix"] = "DAPPER_RAY_WORKER"
+
+    config = parse_ray_bootstrap_config(
+        raw,
+        environ={
+            "DAPPER_RAY_PORT": "26379",
+            "DAPPER_RAY_WORKER_01_INSTANCE": "ray-worker-a",
+            "DAPPER_RAY_WORKER_01_ZONE": "us-east1-b",
+            "DAPPER_RAY_WORKER_02_INSTANCE": "ray-worker-b",
+            "DAPPER_RAY_WORKER_02_ZONE": "us-east1-c",
+        },
+    )
+
+    assert [worker.name for worker in config.workers] == ["worker-01", "worker-02"]
+    assert [worker.instance for worker in config.workers] == [
+        "ray-worker-a",
+        "ray-worker-b",
+    ]
+    assert config.expected_nodes == 3
+
+
+def test_bootstrap_numbered_worker_requires_matching_zone():
+    raw = _raw()
+    raw["ray"]["bootstrap"].pop("workers")
+    raw["ray"]["bootstrap"]["worker_env_prefix"] = "DAPPER_RAY_WORKER"
+
+    with pytest.raises(RayBootstrapConfigError, match="WORKER_01_ZONE"):
+        parse_ray_bootstrap_config(
+            raw,
+            environ={
+                "DAPPER_RAY_PORT": "26379",
+                "DAPPER_RAY_WORKER_01_INSTANCE": "ray-worker-a",
+            },
+        )
+
+
+def test_bootstrap_accepts_legacy_singular_worker_environment():
+    raw = _raw()
+    raw["ray"]["bootstrap"].pop("workers")
+    raw["ray"]["bootstrap"]["worker_env_prefix"] = "DAPPER_RAY_WORKER"
+
+    config = parse_ray_bootstrap_config(
+        raw,
+        environ={
+            "DAPPER_RAY_PORT": "26379",
+            "DAPPER_RAY_WORKER_INSTANCE": "legacy-worker",
+            "DAPPER_RAY_WORKER_ZONE": "us-east1-b",
+        },
+    )
+
+    assert config.workers[0].instance == "legacy-worker"
+    assert config.workers[0].name == "worker-01"
+
+
 def test_bootstrap_missing_environment_value_is_actionable():
     with pytest.raises(RayBootstrapConfigError, match="WORKER_INSTANCE"):
         parse_ray_bootstrap_config(_raw(), environ={})
@@ -113,19 +171,19 @@ def test_bootstrap_rejects_fixed_port_inside_worker_range():
 def test_ray_env_file_loads_only_scoped_values_without_overwriting(tmp_path, monkeypatch):
     target = tmp_path / ".env"
     target.write_text(
-        "DAPPER_RAY_WORKER_INSTANCE=from-file\n"
-        "DAPPER_RAY_WORKER_ZONE='us-east1-b'\n"
+        "DAPPER_RAY_WORKER_01_INSTANCE=from-file\n"
+        "DAPPER_RAY_WORKER_01_ZONE='us-east1-b'\n"
         "DAPPER_RAY_PORT=26379\n"
         "UNRELATED_SECRET=do-not-load\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("DAPPER_RAY_WORKER_INSTANCE", "already-exported")
-    monkeypatch.delenv("DAPPER_RAY_WORKER_ZONE", raising=False)
+    monkeypatch.setenv("DAPPER_RAY_WORKER_01_INSTANCE", "already-exported")
+    monkeypatch.delenv("DAPPER_RAY_WORKER_01_ZONE", raising=False)
     monkeypatch.delenv("DAPPER_RAY_PORT", raising=False)
     monkeypatch.delenv("UNRELATED_SECRET", raising=False)
     load_ray_environment(target)
-    assert os.environ["DAPPER_RAY_WORKER_INSTANCE"] == "already-exported"
-    assert os.environ["DAPPER_RAY_WORKER_ZONE"] == "us-east1-b"
+    assert os.environ["DAPPER_RAY_WORKER_01_INSTANCE"] == "already-exported"
+    assert os.environ["DAPPER_RAY_WORKER_01_ZONE"] == "us-east1-b"
     assert os.environ["DAPPER_RAY_PORT"] == "26379"
     assert "UNRELATED_SECRET" not in os.environ
 
@@ -406,6 +464,44 @@ def test_advertised_private_ports_fail_before_driver_connect(monkeypatch):
 
     with pytest.raises(RayBootstrapError, match="component is not listening"):
         bootstrap._verify_advertised_head_ports(config, dashboard)
+
+
+def test_bootstrap_dashboard_coalesces_live_redraws(monkeypatch):
+    from dapper.ray import dashboard as dashboard_module
+
+    class LiveProbe:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.started_with_refresh = False
+            self.refreshes = 0
+            self.stopped = False
+
+        def start(self, *, refresh):
+            self.started_with_refresh = refresh
+
+        def refresh(self):
+            self.refreshes += 1
+
+        def stop(self):
+            self.stopped = True
+
+    monkeypatch.setattr(dashboard_module, "Live", LiveProbe)
+    dashboard = dashboard_module.RayBootstrapDashboard(
+        [("head", "head", "local")]
+    )
+
+    with dashboard:
+        live = dashboard._live
+        assert isinstance(live, LiveProbe)
+        dashboard.set_cluster("Connecting")
+        dashboard.update_node("head", phase="Checking", status="checking")
+        assert live.refreshes == 0
+
+    assert live.started_with_refresh is True
+    assert live.stopped is True
+    assert live.kwargs["auto_refresh"] is True
+    assert live.kwargs["refresh_per_second"] == 2.0
+    assert callable(live.kwargs["get_renderable"])
 
 
 def test_worker_port_capacity_fails_before_ray_start(monkeypatch):

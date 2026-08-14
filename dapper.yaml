@@ -30,7 +30,6 @@ tokenizer:
 
 ray:
   address: auto
-  expected_min_nodes: 2
   # Display-only aliases. Prefer setting DAPPER_NODE_NAME independently in
   # each node's Ray service environment (for example: head, worker-01). As a
   # fallback, map a Ray node ID, node address, or hostname to an alias here.
@@ -63,10 +62,9 @@ ray:
     control_plane_timeout_seconds: 15
     startup_timeout_seconds: 120
     poll_seconds: 1
-    workers:
-      - name: worker-01
-        instance: ${DAPPER_RAY_WORKER_INSTANCE}
-        zone: ${DAPPER_RAY_WORKER_ZONE}
+    # Numbered DAPPER_RAY_WORKER_<NN>_INSTANCE/ZONE pairs in .env define the
+    # complete worker set. Dapper derives the required node count from them.
+    worker_env_prefix: DAPPER_RAY_WORKER
 
 cluster:
   executor: ray
@@ -208,13 +206,14 @@ corpus:
     huggingface:
 
       # ---- general_web ----------------------------------------------------
-      # sample-10BT is a ~10B-token subset published by the FineWeb authors.
-      # Swap for sample-100BT, sample-350BT, or `default` (~15T) to scale up.
-      # The samples are independent draws, not nested, so replace this value
-      # rather than adding a second entry.
+      # Full FineWeb. Stage it with:
+      #   dapper archive --sources fineweb --ray
+      # It uses a distinct archive directory so the previously staged
+      # sample-10BT corpus cannot satisfy or contaminate resume state.
       - name: fineweb
         repo: "HuggingFaceFW/fineweb"
-        dataset_config: sample-10BT
+        dataset_config: default
+        archive_name: fineweb-default
         domain: general_web
         license: ODC-By-1.0
       - name: dclm-pro

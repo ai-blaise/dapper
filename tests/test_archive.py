@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 import pytest
 from rich.console import Console
@@ -118,12 +119,180 @@ def test_hf_xet_acceleration_can_be_configured():
             "xet_num_concurrent_range_gets": 32,
         },
     }
-
     config = _config(raw)
 
     assert config.hf_xet_high_performance is False
     assert config.hf_xet_num_concurrent_range_gets == 32
 
+
+def test_ray_archive_resolves_commit_pinned_native_files(monkeypatch):
+    import datasets
+
+    from dapper.archive.ray_ingest import resolve_hf_shard_plan
+
+    files = [
+        "hf://datasets/HuggingFaceFW/fineweb@abc/data/a.parquet",
+        "hf://datasets/HuggingFaceFW/fineweb@abc/data/b.parquet",
+    ]
+    monkeypatch.setattr(
+        datasets,
+        "load_dataset_builder",
+        lambda *args, **kwargs: SimpleNamespace(
+            config=SimpleNamespace(data_files={"train": files})
+        ),
+    )
+    source = next(item for item in _config().sources if item.name == "fineweb")
+
+    plan = resolve_hf_shard_plan(source, _config())
+
+    assert plan.files == tuple(files)
+    assert plan.dataset_config == "sample-10BT"
+    assert plan.split == "train"
+    assert plan.plan_id == plan.to_dict()["plan_id"]
+
+
+def test_ray_archive_task_streams_one_native_file_to_one_jsonl(tmp_path, monkeypatch):
+    from dapper.archive import ray_ingest
+    from dapper.corpus import io
+
+    source = next(item for item in _config().sources if item.name == "fineweb")
+    monkeypatch.setattr(
+        ray_ingest,
+        "_stream_parquet_file",
+        lambda *args, **kwargs: iter(
+            [{"id": "doc-1", "text": "hello", "url": "https://example.com"}]
+        ),
+    )
+
+    metric = ray_ingest.archive_hf_file_task(
+        7,
+        "hf://datasets/example/data.parquet",
+        source,
+        _config(),
+        str(tmp_path),
+    )
+
+    rows = list(io.iter_jsonl(metric["output_uri"]))
+    assert metric["native_rank"] == 7
+    assert metric["documents_read"] == 1
+    assert rows[0]["text"] == "hello"
+    assert rows[0]["subset"] == "sample-10BT"
+
+
+def test_ray_archive_discards_completion_whose_output_is_missing(tmp_path):
+    from dapper.archive.ray_ingest import (
+        RAY_ARCHIVE_STAGE,
+        _discard_invalid_completions,
+    )
+    from dapper.corpus import io
+
+    destination = str(tmp_path)
+    io.write_text(io.join(destination, "part-00000.jsonl"), "{}\n")
+    marker_root = io.join(destination, "logs", RAY_ARCHIVE_STAGE)
+    valid = io.join(marker_root, "00000.complete.json")
+    invalid = io.join(marker_root, "00001.complete.json")
+    io.write_json(valid, {"rank": 0})
+    io.write_json(invalid, {"rank": 1})
+
+    _discard_invalid_completions(destination)
+
+    assert io.exists(valid)
+    assert not io.exists(invalid)
+
+
+def test_ray_archive_reconciles_outputs_and_writes_success(tmp_path, monkeypatch):
+    from dapper.archive import ray_ingest
+    from dapper.cluster.config import parse_pipeline_config
+    from dapper.cluster.dashboard import PipelineDashboard
+    from dapper.cluster.topology import NodeResources, RunTopology, StageTopology
+    from dapper.corpus import io
+    from dapper.corpus.gcs import GcsContext
+
+    source = next(item for item in _config().sources if item.name == "fineweb")
+    plan = ray_ingest.HfShardPlan(
+        source="fineweb",
+        repo="HuggingFaceFW/fineweb",
+        dataset_config="sample-10BT",
+        split="train",
+        files=("hf://one.parquet", "hf://two.parquet"),
+    )
+    stage = StageTopology(2, 2, 1.0, 1024)
+    topology = RunTopology(
+        2.0,
+        (NodeResources("node", "127.0.0.1", 2.0, 4096, True),),
+        stage,
+        stage,
+    )
+    context = GcsContext(
+        bucket="local",
+        staged_input_uri=str(tmp_path / "staged"),
+        work_uri=str(tmp_path / "work"),
+        output_uri=str(tmp_path / "output"),
+        tokens_uri=str(tmp_path / "tokens"),
+        manifest_uri=str(tmp_path / "manifest"),
+    )
+    monkeypatch.setattr(ray_ingest, "resolve_hf_shard_plan", lambda *args: plan)
+    monkeypatch.setattr(
+        ray_ingest,
+        "discover_topology",
+        lambda *args, **kwargs: (object(), topology),
+    )
+
+    def fake_run_ranked(tasks, function, **kwargs):
+        results = []
+        task_list = list(tasks)
+        for rank, args in task_list:
+            target = io.join(args[-1], f"part-{rank:05d}.jsonl")
+            io.write_text(target, '{"text":"ok"}\n')
+            result = {"documents_read": rank + 1, "output_uri": target}
+            results.append(result)
+            kwargs["on_progress"](len(results), len(task_list), result)
+        return results
+
+    monkeypatch.setattr(ray_ingest, "run_ranked", fake_run_ranked)
+    dashboard = PipelineDashboard("fineweb", enabled=False)
+
+    report = ray_ingest.ingest_hf_ray(
+        source,
+        context,
+        _config(),
+        parse_pipeline_config(CORPUS),
+        dashboard,
+    )
+
+    destination = context.source_uri(source.staged_name)
+    marker = io.read_json(io.join(destination, "_SUCCESS"))
+    assert report.records == 3
+    assert report.shards == 2
+    assert marker["source_plan_id"] == plan.plan_id
+    assert marker["dataset_config"] == "sample-10BT"
+    assert len(marker["inventory"]) == 2
+    ray_ingest._guard_source_plan(destination, plan)
+
+
+def test_archive_completion_does_not_cross_dataset_configurations(tmp_path):
+    from dataclasses import replace
+
+    from dapper.archive.ingest import source_is_complete
+    from dapper.corpus import io
+
+    source = next(item for item in _config().sources if item.name == "fineweb")
+    io.write_json(
+        str(tmp_path / "_SUCCESS"),
+        {
+            "source": "fineweb",
+            "dataset_config": "sample-10BT",
+            "split": "train",
+            "archive_name": "fineweb",
+            "limit": None,
+        },
+    )
+
+    assert source_is_complete(str(tmp_path), source=source)
+    assert not source_is_complete(
+        str(tmp_path),
+        source=replace(source, dataset_config="default"),
+    )
 
 def test_repo_with_yaml_indicator_round_trips():
     """A repo containing `?` must survive parsing.
@@ -445,6 +614,43 @@ def test_plan_ingest_writes_nothing(monkeypatch):
     config = _config()
     plan = plan_ingest(_context(), config)
     assert {p.source_name for p in plan} == {"fineweb", "c4"}
+
+
+def test_run_archive_routes_one_source_through_ray(monkeypatch):
+    from dapper.archive import ray_ingest, runner
+
+    calls = []
+    monkeypatch.setattr(runner, "load_config", lambda path=None: CORPUS)
+    monkeypatch.setattr(runner, "init_gcs", lambda config: _context())
+    monkeypatch.setattr(
+        ray_ingest,
+        "ingest_hf_ray",
+        lambda source, context, config, pipeline, dashboard, force=False: (
+            calls.append((source.name, source.staged_name, force))
+            or IngestReport(source.name, context.source_uri(source.staged_name), 10, 2)
+        ),
+    )
+
+    result = runner.run_archive(
+        sources="fineweb",
+        ray=True,
+        progress=False,
+    )
+
+    assert result.exit_code == 0
+    assert calls == [("fineweb", "fineweb", False)]
+
+
+def test_ray_archive_rejects_limited_or_multi_source_runs(monkeypatch):
+    from dapper.archive import runner
+
+    monkeypatch.setattr(runner, "load_config", lambda path=None: CORPUS)
+    monkeypatch.setattr(runner, "init_gcs", lambda config: _context())
+
+    with pytest.raises(ValueError, match="exhaustive"):
+        runner.run_archive(sources="fineweb", ray=True, limit=10, progress=False)
+    with pytest.raises(ValueError, match="exactly one"):
+        runner.run_archive(sources="fineweb,c4", ray=True, progress=False)
 
 
 # --- catalog listing ------------------------------------------------------

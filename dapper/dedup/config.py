@@ -75,6 +75,7 @@ class SourceConfig:
     type: str
     repo: str | None = None
     dataset_config: str | None = None
+    archive_name: str | None = None
     split: str | None = None
     path: str | None = None
     uri: str | None = None
@@ -90,6 +91,11 @@ class SourceConfig:
     # Second tag axis, e.g. code/repo_connected. Declared per source exactly
     # like `domain`; never inferred from content.
     subdomain: str | None = None
+
+    @property
+    def staged_name(self) -> str:
+        """Stable archive directory, independent of the CLI source name."""
+        return self.archive_name or self.name
 
 
 @dataclass(frozen=True)
@@ -146,6 +152,7 @@ def _source_from_raw(
         type=str(raw.get("type", default_type)),
         repo=raw.get("repo"),
         dataset_config=raw.get("dataset_config") or raw.get("config_name"),
+        archive_name=raw.get("archive_name"),
         split=raw.get("split"),
         path=raw.get("path"),
         uri=raw.get("uri"),

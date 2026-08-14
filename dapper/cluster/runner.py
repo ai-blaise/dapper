@@ -107,13 +107,19 @@ def _run_cluster(
         "shuffle_seed": pipeline.pack.seed,
     }
     source = resolve_sources([source_name], dedup)[0]
+    dashboard.set_dataset_config(source.dataset_config)
     if not is_supported(source):
         raise ClusterRunError(f"Source {source.name!r} has no archive loader.")
     context = init_gcs(dedup)
-    source_uri = context.source_uri(source.name)
+    source_uri = context.source_uri(source.staged_name)
     with dashboard.stage("inventory", "Validate staged inventory", total=1) as report:
         inventory = validate_archive_completion(
-            source_uri, expected_source=source.name, expected_repo=source.repo
+            source_uri,
+            expected_source=source.name,
+            expected_repo=source.repo,
+            expected_dataset_config=source.dataset_config,
+            expected_split=source.split,
+            expected_archive_name=source.staged_name,
         )
         report(
             1,

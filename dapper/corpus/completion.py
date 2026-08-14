@@ -48,8 +48,11 @@ class ArchiveInventory:
 
 def snapshot_jsonl(source_uri: str) -> tuple[ArchiveObject, ...]:
     """Freeze the exhaustive staged JSONL object list and object generations."""
+    from concurrent.futures import ThreadPoolExecutor
+
     targets = sorted(set(io.glob(source_uri, "**/*.jsonl")) | set(io.glob(source_uri, "*.jsonl")))
-    return tuple(ArchiveObject(**io.info(target)) for target in targets)
+    with ThreadPoolExecutor(max_workers=min(32, max(1, len(targets)))) as pool:
+        return tuple(ArchiveObject(**value) for value in pool.map(io.info, targets))
 
 
 def validate_archive_completion(
@@ -57,6 +60,9 @@ def validate_archive_completion(
     *,
     expected_source: str | None = None,
     expected_repo: str | None = None,
+    expected_dataset_config: str | None = None,
+    expected_split: str | None = None,
+    expected_archive_name: str | None = None,
 ) -> ArchiveInventory:
     """Validate the marker payload and its exact staged-object inventory.
 
@@ -91,6 +97,16 @@ def validate_archive_completion(
         raise ArchiveCompletionError(
             f"Archive repository mismatch: marker has {repo!r}, expected {expected_repo!r}."
         )
+    for key, expected in (
+        ("dataset_config", expected_dataset_config),
+        ("split", expected_split),
+        ("archive_name", expected_archive_name),
+    ):
+        if expected is not None and marker.get(key) != expected:
+            raise ArchiveCompletionError(
+                f"Archive {key} mismatch: marker has {marker.get(key)!r}, "
+                f"expected {expected!r}."
+            )
     try:
         records = int(marker["records"])
         expected_shards = int(marker["shards"])

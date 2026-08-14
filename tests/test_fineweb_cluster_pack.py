@@ -312,6 +312,58 @@ def test_dashboard_keeps_completed_stages_in_its_final_render():
     assert "3 packs" in rendered
 
 
+@pytest.mark.parametrize(
+    ("dataset_config", "expected"),
+    [("sample-10BT", "sample-10BT · SUBSET"), ("default", "default · FULL")],
+)
+def test_dashboard_makes_full_vs_subset_explicit(dataset_config, expected):
+    from rich.console import Console
+
+    from dapper.cluster.dashboard import PipelineDashboard
+
+    dashboard = PipelineDashboard("fineweb", enabled=False)
+    dashboard.set_dataset_config(dataset_config)
+    console = Console(record=True, width=120, color_system=None)
+    console.print(dashboard._render())
+
+    assert expected in console.export_text()
+
+
+def test_pipeline_dashboard_coalesces_live_redraws(monkeypatch):
+    from dapper.cluster import dashboard as dashboard_module
+
+    class LiveProbe:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.started_with_refresh = False
+            self.refreshes = 0
+            self.stopped = False
+
+        def start(self, *, refresh):
+            self.started_with_refresh = refresh
+
+        def refresh(self):
+            self.refreshes += 1
+
+        def stop(self):
+            self.stopped = True
+
+    monkeypatch.setattr(dashboard_module, "Live", LiveProbe)
+    dashboard = dashboard_module.PipelineDashboard("fineweb")
+
+    with dashboard:
+        live = dashboard._live
+        assert isinstance(live, LiveProbe)
+        dashboard.set_run_id("cluster", "run-1")
+        assert live.refreshes == 0
+
+    assert live.started_with_refresh is True
+    assert live.stopped is True
+    assert live.kwargs["auto_refresh"] is True
+    assert live.kwargs["refresh_per_second"] == 2.0
+    assert callable(live.kwargs["get_renderable"])
+
+
 def test_rank_progress_reports_live_and_resumed_metrics(tmp_path, monkeypatch):
     from dapper.cluster import state
     from dapper.cluster.state import run_ranked
@@ -358,6 +410,57 @@ def test_rank_progress_reports_live_and_resumed_metrics(tmp_path, monkeypatch):
     )
     assert resumed == [(2, 2, {"documents_read": 5})]
     assert len(glob_calls) == 1
+
+
+def test_ray_ranked_executor_bounds_inflight_tasks_to_workers(tmp_path):
+    from dapper.cluster.state import run_ranked
+
+    class Ref:
+        def __init__(self, function, args):
+            self.function = function
+            self.args = args
+
+    class Remote:
+        def __init__(self, ray, function):
+            self.ray = ray
+            self.function = function
+
+        def options(self, **kwargs):
+            return self
+
+        def remote(self, *args):
+            self.ray.outstanding += 1
+            self.ray.maximum = max(self.ray.maximum, self.ray.outstanding)
+            return Ref(self.function, args)
+
+    class FakeRay:
+        outstanding = 0
+        maximum = 0
+
+        def remote(self, **kwargs):
+            return lambda function: Remote(self, function)
+
+        def wait(self, refs, **kwargs):
+            return refs[:1], refs[1:]
+
+        def get(self, ref):
+            self.outstanding -= 1
+            return ref.function(*ref.args)
+
+    ray = FakeRay()
+    results = run_ranked(
+        [(rank, (rank,)) for rank in range(7)],
+        _rank_metric,
+        run_uri=str(tmp_path),
+        stage="bounded",
+        workers=2,
+        ray_module=ray,
+        cpus_per_task=1,
+        memory_bytes_per_task=1,
+    )
+
+    assert len(results) == 7
+    assert ray.maximum == 2
 
 
 def test_fineweb_tokenize_defaults_to_complete_workflow(monkeypatch):

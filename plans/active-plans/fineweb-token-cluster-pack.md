@@ -195,7 +195,8 @@ Validation rules:
 ~~~yaml
 ray:
   address: auto
-  expected_min_nodes: 2
+  # dapper.yaml discovers numbered DAPPER_RAY_WORKER_<NN>_INSTANCE/ZONE
+  # pairs from .env and derives the expected node count.
 
 cluster:
   executor: ray
@@ -413,6 +414,15 @@ Hash:
 ## Stage 0: validate and inventory staged FineWeb
 
 Require a configured, exhaustive FineWeb archive and at least one JSONL shard.
+
+For full FineWeb, stage the archive with `dapper archive --sources fineweb
+--ray`. Resolve the Hugging Face builder manifest once on the head, freeze its
+commit-pinned native Parquet URLs, and schedule one URL per Ray task. Each task
+streams into a deterministic GCS JSONL object and commits an independent
+completion marker. Resume skips only tasks whose marker and output both exist;
+`_SUCCESS` is written after exact native-shard, record, and object
+reconciliation. The configured `archive_name` isolates full FineWeb from any
+previous sample archive.
 
 A storage helper may answer whether _SUCCESS exists. Semantic completion
 validation belongs in dapper/corpus/completion.py and verifies marker payload,

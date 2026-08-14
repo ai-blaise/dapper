@@ -59,6 +59,7 @@ class RayBootstrapConfig:
 
 _ALIAS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$")
 _ENV_REFERENCE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+_ENV_PREFIX = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 def parse_ray_bootstrap_config(
@@ -80,32 +81,25 @@ def parse_ray_bootstrap_config(
         raise RayBootstrapConfigError("ray.bootstrap.provider currently supports only 'gcloud'.")
     head_name = _alias(bootstrap.get("head_name", "head"), "ray.bootstrap.head_name")
     workers_raw = bootstrap.get("workers")
-    if not isinstance(workers_raw, list) or not workers_raw:
-        raise RayBootstrapConfigError("ray.bootstrap.workers must contain at least one worker VM.")
-    workers: list[GcloudWorker] = []
-    seen_names: set[str] = {head_name}
-    for index, value in enumerate(workers_raw):
-        item = _mapping(value, f"ray.bootstrap.workers[{index}]")
-        name = _alias(item.get("name"), f"ray.bootstrap.workers[{index}].name")
-        if name in seen_names:
-            raise RayBootstrapConfigError(f"Duplicate Ray node name: {name!r}.")
-        seen_names.add(name)
-        workers.append(
-            GcloudWorker(
-                name=name,
-                instance=_required_env_value(
-                    item.get("instance"),
-                    f"ray.bootstrap.workers[{index}].instance",
-                    environment,
-                ),
-                zone=_required_env_value(
-                    item.get("zone"),
-                    f"ray.bootstrap.workers[{index}].zone",
-                    environment,
-                ),
-                project=_optional_env_value(item.get("project"), environment),
-            )
+    worker_env_prefix = bootstrap.get("worker_env_prefix")
+    if workers_raw is not None and worker_env_prefix is not None:
+        raise RayBootstrapConfigError(
+            "Configure either ray.bootstrap.workers or worker_env_prefix, not both."
         )
+    if worker_env_prefix is not None:
+        workers = list(_workers_from_environment(str(worker_env_prefix), environment))
+    elif isinstance(workers_raw, list) and workers_raw:
+        workers = _workers_from_config(workers_raw, environment)
+    else:
+        raise RayBootstrapConfigError(
+            "Ray workers are not configured. Set ray.bootstrap.worker_env_prefix "
+            "and add numbered INSTANCE/ZONE pairs to .env."
+        )
+    seen_names: set[str] = {head_name}
+    for worker in workers:
+        if worker.name in seen_names:
+            raise RayBootstrapConfigError(f"Duplicate Ray node name: {worker.name!r}.")
+        seen_names.add(worker.name)
     expected_nodes = _positive_int(ray.get("expected_min_nodes", len(workers) + 1), "ray.expected_min_nodes")
     if expected_nodes > len(workers) + 1:
         raise RayBootstrapConfigError(
@@ -181,6 +175,78 @@ def parse_ray_bootstrap_config(
     )
     _validate_port_contract(config)
     return config
+
+
+def _workers_from_config(
+    workers_raw: list[Any], environment: dict[str, str]
+) -> list[GcloudWorker]:
+    """Resolve the original explicit YAML worker list."""
+    workers: list[GcloudWorker] = []
+    for index, value in enumerate(workers_raw):
+        item = _mapping(value, f"ray.bootstrap.workers[{index}]")
+        workers.append(
+            GcloudWorker(
+                name=_alias(item.get("name"), f"ray.bootstrap.workers[{index}].name"),
+                instance=_required_env_value(
+                    item.get("instance"),
+                    f"ray.bootstrap.workers[{index}].instance",
+                    environment,
+                ),
+                zone=_required_env_value(
+                    item.get("zone"),
+                    f"ray.bootstrap.workers[{index}].zone",
+                    environment,
+                ),
+                project=_optional_env_value(item.get("project"), environment),
+            )
+        )
+    return workers
+
+
+def _workers_from_environment(
+    prefix: str, environment: dict[str, str]
+) -> tuple[GcloudWorker, ...]:
+    """Discover numbered GCE workers without exposing VM identity in YAML."""
+    if not _ENV_PREFIX.fullmatch(prefix):
+        raise RayBootstrapConfigError(
+            "ray.bootstrap.worker_env_prefix must be an uppercase environment prefix."
+        )
+    pattern = re.compile(rf"^{re.escape(prefix)}_(\d+)_([A-Z]+)$")
+    indexed: dict[int, dict[str, str]] = {}
+    for key, value in environment.items():
+        match = pattern.fullmatch(key)
+        if match and match.group(2) in {"INSTANCE", "ZONE", "PROJECT", "NAME"}:
+            indexed.setdefault(int(match.group(1)), {})[match.group(2)] = value
+
+    legacy_instance = environment.get(f"{prefix}_INSTANCE")
+    legacy_zone = environment.get(f"{prefix}_ZONE")
+    if indexed and (legacy_instance or legacy_zone):
+        raise RayBootstrapConfigError(
+            f"Do not mix legacy {prefix}_INSTANCE/ZONE with numbered worker entries."
+        )
+    if not indexed and (legacy_instance or legacy_zone):
+        indexed[1] = {
+            "INSTANCE": legacy_instance or "",
+            "ZONE": legacy_zone or "",
+        }
+
+    if not indexed:
+        raise RayBootstrapConfigError(
+            f"No workers found. Add {prefix}_01_INSTANCE and {prefix}_01_ZONE to .env."
+        )
+
+    workers: list[GcloudWorker] = []
+    for number, values in sorted(indexed.items()):
+        label = f"{prefix}_{number:02d}"
+        instance = values.get("INSTANCE", "").strip()
+        zone = values.get("ZONE", "").strip()
+        if not instance or not zone:
+            missing = "INSTANCE" if not instance else "ZONE"
+            raise RayBootstrapConfigError(f"Environment variable {label}_{missing} is required.")
+        name = _alias(values.get("NAME", f"worker-{number:02d}"), f"{label}_NAME")
+        project = values.get("PROJECT", "").strip() or None
+        workers.append(GcloudWorker(name, instance, zone, project))
+    return tuple(workers)
 
 
 def _validate_port_contract(config: RayBootstrapConfig) -> None:

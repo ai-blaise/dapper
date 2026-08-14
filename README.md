@@ -301,7 +301,7 @@ dapper catalog show fineweb
 dapper archive --dry-run              # resolve catalog + bucket, write nothing
 dapper archive check                  # count _SUCCESS markers by source
 dapper archive --limit 1000           # small slice to prove the path works
-dapper archive                        # full run; resumable via _SUCCESS markers
+dapper archive --sources fineweb --ray # full FineWeb across the Ray cluster
 
 # 2. Deduplicate. Corpus-wide by necessity: cross-source duplicates cannot be
 #    found one source at a time. Writes Parquet partitioned by domain=.
@@ -358,6 +358,25 @@ nohup dapper tokenize fineweb > tokenize.log 2>&1 &
 Interrupted runs resume. Archive skips sources with a `_SUCCESS` marker, and
 DataTrove records per-task completion markers under the output prefix, so a
 re-run picks up at the first incomplete task rather than restarting.
+
+Full FineWeb uses its commit-pinned native Parquet files as Ray work units:
+
+```bash
+dapper ray init
+dapper archive --sources fineweb --ray
+```
+
+Ray workers are existing GCE VMs declared only in the untracked `.env`. Add
+one numbered `DAPPER_RAY_WORKER_<NN>_INSTANCE` / `_ZONE` pair per VM; Dapper
+discovers all pairs and derives the required cluster size. The instance value
+is the GCE VM name, while `worker-01`, `worker-02`, and so on are display
+aliases.
+
+The head resolves the Hugging Face manifest once. Each Ray task streams one
+native file into one deterministic GCS JSONL object, and a completion marker
+makes that file independently resumable. Only nodes registered in the private
+Ray cluster receive work. `--force` clears only the isolated configured
+`archive_name` before starting a new distributed archive.
 
 #### Tuning throughput
 

@@ -97,6 +97,27 @@ def test_dedup_config_parses_hf_dataset_config():
     assert config.sources[0].dataset_config == "sample-10BT"
 
 
+def test_source_archive_name_is_independent_of_cli_name():
+    config = parse_dedup_config(
+        {
+            "sources": [
+                {
+                    "name": "fineweb",
+                    "type": "huggingface",
+                    "repo": "HuggingFaceFW/fineweb",
+                    "dataset_config": "default",
+                    "archive_name": "fineweb-default",
+                    "mode": "pretraining",
+                }
+            ]
+        }
+    )
+
+    source = config.sources[0]
+    assert source.name == "fineweb"
+    assert source.staged_name == "fineweb-default"
+
+
 def test_dapper_dedup_command_requires_config(tmp_path):
     result = subprocess.run(
         [sys.executable, "-m", "dapper", "dedup", "--dry-run"],

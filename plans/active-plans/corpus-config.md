@@ -97,7 +97,7 @@ corpus:
 
   sources:
     huggingface:
-      - {name: fineweb, repo: "HuggingFaceFW/fineweb", dataset_config: sample-10BT, domain: general_web, license: ODC-By-1.0}
+      - {name: fineweb, repo: "HuggingFaceFW/fineweb", dataset_config: default, archive_name: fineweb-default, domain: general_web, license: ODC-By-1.0}
 ```
 
 Adding a source is one line. An entry needing an override uses block form, so it
@@ -199,8 +199,9 @@ and move to fixtures.
 
 ## Open
 
-1. **`dataset_config: sample-10BT` is a placeholder.** Full FineWeb is ~15T
-   tokens; the sample is 10B. Confirm which you want before the first real run.
-2. `git-repo` handler still unbuilt; README lists what needs it.
-3. `sources_file: corpus.yaml` is a ten-line addition if `dapper.yaml` grows
+1. `git-repo` handler still unbuilt; README lists what needs it.
+2. `sources_file: corpus.yaml` is a ten-line addition if `dapper.yaml` grows
    uncomfortable. At one source, not close.
+
+Full FineWeb is now explicit: `dataset_config: default` stages under
+`fineweb-default`, keeping prior `sample-10BT` artifacts isolated.

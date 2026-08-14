@@ -93,6 +93,7 @@ def _run_clustered_pack(
     dedup = parse_dedup_config(raw)
     pipeline = parse_pipeline_config(raw)
     source = resolve_sources([source_name], dedup)[0]
+    dashboard.set_dataset_config(source.dataset_config)
     context = init_gcs(dedup)
     if run_id and not force_new_run:
         existing_pack = io.join(context.tokens_uri, "packed", run_id, "run.json")

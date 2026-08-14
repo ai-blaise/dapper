@@ -25,6 +25,7 @@ from utils.display import (
     BAD,
     BORDER,
     GOOD,
+    LIVE_REFRESH_PER_SECOND,
     MUTED,
     PANEL_BORDER,
     WARN,
@@ -103,6 +104,8 @@ class PipelineDashboard:
         self.console = Console(highlight=False)
         self.cluster_run_id: str | None = None
         self.pack_run_id: str | None = None
+        self.archive_run_id: str | None = None
+        self.dataset_config: str | None = None
         self._lock = threading.RLock()
         self._stages: list[_StageState] = []
         self._stage_by_key: dict[str, _StageState] = {}
@@ -118,9 +121,10 @@ class PipelineDashboard:
     def __enter__(self) -> Self:
         if self.enabled:
             self._live = Live(
-                self._render(),
                 console=self.console,
-                refresh_per_second=4,
+                get_renderable=self._render,
+                auto_refresh=True,
+                refresh_per_second=LIVE_REFRESH_PER_SECOND,
                 transient=False,
                 redirect_stdout=True,
                 redirect_stderr=True,
@@ -137,7 +141,6 @@ class PipelineDashboard:
                 active.detail = str(exc)
                 active.ended_at = time.monotonic()
         self._stop_monitor()
-        self.refresh()
         if self._live is not None:
             self._live.stop()
             self._live = None
@@ -148,9 +151,15 @@ class PipelineDashboard:
                 self.cluster_run_id = value
             elif kind == "pack":
                 self.pack_run_id = value
+            elif kind == "archive":
+                self.archive_run_id = value
             else:
                 raise ValueError(f"Unknown run kind: {kind!r}")
-        self.refresh()
+
+    def set_dataset_config(self, value: str | None) -> None:
+        """Make full-versus-sample ownership explicit in every live frame."""
+        with self._lock:
+            self.dataset_config = None if value is None else str(value)
 
     def attach_topology(self, topology: RunTopology, ray_module: Any | None) -> None:
         with self._lock:
@@ -172,7 +181,6 @@ class PipelineDashboard:
                     },
                 )
         self._start_monitor()
-        self.refresh()
 
     @contextmanager
     def stage(
@@ -202,7 +210,6 @@ class PipelineDashboard:
             stage.ended_at = None
             stage.detail = detail
             self._status = label
-        self.refresh()
         reporter = StageReporter(self, key)
         try:
             yield reporter
@@ -212,14 +219,12 @@ class PipelineDashboard:
                 stage.ended_at = time.monotonic()
                 stage.detail = str(exc)
                 self._status = "Failed"
-            self.refresh()
             raise
         else:
             with self._lock:
                 stage.completed = stage.total
                 stage.status = "complete"
                 stage.ended_at = time.monotonic()
-            self.refresh()
 
     def update_stage(
         self,
@@ -233,7 +238,6 @@ class PipelineDashboard:
             stage.total = max(1, int(total))
             stage.completed = min(stage.total, max(0, int(completed)))
             self._merge_metrics(stage, metrics)
-        self.refresh()
 
     def advance_stage(
         self, key: str, amount: int, metrics: dict[str, Any] | None = None
@@ -242,12 +246,6 @@ class PipelineDashboard:
             stage = self._stage_by_key[key]
             stage.completed = min(stage.total, stage.completed + amount)
             self._merge_metrics(stage, metrics)
-        self.refresh()
-
-    def refresh(self) -> None:
-        live = self._live
-        if live is not None:
-            live.update(self._render(), refresh=True)
 
     @staticmethod
     def _merge_metrics(stage: _StageState, metrics: dict[str, Any] | None) -> None:
@@ -264,20 +262,28 @@ class PipelineDashboard:
     def _render_header(self) -> Panel:
         elapsed = _duration(time.monotonic() - self._started_at)
         runs = []
+        if self.archive_run_id:
+            runs.append(f"archive {self.archive_run_id}")
         if self.cluster_run_id:
             runs.append(f"cluster {self.cluster_run_id}")
         if self.pack_run_id:
             runs.append(f"pack {self.pack_run_id}")
         subtitle = " · ".join(runs) or "resolving run identity"
         line = Text()
-        line.append("Dapper FineWeb", style=ACCENT)
+        source = "FineWeb" if self.source.lower() == "fineweb" else self.source
+        line.append(f"Dapper {source}", style=ACCENT)
+        if self.dataset_config:
+            if self.dataset_config == "default":
+                line.append("  [default · FULL]", style=GOOD)
+            else:
+                line.append(f"  [{self.dataset_config} · SUBSET]", style=WARN)
         line.append(f"  {self._status}", style="bold")
         line.append(f"  elapsed {elapsed}", style=MUTED)
         return Panel(line, subtitle=subtitle, border_style=PANEL_BORDER)
 
     def _render_nodes(self) -> Table:
         table = Table(
-            title="Cluster resources",
+            title=("Ray archive resources" if self.archive_run_id else "Cluster resources"),
             title_style="bold",
             header_style="bold",
             border_style=BORDER,
@@ -406,7 +412,6 @@ class PipelineDashboard:
                 with self._lock:
                     for reading in readings:
                         self._telemetry[str(reading["node_id"])] = reading
-                self.refresh()
             except Exception:  # noqa: BLE001
                 # Telemetry must never take down corpus processing. An old
                 # sample naturally becomes "stale" in the health column.
@@ -457,6 +462,7 @@ def _metric_summary(metrics: dict[str, float]) -> str:
         ("sample_rows_materialized", "sample rows"),
         ("sample_rows_loaded", "rows loaded"),
         ("sample_shards_loaded", "shards loaded"),
+        ("native_shards", "native shards"),
         ("distance_sample_documents", "quality sample"),
         ("ranges_planned", "ranges"),
         ("physical_partitions", "partitions"),
@@ -471,6 +477,7 @@ def _metric_summary(metrics: dict[str, float]) -> str:
         ("inventory_bytes", "staged"),
         ("input_bytes", "read"),
         ("indexed_bytes", "indexed"),
+        ("archive_bytes", "staged"),
         ("non_padding_utilization", "util"),
         ("distance_p95", "p95 dist"),
         ("max_cluster_share", "max cluster"),
@@ -506,6 +513,7 @@ def _rate_summary(stage: _StageState, elapsed: float, outstanding: int) -> str:
         ("features_emitted", "doc/s"),
         ("sample_rows_materialized", "row/s"),
         ("sample_rows_loaded", "row/s"),
+        ("archive_bytes", "B/s"),
         ("input_bytes", "B/s"),
         ("indexed_bytes", "B/s"),
     )

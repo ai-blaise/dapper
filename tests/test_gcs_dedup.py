@@ -276,7 +276,7 @@ def test_ingest_skips_completed_sources(monkeypatch):
 
     source = _hf_source()
     context = init_gcs(_config(), verify=False)
-    monkeypatch.setattr(gcp, "source_is_complete", lambda uri: True)
+    monkeypatch.setattr(gcp, "source_is_complete", lambda uri, **kwargs: True)
 
     report = gcp.ingest_hf(source, context, _config())
     assert report.skipped
@@ -323,7 +323,7 @@ def test_ingest_reports_streaming_progress(monkeypatch):
     records = [{"text": str(index)} for index in range(gcp.PROGRESS_RECORD_INTERVAL + 1)]
     updates = []
 
-    monkeypatch.setattr(gcp, "source_is_complete", lambda uri: False)
+    monkeypatch.setattr(gcp, "source_is_complete", lambda uri, **kwargs: False)
     monkeypatch.setattr(gcp, "_stream_hf_records", lambda *a, **k: iter(records))
     monkeypatch.setattr(gcp, "_mark_complete", lambda uri, payload: None)
     # Nothing to resume from. Left unstubbed this lists a real bucket, which

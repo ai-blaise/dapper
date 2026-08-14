@@ -131,15 +131,29 @@ def run_ranked(
             memory=memory_bytes_per_task,
             max_retries=3,
         )(_execute_rank)
-        refs = [
-            remote.options(name=f"dapper:{stage}:{rank}").remote(
+        pending_iter = iter(pending)
+
+        def submit_next():
+            try:
+                rank, args = next(pending_iter)
+            except StopIteration:
+                return None
+            return remote.options(name=f"dapper:{stage}:{rank}").remote(
                 function, args, run_uri, stage, rank
             )
-            for rank, args in pending
-        ]
+
+        refs = []
+        for _ in range(max(1, workers)):
+            ref = submit_next()
+            if ref is None:
+                break
+            refs.append(ref)
         while refs:
             ready, refs = ray_module.wait(refs, num_returns=1, fetch_local=False)
             record(ray_module.get(ready[0]))
+            ref = submit_next()
+            if ref is not None:
+                refs.append(ref)
     elif workers <= 1:
         for rank, args in pending:
             record(_execute_rank(function, args, run_uri, stage, rank))
