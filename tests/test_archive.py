@@ -109,6 +109,12 @@ def test_hf_xet_acceleration_defaults_on():
     assert config.hf_download_mode == "streaming"
     assert config.hf_xet_high_performance is True
     assert config.hf_xet_num_concurrent_range_gets is None
+    assert config.hf_parquet_range_bytes == 128 * 1024 * 1024
+    assert config.hf_parquet_batch_rows == 65_536
+    assert config.hf_parquet_spool_dir is None
+    assert config.hf_ray_cpus_per_task == 4
+    assert config.hf_ray_memory_gb_per_task == 4
+    assert config.hf_ray_max_workers is None
 
 
 def test_hf_xet_acceleration_can_be_configured():
@@ -163,6 +169,7 @@ def test_ray_archive_task_streams_one_native_file_to_one_jsonl(tmp_path, monkeyp
             [{"id": "doc-1", "text": "hello", "url": "https://example.com"}]
         ),
     )
+    monkeypatch.setattr(ray_ingest, "_parquet_metadata", lambda uri: (1, 2048))
 
     metric = ray_ingest.archive_hf_file_task(
         7,
@@ -175,29 +182,139 @@ def test_ray_archive_task_streams_one_native_file_to_one_jsonl(tmp_path, monkeyp
     rows = list(io.iter_jsonl(metric["output_uri"]))
     assert metric["native_rank"] == 7
     assert metric["documents_read"] == 1
+    assert metric["expected_documents"] == 1
+    assert metric["source_bytes"] == 2048
     assert rows[0]["text"] == "hello"
     assert rows[0]["subset"] == "sample-10BT"
 
 
 def test_ray_archive_discards_completion_whose_output_is_missing(tmp_path):
     from dapper.archive.ray_ingest import (
+        HfShardPlan,
         RAY_ARCHIVE_STAGE,
         _discard_invalid_completions,
     )
     from dapper.corpus import io
 
     destination = str(tmp_path)
-    io.write_text(io.join(destination, "part-00000.jsonl"), "{}\n")
+    output = io.join(destination, "part-00000.jsonl")
+    io.write_text(output, "{}\n")
     marker_root = io.join(destination, "logs", RAY_ARCHIVE_STAGE)
     valid = io.join(marker_root, "00000.complete.json")
     invalid = io.join(marker_root, "00001.complete.json")
-    io.write_json(valid, {"rank": 0})
+    plan = HfShardPlan("fineweb", "repo", "default", "train", ("hf://one", "hf://two"))
+    io.write_json(
+        valid,
+        {
+            "rank": 0,
+            "metrics": {
+                "input_uri": "hf://one",
+                "output_uri": output,
+                "documents_read": 10,
+                "expected_documents": 10,
+                "source_bytes": 100,
+            },
+        },
+    )
     io.write_json(invalid, {"rank": 1})
 
-    _discard_invalid_completions(destination)
+    _discard_invalid_completions(destination, plan)
 
     assert io.exists(valid)
     assert not io.exists(invalid)
+
+
+def test_ray_archive_reads_remote_parquet_through_one_batched_handle(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from dapper.archive.ray_ingest import _parquet_metadata, _stream_parquet_file
+
+    target = tmp_path / "native.parquet"
+    pq.write_table(
+        pa.Table.from_pylist(
+            [
+                {"id": f"doc-{index}", "text": f"row {index}"}
+                for index in range(7)
+            ]
+        ),
+        target,
+        row_group_size=2,
+    )
+    source = next(item for item in _config().sources if item.name == "fineweb")
+
+    rows = list(_stream_parquet_file(str(target), source, _config(), rank=0))
+
+    assert [row["id"] for row in rows] == [f"doc-{index}" for index in range(7)]
+    assert _parquet_metadata(str(target))[0] == 7
+
+
+def test_ray_archive_materializes_pinned_hf_file_in_bounded_spool(
+    tmp_path, monkeypatch
+):
+    from dataclasses import replace
+    from pathlib import Path
+
+    import huggingface_hub
+
+    from dapper.archive.ray_ingest import _materialize_parquet
+
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    config = replace(_config(), hf_parquet_spool_dir=str(spool))
+    calls = []
+
+    def fake_download(**kwargs):
+        calls.append(kwargs)
+        target = Path(kwargs["local_dir"]) / kwargs["filename"]
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"PAR1")
+        return str(target)
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", fake_download)
+    uri = "hf://datasets/HuggingFaceFW/fineweb@abc123/data/part.parquet"
+
+    with _materialize_parquet(uri, config, rank=7) as local:
+        local_path = Path(local)
+        assert local_path.read_bytes() == b"PAR1"
+        assert spool in local_path.parents
+
+    assert not local_path.exists()
+    assert calls[0]["repo_id"] == "HuggingFaceFW/fineweb"
+    assert calls[0]["revision"] == "abc123"
+    assert calls[0]["filename"] == "data/part.parquet"
+
+
+def test_ray_archive_discards_partial_completion(tmp_path):
+    from dapper.archive.ray_ingest import (
+        HfShardPlan,
+        RAY_ARCHIVE_STAGE,
+        _discard_invalid_completions,
+    )
+    from dapper.corpus import io
+
+    destination = str(tmp_path)
+    output = io.join(destination, "part-00000.jsonl")
+    marker = io.join(destination, "logs", RAY_ARCHIVE_STAGE, "00000.complete.json")
+    plan = HfShardPlan("fineweb", "repo", "default", "train", ("hf://one",))
+    io.write_text(output, "{}\n")
+    io.write_json(
+        marker,
+        {
+            "rank": 0,
+            "metrics": {
+                "input_uri": "hf://one",
+                "output_uri": output,
+                "documents_read": 5_000,
+                "expected_documents": 1_000_000,
+                "source_bytes": 2_000_000_000,
+            },
+        },
+    )
+
+    _discard_invalid_completions(destination, plan)
+
+    assert not io.exists(marker)
 
 
 def test_ray_archive_reconciles_outputs_and_writes_success(tmp_path, monkeypatch):
@@ -218,8 +335,8 @@ def test_ray_archive_reconciles_outputs_and_writes_success(tmp_path, monkeypatch
     )
     stage = StageTopology(2, 2, 1.0, 1024)
     topology = RunTopology(
-        2.0,
-        (NodeResources("node", "127.0.0.1", 2.0, 4096, True),),
+        8.0,
+        (NodeResources("node", "127.0.0.1", 8.0, 16 * 1024**3, True),),
         stage,
         stage,
     )
@@ -244,7 +361,13 @@ def test_ray_archive_reconciles_outputs_and_writes_success(tmp_path, monkeypatch
         for rank, args in task_list:
             target = io.join(args[-1], f"part-{rank:05d}.jsonl")
             io.write_text(target, '{"text":"ok"}\n')
-            result = {"documents_read": rank + 1, "output_uri": target}
+            result = {
+                "documents_read": rank + 1,
+                "expected_documents": rank + 1,
+                "source_bytes": 100,
+                "input_uri": args[1],
+                "output_uri": target,
+            }
             results.append(result)
             kwargs["on_progress"](len(results), len(task_list), result)
         return results

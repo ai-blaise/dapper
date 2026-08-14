@@ -176,6 +176,16 @@ def json_dumps(payload: Any, *, indent: int | None = None) -> str:
     )
 
 
+def json_dump_bytes(payload: Any, *, append_newline: bool = False) -> bytes:
+    """Serialize dataset rows with orjson while preserving fallback values."""
+    import orjson
+
+    option = orjson.OPT_NON_STR_KEYS
+    if append_newline:
+        option |= orjson.OPT_APPEND_NEWLINE
+    return orjson.dumps(payload, default=_json_safe, option=option)
+
+
 def write_json(uri: str, payload: Any, *, indent: int | None = None) -> str:
     return write_text(uri, json_dumps(payload, indent=indent))
 

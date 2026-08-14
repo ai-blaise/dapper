@@ -95,6 +95,7 @@ def run_ranked(
     cpus_per_task: float,
     memory_bytes_per_task: int,
     on_progress: Callable[[int, int, dict[str, Any] | None], None] | None = None,
+    on_activity: Callable[[int, int, int], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Run disjoint ranks, skipping only validated completion markers."""
     task_list = list(tasks)
@@ -143,17 +144,24 @@ def run_ranked(
             )
 
         refs = []
+        submitted = 0
         for _ in range(max(1, workers)):
             ref = submit_next()
             if ref is None:
                 break
             refs.append(ref)
+            submitted += 1
+        if on_activity is not None:
+            on_activity(len(refs), submitted, total)
         while refs:
             ready, refs = ray_module.wait(refs, num_returns=1, fetch_local=False)
             record(ray_module.get(ready[0]))
             ref = submit_next()
             if ref is not None:
                 refs.append(ref)
+                submitted += 1
+            if on_activity is not None:
+                on_activity(len(refs), submitted, total)
     elif workers <= 1:
         for rank, args in pending:
             record(_execute_rank(function, args, run_uri, stage, rank))

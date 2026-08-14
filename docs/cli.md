@@ -483,10 +483,20 @@ work is network-bound.
 For one web-scale Hugging Face source, `--ray` parallelizes inside the source
 instead. The head resolves the immutable native-file manifest once, connects
 to the configured private Ray cluster, and schedules one pinned Parquet file
-per resumable task. Outputs use deterministic `part-<native-rank>.jsonl` names;
-the final `_SUCCESS` marker is written only after every native file and the
-frozen GCS inventory reconcile. `--ray` requires exactly one source and cannot
-be combined with `--limit`.
+per resumable task. The optimized path uses Xet to materialize each file in a
+bounded `/dev/shm` spool, opens it once with PyArrow, converts 65,536-row
+batches with `orjson`, and releases the temporary file immediately. Ray
+reserves four CPUs and four GiB per transfer task by default, avoiding hundreds
+of competing high-performance Xet clients per node. Outputs use deterministic
+`part-<native-rank>.jsonl` names; the final `_SUCCESS` marker is written only
+after every native file has its exact Parquet row count and the frozen GCS
+inventory reconciles. `--ray` requires exactly one source and cannot be
+combined with `--limit`.
+
+Native files are about 2 GiB, so the dashboard counts their records and bytes
+only when the corresponding GCS object closes. During the first wave it shows
+the number of active tasks and `warming up`; it withholds a task-completion ETA
+until enough full files finish to make that estimate meaningful.
 
 `dapper ray init` discovers workers from numbered entries in the untracked
 `.env`. Each existing GCE VM needs an `INSTANCE` / `ZONE` pair; adding a worker

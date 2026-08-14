@@ -3,27 +3,34 @@
 from __future__ import annotations
 
 import sys
+import re
+import tempfile
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Iterator
+from urllib.parse import unquote
 
 from dapper.archive.catalog import is_supported
 from dapper.archive.ingest import (
     IngestReport,
-    _json_line,
     _mark_complete,
     configure_hf_xet,
     source_is_complete,
 )
-from dapper.cluster.config import PipelineConfig
+from dapper.cluster.config import PipelineConfig, StageResources
 from dapper.cluster.dashboard import PipelineDashboard
 from dapper.cluster.state import identity, run_ranked
-from dapper.cluster.topology import discover_topology
+from dapper.cluster.topology import discover_topology, resolve_stage
 from dapper.corpus import io
 from dapper.corpus.gcs import GcsContext, GcsError
 from dapper.dedup.config import DedupConfig, SourceConfig
 
 SOURCE_PLAN = "_SOURCE.json"
 RAY_ARCHIVE_STAGE = "archive-native-shards"
+_PINNED_HF_FILE = re.compile(
+    r"^hf://datasets/(?P<repo>[^@]+)@(?P<revision>[^/]+)/(?P<filename>.+)$"
+)
 
 
 @dataclass(frozen=True)
@@ -110,25 +117,34 @@ def archive_hf_file_task(
     records = 0
     output_bytes = 0
     inspection = None
-    with io.open_text(target, "w") as handle:
-        for record in _stream_parquet_file(input_uri, source, config, rank=rank):
-            if inspection is None:
-                inspection = resolve_inspection(source, [dict(record)], config)
-            normalized = normalize_pretraining_record(
-                dict(record), source, config, inspection
-            )
-            if source.domain and not normalized.get("domain"):
-                normalized["domain"] = source.domain
-            line = _json_line(normalized)
-            handle.write(line)
-            records += 1
-            output_bytes += len(line.encode("utf-8"))
-    if records < 1:
+    with _materialize_parquet(input_uri, config, rank=rank) as readable_uri:
+        expected_records, source_bytes = _parquet_metadata(readable_uri)
+        with io.open_binary(target, "wb") as handle:
+            for record in _stream_parquet_file(
+                readable_uri, source, config, rank=rank
+            ):
+                if inspection is None:
+                    inspection = resolve_inspection(source, [dict(record)], config)
+                normalized = normalize_pretraining_record(
+                    dict(record), source, config, inspection
+                )
+                if source.domain and not normalized.get("domain"):
+                    normalized["domain"] = source.domain
+                line = io.json_dump_bytes(normalized, append_newline=True)
+                handle.write(line)
+                records += 1
+                output_bytes += len(line)
+    if records != expected_records:
         io.delete(target, recursive=False)
-        raise RuntimeError(f"Native Hugging Face shard {input_uri!r} contained no rows.")
+        raise RuntimeError(
+            f"Native Hugging Face shard {rank} yielded {records:,}/"
+            f"{expected_records:,} rows; partial output was discarded."
+        )
     return {
         "native_rank": rank,
         "documents_read": records,
+        "expected_documents": expected_records,
+        "source_bytes": source_bytes,
         "archive_bytes": output_bytes,
         "output_uri": target,
         "input_uri": input_uri,
@@ -142,11 +158,15 @@ def _stream_parquet_file(
     *,
     rank: int,
 ) -> Iterator[dict[str, Any]]:
-    """Stream one native file with retry-and-skip recovery inside the task."""
-    try:
-        from datasets import load_dataset
-    except ImportError as exc:  # pragma: no cover - dependency validation
-        raise GcsError("`datasets` is required for Hugging Face archiving.") from exc
+    """Read one remote Parquet file once, in large readahead batches.
+
+    Hugging Face ``datasets`` streaming intentionally exposes individual row
+    groups as iterable shards. For FineWeb that reopened each 2 GiB file about
+    a thousand times. A single PyArrow handle retains the footer and range
+    cache, while retries skip already delivered row groups without converting
+    their rows back into Python objects.
+    """
+    import pyarrow.parquet as pq
 
     from dapper.archive.retry import configure_hf_timeouts, retrying_iter
 
@@ -154,16 +174,33 @@ def _stream_parquet_file(
     configure_hf_xet(config)
 
     def _open(delivered: int) -> Iterator[dict[str, Any]]:
-        dataset = load_dataset(
-            "parquet",
-            data_files=[input_uri],
-            split="train",
-            streaming=True,
-        )
-        for index, record in enumerate(dataset):
-            if index < delivered:
-                continue
-            yield dict(record)
+        with io.open_binary(
+            input_uri,
+            "rb",
+            block_size=config.hf_parquet_range_bytes,
+            cache_type="readahead",
+        ) as handle:
+            parquet = pq.ParquetFile(handle)
+            row_groups: list[int] = []
+            skipped = 0
+            offset = 0
+            for group in range(parquet.num_row_groups):
+                rows = parquet.metadata.row_group(group).num_rows
+                if skipped + rows <= delivered:
+                    skipped += rows
+                    continue
+                if not row_groups:
+                    offset = max(0, delivered - skipped)
+                row_groups.append(group)
+            for batch in parquet.iter_batches(
+                batch_size=config.hf_parquet_batch_rows,
+                row_groups=row_groups,
+                use_threads=True,
+            ):
+                if offset:
+                    batch = batch.slice(offset)
+                    offset = 0
+                yield from batch.to_pylist()
 
     def _note(attempt: int, exc: BaseException, delay: float) -> None:
         print(
@@ -173,6 +210,56 @@ def _stream_parquet_file(
         )
 
     yield from retrying_iter(_open, on_retry=_note)
+
+
+def _parquet_metadata(input_uri: str) -> tuple[int, int]:
+    """Read the immutable Parquet footer and source size without scanning rows."""
+    import pyarrow.parquet as pq
+
+    with io.open_binary(
+        input_uri,
+        "rb",
+        block_size=1 << 20,
+        cache_type="none",
+    ) as handle:
+        rows = int(pq.ParquetFile(handle).metadata.num_rows)
+    size = io.size(input_uri)
+    if rows < 1 or size < 1:
+        raise RuntimeError(f"Native Hugging Face shard metadata is invalid: {input_uri}")
+    return rows, size
+
+
+@contextmanager
+def _materialize_parquet(
+    input_uri: str, config: DedupConfig, *, rank: int
+) -> Iterator[str]:
+    """Use Xet's whole-file path, then delete the bounded local spool."""
+    match = _PINNED_HF_FILE.fullmatch(input_uri)
+    if match is None or config.hf_parquet_spool_dir is None:
+        yield input_uri
+        return
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError as exc:  # pragma: no cover - hard dependency
+        raise GcsError("`huggingface_hub` is required for Ray archiving.") from exc
+
+    spool_root = Path(config.hf_parquet_spool_dir)
+    if not spool_root.is_dir():
+        raise RuntimeError(
+            f"FineWeb spool directory does not exist on this worker: {spool_root}"
+        )
+    configure_hf_xet(config)
+    with tempfile.TemporaryDirectory(
+        prefix=f"dapper-fineweb-{rank:05d}-", dir=spool_root
+    ) as temporary:
+        local = hf_hub_download(
+            repo_id=unquote(match.group("repo")),
+            filename=unquote(match.group("filename")),
+            repo_type="dataset",
+            revision=unquote(match.group("revision")),
+            local_dir=temporary,
+        )
+        yield str(local)
 
 
 def ingest_hf_ray(
@@ -225,8 +312,18 @@ def ingest_hf_ray(
         dashboard.attach_topology(topology, ray_module)
         report(1, 1, None)
 
-    stage = topology.cluster_stage
-    _discard_invalid_completions(destination)
+    stage = resolve_stage(
+        StageResources(
+            workers=None,
+            max_workers=config.hf_ray_max_workers,
+            cpus_per_task=config.hf_ray_cpus_per_task,
+            memory_gb_per_task=config.hf_ray_memory_gb_per_task,
+            task_oversubscription=1,
+        ),
+        topology.nodes,
+        len(plan.files),
+    )
+    _discard_invalid_completions(destination, plan)
     completed_before = len(
         io.glob(io.join(destination, "logs", RAY_ARCHIVE_STAGE), "*.complete.json")
     )
@@ -252,10 +349,16 @@ def ingest_hf_ray(
             cpus_per_task=stage.cpus_per_task,
             memory_bytes_per_task=stage.memory_bytes_per_task,
             on_progress=report,
+            on_activity=report.activity,
         )
 
     records = sum(int(metric.get("documents_read", 0)) for metric in metrics)
-    if len(metrics) != len(plan.files) or records < 1:
+    exact = all(
+        int(metric.get("documents_read", -1))
+        == int(metric.get("expected_documents", -2))
+        for metric in metrics
+    )
+    if len(metrics) != len(plan.files) or records < 1 or not exact:
         raise GcsError(
             f"Distributed archive reconciliation failed: {len(metrics):,}/"
             f"{len(plan.files):,} native shards and {records:,} records."
@@ -314,17 +417,31 @@ def _guard_source_plan(destination: str, plan: HfShardPlan) -> None:
     io.write_json(target, frozen, indent=2)
 
 
-def _discard_invalid_completions(destination: str) -> None:
-    """Make a missing output task runnable again before bulk resume discovery."""
+def _discard_invalid_completions(destination: str, plan: HfShardPlan) -> None:
+    """Reject missing, partial, or wrong-input outputs before resuming."""
     outputs = set(io.glob(destination, "part-*.jsonl"))
     marker_prefix = io.join(destination, "logs", RAY_ARCHIVE_STAGE)
     for target in io.glob(marker_prefix, "*.complete.json"):
         try:
             payload = io.read_json(target)
             rank = int(payload["rank"])
+            metrics = payload["metrics"]
         except (KeyError, TypeError, ValueError):
             io.delete(target, recursive=False)
             continue
         expected = io.join(destination, f"part-{rank:05d}.jsonl")
-        if expected not in outputs:
+        try:
+            valid = (
+                isinstance(metrics, dict)
+                and 0 <= rank < len(plan.files)
+                and expected in outputs
+                and metrics.get("input_uri") == plan.files[rank]
+                and metrics.get("output_uri") == expected
+                and int(metrics.get("documents_read", -1))
+                == int(metrics.get("expected_documents", -2))
+                and int(metrics.get("source_bytes", 0)) > 0
+            )
+        except (TypeError, ValueError):
+            valid = False
+        if not valid:
             io.delete(target, recursive=False)

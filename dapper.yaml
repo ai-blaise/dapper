@@ -145,6 +145,16 @@ huggingface:
   xet_high_performance: true
   # Optional advanced knob; leave unset to use hf_xet adaptive defaults.
   # xet_num_concurrent_range_gets: 16
+  # Ray archive fast path: keep one remote Parquet handle open per native shard
+  # and read large cached ranges instead of reopening ~1,000 row groups.
+  parquet_range_bytes: 134217728
+  parquet_batch_rows: 65536
+  # Whole-file Xet downloads avoid thousands of remote Parquet seeks. These
+  # high-memory nodes can safely hold the bounded 2 GiB/task spool in RAM.
+  parquet_spool_dir: /dev/shm
+  ray_cpus_per_task: 4
+  ray_memory_gb_per_task: 4
+  # ray_max_workers: 168  # optional global cap; auto derives from resources
   dry_run_sample_records: 2
   trust_remote_code: false
 

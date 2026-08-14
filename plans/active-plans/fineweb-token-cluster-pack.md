@@ -1,6 +1,6 @@
 # Final spec: distributed FineWeb clustering, tokenization, and packing
 
-Status: FINAL SPEC -- approved design; implementation not started.
+Status: IMPLEMENTED
 
 Related: [tokenize.md](tokenize.md),
 [tokenize-webdataset-bins.md](tokenize-webdataset-bins.md), and
@@ -12,7 +12,7 @@ Build fixed-context FineWeb training sequences whose documents are broadly
 related in content:
 
 ~~~text
-staged-input/fineweb JSONL
+staged-input/fineweb-default JSONL
   -> raw-text lexical features
   -> broad content clusters
   -> cluster-local text partitions
@@ -24,9 +24,9 @@ staged-input/fineweb JSONL
 
 FineWeb is not deduplicated in this workflow.
 
-This project runs on a two-node Ray cluster. The implementation discovers the
-resources registered by those nodes, applies configuration limits, and freezes
-the resolved topology for each run. CPU and memory capacity are not hard-coded.
+This project runs on a private multi-node Ray cluster. The implementation
+discovers registered resources, applies configuration limits, and freezes the
+resolved topology for each run. CPU and memory capacity are not hard-coded.
 
 ## Fixed decisions
 
@@ -114,16 +114,15 @@ Extend tokenization with a clustered packed-output mode:
 dapper tokenize fineweb --clustered --pack
 ~~~
 
-The existing command retains its current behavior:
+The primary command runs or resumes the complete clustered workflow:
 
 ~~~bash
 dapper tokenize fineweb
 ~~~
 
-It continues to emit independently tokenized document samples. The clustered
-packing mode instead consumes a completed compatible cluster run and emits
-fixed-context packed samples directly. It does not first create individual
-document-bin WebDataset tars.
+It performs clustering first when no compatible run ID is supplied, then
+tokenizes and packs the frozen cluster partitions directly. It does not first
+create individual-document WebDataset tars.
 
 An implementation may expose the materialization leg as dapper pack internally
 or publicly, but the persisted workflow remains two user decisions:
@@ -418,11 +417,13 @@ Require a configured, exhaustive FineWeb archive and at least one JSONL shard.
 For full FineWeb, stage the archive with `dapper archive --sources fineweb
 --ray`. Resolve the Hugging Face builder manifest once on the head, freeze its
 commit-pinned native Parquet URLs, and schedule one URL per Ray task. Each task
-streams into a deterministic GCS JSONL object and commits an independent
-completion marker. Resume skips only tasks whose marker and output both exist;
-`_SUCCESS` is written after exact native-shard, record, and object
-reconciliation. The configured `archive_name` isolates full FineWeb from any
-previous sample archive.
+uses Xet to download one pinned file into a bounded RAM-disk spool, opens it
+once, reads large PyArrow batches, serializes canonical rows with orjson, and
+immediately releases the temporary file. This avoids roughly 1,000 remote
+row-group reopens per native shard. Resume skips only tasks whose marker, input
+URI, output, source size, and exact Parquet row count all agree; `_SUCCESS` is
+written after native-shard, record, and object reconciliation. The configured
+`archive_name` isolates full FineWeb from any previous sample archive.
 
 A storage helper may answer whether _SUCCESS exists. Semantic completion
 validation belongs in dapper/corpus/completion.py and verifies marker payload,

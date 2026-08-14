@@ -372,11 +372,20 @@ discovers all pairs and derives the required cluster size. The instance value
 is the GCE VM name, while `worker-01`, `worker-02`, and so on are display
 aliases.
 
-The head resolves the Hugging Face manifest once. Each Ray task streams one
-native file into one deterministic GCS JSONL object, and a completion marker
-makes that file independently resumable. Only nodes registered in the private
-Ray cluster receive work. `--force` clears only the isolated configured
-`archive_name` before starting a new distributed archive.
+The head resolves the Hugging Face manifest once. Each Ray task downloads one
+native file through Xet into a bounded RAM-disk spool, reads the Parquet file
+once in Arrow batches, and streams one deterministic JSONL object to GCS. The
+temporary file is released immediately. This avoids reopening roughly 1,000
+row groups per 2 GiB FineWeb shard. Exact Parquet row counts and completion
+markers make every file independently resumable without accepting partial
+canary output. Only nodes registered in the private Ray cluster receive work.
+`--force` clears only the isolated configured `archive_name` before starting a
+new distributed archive.
+
+The archive dashboard distinguishes active tasks from durable completions. A
+native shard contributes documents and bytes only after its GCS object closes,
+so the first scheduling wave is labeled `warming up` instead of presenting an
+unstable completion-based ETA.
 
 #### Tuning throughput
 

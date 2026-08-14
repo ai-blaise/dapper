@@ -114,6 +114,12 @@ class DedupConfig:
     hf_trust_remote_code: bool
     hf_xet_high_performance: bool
     hf_xet_num_concurrent_range_gets: int | None
+    hf_parquet_range_bytes: int
+    hf_parquet_batch_rows: int
+    hf_parquet_spool_dir: str | None
+    hf_ray_cpus_per_task: float
+    hf_ray_memory_gb_per_task: float
+    hf_ray_max_workers: int | None
     output_dir: str
     datatrove_work_dir: str
     datatrove_n_grams: int
@@ -277,6 +283,20 @@ def parse_dedup_config(
         hf_xet_num_concurrent_range_gets=(
             int(hf["xet_num_concurrent_range_gets"])
             if hf.get("xet_num_concurrent_range_gets") is not None
+            else None
+        ),
+        hf_parquet_range_bytes=int(hf.get("parquet_range_bytes", 134_217_728)),
+        hf_parquet_batch_rows=int(hf.get("parquet_batch_rows", 65_536)),
+        hf_parquet_spool_dir=(
+            str(hf["parquet_spool_dir"])
+            if hf.get("parquet_spool_dir") not in {None, ""}
+            else None
+        ),
+        hf_ray_cpus_per_task=float(hf.get("ray_cpus_per_task", 4)),
+        hf_ray_memory_gb_per_task=float(hf.get("ray_memory_gb_per_task", 4)),
+        hf_ray_max_workers=(
+            int(hf["ray_max_workers"])
+            if hf.get("ray_max_workers") is not None
             else None
         ),
         output_dir=str(project.get("output_dir", "outputs")),

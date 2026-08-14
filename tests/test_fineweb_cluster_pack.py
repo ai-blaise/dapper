@@ -448,6 +448,7 @@ def test_ray_ranked_executor_bounds_inflight_tasks_to_workers(tmp_path):
             return ref.function(*ref.args)
 
     ray = FakeRay()
+    activity = []
     results = run_ranked(
         [(rank, (rank,)) for rank in range(7)],
         _rank_metric,
@@ -457,10 +458,15 @@ def test_ray_ranked_executor_bounds_inflight_tasks_to_workers(tmp_path):
         ray_module=ray,
         cpus_per_task=1,
         memory_bytes_per_task=1,
+        on_activity=lambda active, submitted, total: activity.append(
+            (active, submitted, total)
+        ),
     )
 
     assert len(results) == 7
     assert ray.maximum == 2
+    assert activity[0] == (2, 2, 7)
+    assert activity[-1] == (0, 7, 7)
 
 
 def test_fineweb_tokenize_defaults_to_complete_workflow(monkeypatch):

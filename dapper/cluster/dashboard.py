@@ -74,6 +74,8 @@ class _StageState:
     ended_at: float | None = None
     metrics: dict[str, float] = field(default_factory=lambda: defaultdict(float))
     detail: str = ""
+    active_tasks: int = 0
+    submitted_tasks: int = 0
 
 
 class StageReporter:
@@ -93,6 +95,9 @@ class StageReporter:
 
     def advance(self, amount: int = 1, metrics: dict[str, Any] | None = None) -> None:
         self._dashboard.advance_stage(self._key, amount, metrics)
+
+    def activity(self, active: int, submitted: int, total: int) -> None:
+        self._dashboard.update_activity(self._key, active, submitted, total)
 
 
 class PipelineDashboard:
@@ -247,6 +252,16 @@ class PipelineDashboard:
             stage.completed = min(stage.total, stage.completed + amount)
             self._merge_metrics(stage, metrics)
 
+    def update_activity(
+        self, key: str, active: int, submitted: int, total: int
+    ) -> None:
+        """Record scheduler activity separately from durable completions."""
+        with self._lock:
+            stage = self._stage_by_key[key]
+            stage.total = max(1, int(total))
+            stage.active_tasks = max(0, int(active))
+            stage.submitted_tasks = max(0, int(submitted))
+
     @staticmethod
     def _merge_metrics(stage: _StageState, metrics: dict[str, Any] | None) -> None:
         if not metrics:
@@ -375,7 +390,10 @@ class PipelineDashboard:
             outstanding = max(0, stage.total - stage.completed)
             task_text = f"{stage.completed:,}/{stage.total:,}"
             if stage.status == "running":
-                task_text += f" · {stage.workers}w"
+                if stage.active_tasks:
+                    task_text += f" · {stage.active_tasks:,} active"
+                else:
+                    task_text += f" · {stage.workers}w"
             rate = _rate_summary(
                 stage, max(0.0, end - (stage.started_at or end)), outstanding
             )
@@ -478,6 +496,7 @@ def _metric_summary(metrics: dict[str, float]) -> str:
         ("input_bytes", "read"),
         ("indexed_bytes", "indexed"),
         ("archive_bytes", "staged"),
+        ("source_bytes", "downloaded"),
         ("non_padding_utilization", "util"),
         ("distance_p95", "p95 dist"),
         ("max_cluster_share", "max cluster"),
@@ -513,6 +532,7 @@ def _rate_summary(stage: _StageState, elapsed: float, outstanding: int) -> str:
         ("features_emitted", "doc/s"),
         ("sample_rows_materialized", "row/s"),
         ("sample_rows_loaded", "row/s"),
+        ("source_bytes", "B/s"),
         ("archive_bytes", "B/s"),
         ("input_bytes", "B/s"),
         ("indexed_bytes", "B/s"),
@@ -530,6 +550,9 @@ def _rate_summary(stage: _StageState, elapsed: float, outstanding: int) -> str:
     )
     if stage.status != "running" or stage.completed <= 0:
         return rendered_rate
+    warmup_completions = min(stage.total, max(4, stage.workers // 4))
+    if stage.active_tasks and stage.completed < warmup_completions:
+        return f"{rendered_rate} · warming up"
     task_rate = stage.completed / elapsed
     eta = _duration(outstanding / task_rate) if task_rate > 0 else "—"
     return f"{rendered_rate} · ETA {eta}"
