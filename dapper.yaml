@@ -293,6 +293,7 @@ corpus:
         domain: general_web
       - name: zyda-2
         repo: "Zyphra/Zyda-2"
+        archive_name: zyda-2-ray
         domain: general_web
       - name: falcon-refinedweb
         repo: "tiiuae/falcon-refinedweb"
