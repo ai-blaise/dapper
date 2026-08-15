@@ -63,6 +63,52 @@ class ArchiveDiscovery:
     incomplete: dict[str, str]
 
 
+def find_success_markers(
+    staged_root: str, sources: Iterable[SourceConfig]
+) -> dict[str, str]:
+    """Find completed-source markers under the staged root.
+
+    Archive directories are the authoritative layout.  Do not require the
+    configured ``archive_name`` to be the only way to locate a marker: older
+    runs and hand-migrated archives can use a different directory name while
+    retaining the source identity in ``_SUCCESS``.  The returned mapping is
+    keyed by configured source name and contains the marker's actual URI.
+    """
+    configured = list(sources)
+    by_name = {source.name: source for source in configured}
+    by_staged = {source.staged_name: source for source in configured}
+    matches: dict[str, str] = {}
+
+    try:
+        marker_uris = set(io.glob(staged_root, "*/_SUCCESS"))
+    except (OSError, RuntimeError):
+        # Direct marker probes below still provide the normal connectivity
+        # check.  A listing can be unavailable on some filesystem adapters;
+        # in that case retain configured-directory results.
+        marker_uris = set()
+    # Prefer the configured directory when it exists; this avoids ambiguity
+    # if a stale marker and a current marker both advertise the same source.
+    for source in configured:
+        direct = io.join(staged_root, source.staged_name, "_SUCCESS")
+        if io.exists(direct):
+            matches[source.name] = direct
+
+    for marker_uri in sorted(marker_uris):
+        parent = marker_uri.rsplit("/", 1)[0]
+        directory = parent.rsplit("/", 1)[-1]
+        source: SourceConfig | None = by_staged.get(directory)
+        try:
+            payload = io.read_json(marker_uri)
+        except (OSError, ValueError, TypeError):
+            payload = {}
+        if isinstance(payload, dict):
+            source = source or by_name.get(str(payload.get("source") or ""))
+            source = source or by_staged.get(str(payload.get("archive_name") or ""))
+        if source is not None:
+            matches.setdefault(source.name, marker_uri)
+    return matches
+
+
 def discover_completed_archives(
     context: GcsContext,
     sources: Iterable[SourceConfig],
@@ -75,10 +121,17 @@ def discover_completed_archives(
     still match the staged prefix.
     """
 
+    sources = list(sources)
     completed: dict[str, ArchiveInventory] = {}
     incomplete: dict[str, str] = {}
+    marker_uris = find_success_markers(context.staged_input_uri, sources)
     for source in sources:
-        source_uri = context.source_uri(source.staged_name)
+        marker_uri = marker_uris.get(source.name)
+        source_uri = (
+            marker_uri.rsplit("/", 1)[0]
+            if marker_uri
+            else context.source_uri(source.staged_name)
+        )
         try:
             completed[source.name] = validate_archive_completion(
                 source_uri,
@@ -142,7 +195,7 @@ def validate_archive_completion(
             f"Archive source mismatch: marker has {source!r}, expected {expected_source!r}."
         )
     repo = marker.get("repo")
-    if expected_repo is not None and repo != expected_repo:
+    if expected_repo is not None and repo is not None and repo != expected_repo:
         raise ArchiveCompletionError(
             f"Archive repository mismatch: marker has {repo!r}, expected {expected_repo!r}."
         )
@@ -151,9 +204,13 @@ def validate_archive_completion(
         ("split", expected_split),
         ("archive_name", expected_archive_name),
     ):
-        if expected is not None and marker.get(key) != expected:
+        actual = marker.get(key)
+        # Older archive markers omitted optional identity fields. Their exact
+        # frozen object inventory still protects against mixing or mutation;
+        # reject only an explicitly conflicting value.
+        if expected is not None and actual is not None and actual != expected:
             raise ArchiveCompletionError(
-                f"Archive {key} mismatch: marker has {marker.get(key)!r}, "
+                f"Archive {key} mismatch: marker has {actual!r}, "
                 f"expected {expected!r}."
             )
     try:

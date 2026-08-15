@@ -93,7 +93,7 @@ def select_dedup_inventory(
         selected.append(inventory)
 
     if not selected:
-        reasons = "; ".join(f"{item.source}: {item.reason}" for item in skipped)
+        reasons = _summarize_skips(skipped)
         raise RuntimeError(
             "No valid completed archives are eligible for dedup."
             + (f" {reasons}" if reasons else "")
@@ -143,3 +143,27 @@ def relative_paths(inventory: DedupInventory, staged_root: str) -> tuple[str, ..
             raise RuntimeError(f"Archived object is outside staged input root: {uri}")
         result.append(uri[len(prefix) :])
     return tuple(result)
+
+
+def _summarize_skips(skipped: list[SkippedArchive]) -> str:
+    if not skipped:
+        return ""
+    categories = {"missing _SUCCESS": 0, "invalid marker/inventory": 0, "first-record guard": 0}
+    for item in skipped:
+        reason = item.reason.lower()
+        if "missing" in reason and "_success" in reason:
+            categories["missing _SUCCESS"] += 1
+        elif "first record" in reason:
+            categories["first-record guard"] += 1
+        else:
+            categories["invalid marker/inventory"] += 1
+    summary = ", ".join(
+        f"{count} {label}"
+        for label, count in categories.items()
+        if count
+    )
+    examples = "; ".join(
+        f"{item.source}: {item.reason}" for item in skipped[:6]
+    )
+    suffix = " …" if len(skipped) > 6 else ""
+    return f"Skipped {len(skipped)} archives ({summary}). Examples: {examples}{suffix}"

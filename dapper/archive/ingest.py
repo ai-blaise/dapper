@@ -75,15 +75,21 @@ def source_is_complete(
         return False
     try:
         payload = io.read_json(marker)
-        if source is not None and any(
-            key in payload
-            for key in ("dataset_config", "split", "archive_name")
-        ):
-            if payload.get("dataset_config") != source.dataset_config:
+        if source is not None:
+            if (
+                payload.get("dataset_config") is not None
+                and payload.get("dataset_config") != source.dataset_config
+            ):
                 return False
-            if payload.get("split") != (source.split or "train"):
+            if (
+                payload.get("split") is not None
+                and payload.get("split") != (source.split or "train")
+            ):
                 return False
-            if payload.get("archive_name") != source.staged_name:
+            if (
+                payload.get("archive_name") is not None
+                and payload.get("archive_name") != source.staged_name
+            ):
                 return False
         return payload.get("limit") is None
     except (ValueError, KeyError, AttributeError):

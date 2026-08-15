@@ -23,6 +23,7 @@ from dapper.archive.report import (
 )
 from dapper.config import load_config
 from dapper.corpus import io
+from dapper.corpus.completion import find_success_markers
 from dapper.corpus.gcs import init_gcs
 from dapper.dedup.config import parse_dedup_config
 
@@ -148,12 +149,24 @@ def run_archive_check(
         else archivable_sources(dedup_config)
     )
     context = init_gcs(dedup_config)
+    marker_uris = find_success_markers(
+        context.staged_input_uri, targets or archivable_sources(dedup_config)
+    )
     entries = [
         ArchiveCheckEntry(
             source_name=source.name,
-            destination_uri=context.source_uri(source.staged_name),
+            destination_uri=(
+                marker_uris.get(source.name, "").rsplit("/", 1)[0]
+                if source.name in marker_uris
+                else context.source_uri(source.staged_name)
+            ),
             complete=source_is_complete(
-                context.source_uri(source.staged_name), source=source
+                (
+                    marker_uris[source.name].rsplit("/", 1)[0]
+                    if source.name in marker_uris
+                    else context.source_uri(source.staged_name)
+                ),
+                source=source,
             ),
         )
         for source in targets
