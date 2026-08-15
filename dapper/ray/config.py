@@ -66,11 +66,11 @@ def parse_ray_bootstrap_config(
     raw: dict[str, Any],
     *,
     environ: dict[str, str] | None = None,
-    region: str | None = None,
+    zone: str | None = None,
 ) -> RayBootstrapConfig:
     """Parse non-secret bootstrap targets from the project config."""
     environment = os.environ if environ is None else environ
-    region = region or environment.get("DAPPER_RAY_REGION") or None
+    zone = zone or environment.get("DAPPER_RAY_ZONE") or None
     ray = _mapping(raw.get("ray"), "ray")
     storage = _mapping(raw.get("storage"), "storage")
     bootstrap = _mapping(ray.get("bootstrap"), "ray.bootstrap")
@@ -101,18 +101,18 @@ def parse_ray_bootstrap_config(
             "Ray workers are not configured. Set ray.bootstrap.worker_env_prefix "
             "and add numbered INSTANCE/ZONE pairs to .env."
         )
-    if region is not None:
-        selected_region = region.strip()
-        if not selected_region:
-            raise RayBootstrapConfigError("Ray region cannot be empty.")
+    if zone is not None:
+        selected_zone = zone.strip()
+        if not selected_zone:
+            raise RayBootstrapConfigError("Ray zone cannot be empty.")
         workers = [
             worker
             for worker in workers
-            if _region_from_zone(worker.zone) == selected_region
+            if worker.zone == selected_zone
         ]
         if not workers:
             raise RayBootstrapConfigError(
-                f"No configured Ray workers belong to region {selected_region!r}."
+                f"No configured Ray workers belong to zone {selected_zone!r}."
             )
     seen_names: set[str] = {head_name}
     for worker in workers:
@@ -194,12 +194,6 @@ def parse_ray_bootstrap_config(
     )
     _validate_port_contract(config)
     return config
-
-
-def _region_from_zone(zone: str) -> str:
-    """Return the GCE region represented by a zonal name."""
-    value = zone.strip()
-    return value.rsplit("-", 1)[0] if "-" in value else value
 
 
 def _workers_from_config(

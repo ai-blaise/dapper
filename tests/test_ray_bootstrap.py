@@ -95,7 +95,7 @@ def test_bootstrap_discovers_numbered_workers_from_environment():
     assert config.expected_nodes == 3
 
 
-def test_bootstrap_env_profile_selects_alternate_worker_group():
+def test_bootstrap_zone_selects_worker_group():
     raw = _raw()
     del raw["ray"]["expected_min_nodes"]
     raw["ray"]["bootstrap"].pop("workers")
@@ -105,36 +105,34 @@ def test_bootstrap_env_profile_selects_alternate_worker_group():
         raw,
         environ={
             "DAPPER_RAY_PORT": "26379",
-            "DAPPER_RAY_WORKER_ENV_PREFIX": "DAPPER_RAY_ARCHIVE_WORKER",
-            "DAPPER_RAY_ARCHIVE_WORKER_01_INSTANCE": "archive-a",
-            "DAPPER_RAY_ARCHIVE_WORKER_01_ZONE": "us-central1-a",
-            "DAPPER_RAY_ARCHIVE_WORKER_02_INSTANCE": "archive-b",
-            "DAPPER_RAY_ARCHIVE_WORKER_02_ZONE": "us-central1-b",
-            # The default group is present but must not be selected.
-            "DAPPER_RAY_WORKER_01_INSTANCE": "general-a",
-            "DAPPER_RAY_WORKER_01_ZONE": "us-east1-b",
-        },
-    )
-
-    assert [worker.instance for worker in config.workers] == ["archive-a", "archive-b"]
-    assert [worker.zone for worker in config.workers] == ["us-central1-a", "us-central1-b"]
-
-
-def test_bootstrap_uses_persistent_region_when_no_cli_region_is_given():
-    raw = _raw()
-    del raw["ray"]["expected_min_nodes"]
-    raw["ray"]["bootstrap"].pop("workers")
-    raw["ray"]["bootstrap"]["worker_env_prefix"] = "DAPPER_RAY_WORKER"
-
-    config = parse_ray_bootstrap_config(
-        raw,
-        environ={
-            "DAPPER_RAY_PORT": "26379",
-            "DAPPER_RAY_REGION": "us-central1",
             "DAPPER_RAY_WORKER_01_INSTANCE": "archive-a",
             "DAPPER_RAY_WORKER_01_ZONE": "us-central1-a",
             "DAPPER_RAY_WORKER_02_INSTANCE": "archive-b",
-            "DAPPER_RAY_WORKER_02_ZONE": "us-central1-b",
+            "DAPPER_RAY_WORKER_02_ZONE": "us-central1-a",
+            "DAPPER_RAY_WORKER_03_INSTANCE": "other",
+            "DAPPER_RAY_WORKER_03_ZONE": "us-east1-b",
+        },
+        zone="us-central1-a",
+    )
+
+    assert [worker.instance for worker in config.workers] == ["archive-a", "archive-b"]
+
+
+def test_bootstrap_uses_persistent_zone_when_no_cli_zone_is_given():
+    raw = _raw()
+    del raw["ray"]["expected_min_nodes"]
+    raw["ray"]["bootstrap"].pop("workers")
+    raw["ray"]["bootstrap"]["worker_env_prefix"] = "DAPPER_RAY_WORKER"
+
+    config = parse_ray_bootstrap_config(
+        raw,
+        environ={
+            "DAPPER_RAY_PORT": "26379",
+            "DAPPER_RAY_ZONE": "us-central1-a",
+            "DAPPER_RAY_WORKER_01_INSTANCE": "archive-a",
+            "DAPPER_RAY_WORKER_01_ZONE": "us-central1-a",
+            "DAPPER_RAY_WORKER_02_INSTANCE": "archive-b",
+            "DAPPER_RAY_WORKER_02_ZONE": "us-central1-a",
             "DAPPER_RAY_WORKER_03_INSTANCE": "other",
             "DAPPER_RAY_WORKER_03_ZONE": "us-east1-b",
         },

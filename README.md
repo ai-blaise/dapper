@@ -386,32 +386,32 @@ discovers all pairs and derives the required cluster size. The instance value
 is the GCE VM name, while `worker-01`, `worker-02`, and so on are display
 aliases.
 
-To run an archive on only the workers in one region, keep all workers in the
-same `.env` and select the region dynamically. The `.env.example` includes two
-fake nodes in `us-central1-a` and `us-central1-b`:
+To run an archive on only the workers in one zone, keep all workers in the same
+`.env` and select the zone dynamically. The `.env.example` includes two fake
+workers in each example zone:
 
 ```bash
-dapper ray init --region us-central1
+dapper ray init --zone us-central1-a
 dapper archive --sources zyda-2 --ray
 ```
 
-The region filter applies to the configured GCE zones, so `us-central1-a` and
-`us-central1-b` are grouped together. Stop the selected group with
-`dapper ray stop --region us-central1`.
+The zone filter selects only workers whose configured `ZONE` exactly matches
+the requested zone. Stop the selected group with
+`dapper ray stop --zone us-central1-a`.
 
-The `.env.example` models four workers split across two regions: workers 01/02
-in `us-central1` and workers 03/04 in `us-east4`. Select either pair with its
-region.
+The `.env.example` models four workers split across two zones: workers 01/02
+in `us-central1-a` and workers 03/04 in `us-east4-a`. Select either pair with
+its zone.
 
 The Ray head is the machine where `dapper ray init` runs; it is not worker 01
-or the first worker in a region. The `*_NAME` values in `.env` are readable
+or the first worker in a zone. The `*_NAME` values in `.env` are readable
 dashboard aliases for the worker VMs.
 
-For a persistent regional mode shared by all Ray-backed commands, put
-`DAPPER_RAY_REGION=us-central1` in the same `.env`. Then initialize the cluster
+For a persistent zonal mode shared by all Ray-backed commands, put
+`DAPPER_RAY_ZONE=us-central1-a` in the same `.env`. Then initialize the cluster
 with `dapper ray init`; archive, dedup, clustering, tokenization, and packing
-all use the connected regional Ray cluster. Remove the variable to return to
-the full configured worker set.
+all use the connected zonal Ray cluster. Remove the variable to return to the
+full configured worker set.
 
 The head resolves the Hugging Face manifest once. Each Ray task downloads one
 native file through Xet into a bounded RAM-disk spool, reads the Parquet file

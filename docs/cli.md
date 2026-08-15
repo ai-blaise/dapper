@@ -557,27 +557,26 @@ The numeric suffix also supplies the default display alias (`worker-01`,
 workers. The old singular `DAPPER_RAY_WORKER_INSTANCE` / `_ZONE` pair remains
 accepted for a one-worker deployment.
 
-All workers can remain in one `.env`; use `--region` to select a regional
-subset dynamically:
+All workers can remain in one `.env`; use `--zone` to select a zonal subset
+dynamically:
 
 ```bash
-dapper ray init --region us-central1
+dapper ray init --zone us-central1-a
 dapper archive --sources zyda-2 --ray
 ```
 
-The region is derived from each worker's GCE zone, so `us-central1-a` and
-`us-central1-b` are grouped together. Stop the selected group with
-`dapper ray stop --region us-central1`. The archive command connects to the
+The selector matches each worker's configured GCE zone exactly. Stop the
+selected group with `dapper ray stop --zone us-central1-a`. The archive command connects to the
 Ray cluster that `dapper ray init` started.
 
-The `.env.example` models four workers split across two regions: workers 01/02
-in `us-central1` and workers 03/04 in `us-east4`. Select either pair with its
-region.
+The `.env.example` models four workers split across two zones: workers 01/02
+in `us-central1-a` and workers 03/04 in `us-east4-a`. Select either pair with
+its zone.
 
 To make the selection persistent for every Ray-backed command, set
-`DAPPER_RAY_REGION=us-central1` in `.env`. With that setting, `dapper ray init`
-and `dapper ray stop` select the regional workers automatically, and dedup
-uses the same regional worker inventory when validating the connected cluster.
+`DAPPER_RAY_ZONE=us-central1-a` in `.env`. With that setting, `dapper ray init`
+and `dapper ray stop` select the zonal workers automatically, and dedup uses
+the same zonal worker inventory when validating the connected cluster.
 
 Run `hf auth login` as the Ray service OS user on the head and every worker
 before a full archive. Dapper explicitly requests the cached credential for
