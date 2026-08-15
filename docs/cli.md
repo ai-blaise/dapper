@@ -570,6 +570,10 @@ The region is derived from each worker's GCE zone, so `us-central1-a` and
 `dapper ray stop --region us-central1`. The archive command connects to the
 Ray cluster that `dapper ray init` started.
 
+The `.env.example` models four workers split across two regions: workers 01/02
+in `us-central1` and workers 03/04 in `us-east4`. Select either pair with its
+region.
+
 To make the selection persistent for every Ray-backed command, set
 `DAPPER_RAY_REGION=us-central1` in `.env`. With that setting, `dapper ray init`
 and `dapper ray stop` select the regional workers automatically, and dedup

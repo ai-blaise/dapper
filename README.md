@@ -399,6 +399,14 @@ The region filter applies to the configured GCE zones, so `us-central1-a` and
 `us-central1-b` are grouped together. Stop the selected group with
 `dapper ray stop --region us-central1`.
 
+The `.env.example` models four workers split across two regions: workers 01/02
+in `us-central1` and workers 03/04 in `us-east4`. Select either pair with its
+region.
+
+The Ray head is the machine where `dapper ray init` runs; it is not worker 01
+or the first worker in a region. The `*_NAME` values in `.env` are readable
+dashboard aliases for the worker VMs.
+
 For a persistent regional mode shared by all Ray-backed commands, put
 `DAPPER_RAY_REGION=us-central1` in the same `.env`. Then initialize the cluster
 with `dapper ray init`; archive, dedup, clustering, tokenization, and packing
