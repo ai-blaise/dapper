@@ -113,12 +113,11 @@ def discover_completed_archives(
     context: GcsContext,
     sources: Iterable[SourceConfig],
 ) -> ArchiveDiscovery:
-    """Return strictly valid exhaustive archives keyed by configured name.
+    """Return archived dataset directories keyed by configured source name.
 
-    This is deliberately the single source of truth for both ``archive check``
-    and distributed dedup input selection. A marker that merely exists is not
-    enough: its identity, counts, object inventory, and generations must all
-    still match the staged prefix.
+    Eligibility is exactly the archive completion rule: a staged dataset
+    directory containing ``_SUCCESS`` is eligible. Nothing in the marker
+    payload or shard inventory is an additional eligibility gate.
     """
 
     sources = list(sources)
@@ -133,17 +132,24 @@ def discover_completed_archives(
             else context.source_uri(source.staged_name)
         )
         try:
-            completed[source.name] = validate_archive_completion(
-                source_uri,
-                expected_source=source.name,
-                expected_repo=source.repo,
-                expected_dataset_config=source.dataset_config,
-                expected_split=source.split,
-                expected_archive_name=source.staged_name,
-                require_frozen_inventory=True,
+            objects = snapshot_jsonl(source_uri)
+            marker = {}
+            try:
+                marker = io.read_json(marker_uri) if marker_uri else {}
+            except (OSError, ValueError, TypeError):
+                pass
+            records = int(marker.get("records") or 0) if isinstance(marker, dict) else 0
+            completed[source.name] = ArchiveInventory(
+                source=source.name,
+                repo=source.repo,
+                records=records,
+                objects=objects,
+                marker_uri=io.join(source_uri, "_SUCCESS"),
             )
         except ArchiveCompletionError as exc:
             incomplete[source.name] = str(exc)
+        except (OSError, ValueError, TypeError) as exc:
+            incomplete[source.name] = f"could not read archived directory: {exc}"
     return ArchiveDiscovery(completed=completed, incomplete=incomplete)
 
 

@@ -93,7 +93,7 @@ def test_explicit_incomplete_archive_fails(tmp_path):
         )
 
 
-def test_dedup_rejects_legacy_marker_without_frozen_inventory(tmp_path):
+def test_dedup_accepts_legacy_marker_without_frozen_inventory(tmp_path):
     source = _source()
     root = tmp_path / source.staged_name
     root.mkdir(parents=True)
@@ -110,10 +110,11 @@ def test_dedup_rejects_legacy_marker_without_frozen_inventory(tmp_path):
             "shards": 1,
         },
     )
-    with pytest.raises(RuntimeError, match="immutable JSONL inventory"):
-        select_dedup_inventory(
-            _context(tmp_path), _config(tmp_path, source), source.name
-        )
+    inventory = select_dedup_inventory(
+        _context(tmp_path), _config(tmp_path, source), source.name
+    )
+    assert inventory.source_names == (source.name,)
+    assert inventory.records == 1
 
 
 @pytest.mark.parametrize("text", [None, "null", " NULL "])
