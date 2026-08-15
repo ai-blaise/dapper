@@ -27,6 +27,8 @@ tokenizer:
   padding:
     token: pad
     label_value: -100
+    # GLM-5.2 has no distinct PAD token; reuse EOS with padding masks.
+    reuse_eos: true
 
 ray:
   address: auto
