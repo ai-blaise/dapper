@@ -95,6 +95,31 @@ def test_bootstrap_discovers_numbered_workers_from_environment():
     assert config.expected_nodes == 3
 
 
+def test_bootstrap_env_profile_selects_alternate_worker_group():
+    raw = _raw()
+    del raw["ray"]["expected_min_nodes"]
+    raw["ray"]["bootstrap"].pop("workers")
+    raw["ray"]["bootstrap"]["worker_env_prefix"] = "DAPPER_RAY_WORKER"
+
+    config = parse_ray_bootstrap_config(
+        raw,
+        environ={
+            "DAPPER_RAY_PORT": "26379",
+            "DAPPER_RAY_WORKER_ENV_PREFIX": "DAPPER_RAY_ARCHIVE_WORKER",
+            "DAPPER_RAY_ARCHIVE_WORKER_01_INSTANCE": "archive-a",
+            "DAPPER_RAY_ARCHIVE_WORKER_01_ZONE": "us-central1-a",
+            "DAPPER_RAY_ARCHIVE_WORKER_02_INSTANCE": "archive-b",
+            "DAPPER_RAY_ARCHIVE_WORKER_02_ZONE": "us-central1-b",
+            # The default group is present but must not be selected.
+            "DAPPER_RAY_WORKER_01_INSTANCE": "general-a",
+            "DAPPER_RAY_WORKER_01_ZONE": "us-east1-b",
+        },
+    )
+
+    assert [worker.instance for worker in config.workers] == ["archive-a", "archive-b"]
+    assert [worker.zone for worker in config.workers] == ["us-central1-a", "us-central1-b"]
+
+
 def test_bootstrap_numbered_worker_requires_matching_zone():
     raw = _raw()
     raw["ray"]["bootstrap"].pop("workers")

@@ -66,6 +66,7 @@ def parse_ray_bootstrap_config(
     raw: dict[str, Any],
     *,
     environ: dict[str, str] | None = None,
+    region: str | None = None,
 ) -> RayBootstrapConfig:
     """Parse non-secret bootstrap targets from the project config."""
     environment = os.environ if environ is None else environ
@@ -81,7 +82,11 @@ def parse_ray_bootstrap_config(
         raise RayBootstrapConfigError("ray.bootstrap.provider currently supports only 'gcloud'.")
     head_name = _alias(bootstrap.get("head_name", "head"), "ray.bootstrap.head_name")
     workers_raw = bootstrap.get("workers")
-    worker_env_prefix = bootstrap.get("worker_env_prefix")
+    # An env-file profile may select a different numbered worker group while
+    # keeping the YAML topology unchanged (for example, two archive nodes).
+    worker_env_prefix = environment.get(
+        "DAPPER_RAY_WORKER_ENV_PREFIX", bootstrap.get("worker_env_prefix")
+    )
     if workers_raw is not None and worker_env_prefix is not None:
         raise RayBootstrapConfigError(
             "Configure either ray.bootstrap.workers or worker_env_prefix, not both."
@@ -95,6 +100,19 @@ def parse_ray_bootstrap_config(
             "Ray workers are not configured. Set ray.bootstrap.worker_env_prefix "
             "and add numbered INSTANCE/ZONE pairs to .env."
         )
+    if region is not None:
+        selected_region = region.strip()
+        if not selected_region:
+            raise RayBootstrapConfigError("Ray region cannot be empty.")
+        workers = [
+            worker
+            for worker in workers
+            if _region_from_zone(worker.zone) == selected_region
+        ]
+        if not workers:
+            raise RayBootstrapConfigError(
+                f"No configured Ray workers belong to region {selected_region!r}."
+            )
     seen_names: set[str] = {head_name}
     for worker in workers:
         if worker.name in seen_names:
@@ -175,6 +193,12 @@ def parse_ray_bootstrap_config(
     )
     _validate_port_contract(config)
     return config
+
+
+def _region_from_zone(zone: str) -> str:
+    """Return the GCE region represented by a zonal name."""
+    value = zone.strip()
+    return value.rsplit("-", 1)[0] if "-" in value else value
 
 
 def _workers_from_config(

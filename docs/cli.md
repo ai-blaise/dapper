@@ -557,6 +557,19 @@ The numeric suffix also supplies the default display alias (`worker-01`,
 workers. The old singular `DAPPER_RAY_WORKER_INSTANCE` / `_ZONE` pair remains
 accepted for a one-worker deployment.
 
+All workers can remain in one `.env`; use `--region` to select a regional
+subset dynamically:
+
+```bash
+dapper ray init --region us-central1
+dapper archive --sources zyda-2 --ray
+```
+
+The region is derived from each worker's GCE zone, so `us-central1-a` and
+`us-central1-b` are grouped together. Stop the selected group with
+`dapper ray stop --region us-central1`. The archive command connects to the
+Ray cluster that `dapper ray init` started.
+
 Run `hf auth login` as the Ray service OS user on the head and every worker
 before a full archive. Dapper explicitly requests the cached credential for
 manifest resolution and native-file downloads; it refuses to fall back to

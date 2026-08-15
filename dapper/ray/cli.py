@@ -40,6 +40,7 @@ def ray_main(argv: Sequence[str] | None = None) -> None:
         default=None,
         help="Load DAPPER_RAY_* values from this file; defaults to .env when present.",
     )
+    init.add_argument("--region", default=None, help="Use all configured workers in this GCE region.")
     init.add_argument(
         "--dry-run",
         action="store_true",
@@ -65,6 +66,7 @@ def ray_main(argv: Sequence[str] | None = None) -> None:
         default=None,
         help="Load DAPPER_RAY_* values from this file; defaults to .env when present.",
     )
+    stop.add_argument("--region", default=None, help="Stop configured workers in this GCE region.")
     stop.add_argument(
         "--no-progress",
         action="store_true",
@@ -76,7 +78,7 @@ def ray_main(argv: Sequence[str] | None = None) -> None:
     try:
         load_ray_environment(args.env_file)
         raw = load_config(args.config)
-        config = parse_ray_bootstrap_config(raw)
+        config = parse_ray_bootstrap_config(raw, region=args.region)
         if args.ray_command == "stop":
             result = stop_ray_cluster(config, progress=not args.no_progress)
         else:

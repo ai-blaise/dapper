@@ -386,6 +386,19 @@ discovers all pairs and derives the required cluster size. The instance value
 is the GCE VM name, while `worker-01`, `worker-02`, and so on are display
 aliases.
 
+To run an archive on only the workers in one region, keep all workers in the
+same `.env` and select the region dynamically. The `.env.example` includes two
+fake nodes in `us-central1-a` and `us-central1-b`:
+
+```bash
+dapper ray init --region us-central1
+dapper archive --sources zyda-2 --ray
+```
+
+The region filter applies to the configured GCE zones, so `us-central1-a` and
+`us-central1-b` are grouped together. Stop the selected group with
+`dapper ray stop --region us-central1`.
+
 The head resolves the Hugging Face manifest once. Each Ray task downloads one
 native file through Xet into a bounded RAM-disk spool, reads the Parquet file
 once in Arrow batches, and streams one deterministic JSONL object to GCS. The
