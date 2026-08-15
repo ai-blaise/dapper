@@ -404,8 +404,8 @@ in `us-central1-a` and workers 03/04 in `us-east4-a`. Select either pair with
 its zone.
 
 The Ray head is the machine where `dapper ray init` runs; it is not worker 01
-or the first worker in a zone. The `*_NAME` values in `.env` are readable
-dashboard aliases for the worker VMs.
+or the first worker in a zone. The worker `INSTANCE` and `ZONE` values are the
+only required per-worker settings.
 
 For a persistent zonal mode shared by all Ray-backed commands, put
 `DAPPER_RAY_ZONE=us-central1-a` in the same `.env`. Then initialize the cluster
