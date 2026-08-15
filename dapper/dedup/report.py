@@ -132,6 +132,30 @@ def format_datatrove_report(report: DataTroveDedupReport) -> str:
         console.print(
             kv_table(
                 [
+                    (
+                        "Run ID",
+                        _e(report.run_id)
+                        if report.run_id
+                        else f"[{MUTED}]legacy mutable run[/{MUTED}]",
+                    ),
+                    ("Executor", _e(report.executor)),
+                    (
+                        "Selected archives",
+                        _e(", ".join(report.selected_sources))
+                        if report.selected_sources
+                        else f"[{MUTED}]not recorded[/{MUTED}]",
+                    ),
+                    ("Input", f"{report.input_records:,} records · {report.input_shards:,} shards"),
+                    (
+                        "Dedup result",
+                        f"{report.kept_records:,} kept · {report.removed_records:,} removed · "
+                        f"{report.examined_records:,} examined"
+                        + (
+                            f" · {report.removed_records / report.examined_records:.2%} duplicate"
+                            if report.examined_records
+                            else ""
+                        ),
+                    ),
                     ("DataTrove input", _e(report.input_path)),
                     ("DataTrove work dir", _e(report.work_dir)),
                     ("Deduplicated output", f"[bold]{_e(report.output_path)}[/bold]"),
@@ -156,6 +180,11 @@ def format_datatrove_report(report: DataTroveDedupReport) -> str:
         )
 
         console.print()
+        if report.skipped_sources:
+            console.print(f"[{WARN}]Skipped archives:[/{WARN}]")
+            for source in report.skipped_sources:
+                console.print(f"  [{MUTED}]{_e(source)}[/{MUTED}]")
+            console.print()
         console.print("[bold]MinHash config:[/bold]")
         console.print(
             kv_table(

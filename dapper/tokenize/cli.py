@@ -48,9 +48,17 @@ def tokenize_main(argv: Sequence[str] | None = None) -> None:
         "--deduped",
         action="store_true",
         help=(
-            "Tokenize the deduplicated corpus (storage.output_prefix) instead "
-            "of a staged source. Corpus-wide, because dedup output is "
-            "partitioned by domain rather than by source."
+            "Tokenize one completed immutable dedup run instead of a staged "
+            "source. Corpus-wide, because dedup output is partitioned by "
+            "domain rather than by source."
+        ),
+    )
+    parser.add_argument(
+        "--dedup-run-id",
+        default=None,
+        help=(
+            "Completed immutable dedup run to tokenize. Required when more "
+            "than one completed dedup run exists."
         ),
     )
     parser.add_argument(
@@ -109,6 +117,8 @@ def tokenize_main(argv: Sequence[str] | None = None) -> None:
         _fail("--clustered and --pack must be used together.", EXIT_USAGE)
     if args.clustered and args.deduped:
         _fail("--clustered --pack consumes staged FineWeb, not --deduped output.", EXIT_USAGE)
+    if args.dedup_run_id and not args.deduped:
+        _fail("--dedup-run-id requires --deduped.", EXIT_USAGE)
     if args.clustered and args.source != "fineweb":
         _fail("--clustered --pack is defined only for the fineweb source.", EXIT_USAGE)
     pipeline = (
@@ -143,6 +153,7 @@ def tokenize_main(argv: Sequence[str] | None = None) -> None:
             output = run_tokenize(
                 args.source,
                 deduped=args.deduped,
+                dedup_run_id=args.dedup_run_id,
                 config_path=args.config,
                 force=args.force,
                 dry_run=args.dry_run,

@@ -1,6 +1,6 @@
 # Final spec: source-selective distributed deduplication
 
-Status: PROPOSED — ready for review; no implementation started.
+Status: IMPLEMENTED
 
 ## Objective
 
@@ -8,7 +8,7 @@ Add a safe source subset to GCS deduplication and execute the four-stage
 DataTrove MinHash pipeline across a pre-existing Ray cluster:
 
 ```bash
-dapper dedup --gcs --sources fineweb,recycling-the-web,libretexts
+dapper dedup --gcs --ray --sources fineweb,recycling-the-web,libretexts
 ```
 
 The selected datasets form one logical corpus. Deduplication therefore removes
@@ -48,7 +48,7 @@ command.
 ### Explicit subset
 
 ```bash
-dapper dedup --gcs --sources fineweb,libretexts,oercommons
+dapper dedup --gcs --ray --sources fineweb,libretexts,oercommons
 ```
 
 `--sources` uses the same resolution rules as `dapper archive --sources`:
@@ -66,13 +66,17 @@ path already defines its own scope.
 ### No subset
 
 ```bash
-dapper dedup --gcs
+dapper dedup --gcs --ray
 ```
 
-Omitting `--sources` selects the entire configured, archivable catalog. Every
-selected source must pass the same validation as an explicit subset. Dapper
-must not silently reduce the selection to whichever sources happen to be
-complete.
+Omitting `--sources` selects every configured archive that is valid and
+complete at run creation. Incomplete archives are reported and excluded. This
+allows a long archive driver and a dedup driver to coexist without admitting
+partially written data. Explicitly requested incomplete sources still fail.
+
+After completion validation, Dapper reads the first canonical JSONL record for
+each candidate. A missing `text`, JSON null, or case-insensitive literal
+`"null"` skips that dataset. If every candidate is skipped, no run starts.
 
 ### Failure classes
 
@@ -97,8 +101,10 @@ Source 'example' has a completion marker but no JSONL shards.
 Dedup was not started.
 ```
 
-One invalid selected source rejects the whole run. There is no partial-success
-mode and no initial force/ignore override.
+One incomplete explicitly requested source rejects the whole run. Under
+default selection, incomplete candidates are outside the frozen source set and
+are reported as skipped; there is no force/ignore override that admits one.
+The first-record null guard skips its dataset in either mode.
 
 ## Shared archive validation
 
@@ -533,7 +539,7 @@ Maximum configured workers is not automatically maximum useful throughput.
 
 ## Acceptance criteria
 
-- `dapper dedup --gcs --sources ...` reads exactly the requested, configured,
+- `dapper dedup --gcs --ray --sources ...` reads exactly the requested, configured,
   fully archived datasets.
 - A configured dataset without a valid exhaustive `_SUCCESS` marker is denied.
 - An unknown or absent dataset is denied before compute begins.

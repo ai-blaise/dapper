@@ -33,6 +33,28 @@ class DedupConfigError(ValueError):
     """Raised for malformed dedup configuration."""
 
 
+@dataclass(frozen=True)
+class DedupStageResources:
+    workers: int | None
+    cpus_per_task: int
+    memory_gb_per_task: float
+    tasks_per_job: int = 1
+
+
+@dataclass(frozen=True)
+class DedupRayConfig:
+    address: str
+    expected_min_nodes: int
+    node_names: dict[str, str]
+    show_node_addresses: bool
+    task_oversubscription: int
+    workers_per_bucket: int
+    signatures: DedupStageResources
+    buckets: DedupStageResources
+    clusters: DedupStageResources
+    filter: DedupStageResources
+
+
 def _parse_len_bins(raw: Any) -> tuple[int, ...]:
     """Validate and normalize the context-length bin edges."""
     if raw is None:
@@ -145,6 +167,46 @@ class DedupConfig:
     shuffle: bool
     shuffle_seed: int
     shuffle_buffer: int
+    ray: DedupRayConfig
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _positive_int(value: Any, label: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise DedupConfigError(f"{label} must be a positive integer.") from exc
+    if parsed < 1:
+        raise DedupConfigError(f"{label} must be a positive integer.")
+    return parsed
+
+
+def _stage_resources(
+    value: Any,
+    *,
+    default_cpus: int,
+    default_memory: float,
+) -> DedupStageResources:
+    raw = _mapping(value)
+    workers_raw = raw.get("workers", "auto")
+    workers = (
+        None
+        if workers_raw is None or str(workers_raw).lower() == "auto"
+        else _positive_int(workers_raw, "workers")
+    )
+    cpus = _positive_int(raw.get("cpus_per_task", default_cpus), "cpus_per_task")
+    memory = float(raw.get("memory_gb_per_task", default_memory))
+    if memory <= 0:
+        raise DedupConfigError("memory_gb_per_task must be positive.")
+    return DedupStageResources(
+        workers=workers,
+        cpus_per_task=cpus,
+        memory_gb_per_task=memory,
+        tasks_per_job=_positive_int(raw.get("tasks_per_job", 1), "tasks_per_job"),
+    )
 
 
 def _source_from_raw(
@@ -253,6 +315,8 @@ def parse_dedup_config(
     )
     datatrove = dedup.get("datatrove", {})
     datatrove = datatrove if isinstance(datatrove, dict) else {}
+    ray_raw = _mapping(config.get("ray"))
+    dedup_ray_raw = _mapping(datatrove.get("ray"))
     remote = dedup.get("remote", {})
     remote = remote if isinstance(remote, dict) else {}
     tokenize = config.get("tokenize", {})
@@ -331,4 +395,38 @@ def parse_dedup_config(
         # 0 = buffer the whole task, which is a full shuffle of everything a
         # task can see. >0 bounds memory for sources with larger input shards.
         shuffle_buffer=int(tokenize.get("shuffle_buffer", 0)),
+        ray=DedupRayConfig(
+            address=str(dedup_ray_raw.get("address", ray_raw.get("address", "auto"))),
+            expected_min_nodes=_positive_int(
+                dedup_ray_raw.get(
+                    "expected_min_nodes", ray_raw.get("expected_min_nodes", 2)
+                ),
+                "dedup.datatrove.ray.expected_min_nodes",
+            ),
+            node_names={
+                str(key): str(value)
+                for key, value in _mapping(ray_raw.get("node_names")).items()
+            },
+            show_node_addresses=bool(ray_raw.get("show_node_addresses", False)),
+            task_oversubscription=_positive_int(
+                dedup_ray_raw.get("task_oversubscription", 4),
+                "dedup.datatrove.ray.task_oversubscription",
+            ),
+            workers_per_bucket=_positive_int(
+                dedup_ray_raw.get("workers_per_bucket", 32),
+                "dedup.datatrove.ray.workers_per_bucket",
+            ),
+            signatures=_stage_resources(
+                dedup_ray_raw.get("signatures"), default_cpus=1, default_memory=2
+            ),
+            buckets=_stage_resources(
+                dedup_ray_raw.get("buckets"), default_cpus=1, default_memory=2
+            ),
+            clusters=_stage_resources(
+                dedup_ray_raw.get("clusters"), default_cpus=8, default_memory=48
+            ),
+            filter=_stage_resources(
+                dedup_ray_raw.get("filter"), default_cpus=1, default_memory=4
+            ),
+        ),
     )

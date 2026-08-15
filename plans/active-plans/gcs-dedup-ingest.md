@@ -239,17 +239,16 @@ Resolved:
 - **Ingest is concurrent** (`--ingest-workers`, default 4).
 - **Field mapping resolved once per source** instead of twice per record.
 - **DataTrove tasks auto-scale** to the ingested shard count.
-- **Executor is configurable** (`dedup.datatrove.executor: local|slurm`).
+- **Executor is configurable** (`local|ray|slurm`); `--gcs --ray` selects
+  DataTrove's native Ray executor and an immutable run directory.
 - **Collections expand** to member datasets: catalog 30 -> 58 entries,
   loadable 19 -> 51. Member domains are inferred from the repo name, because
   blind inheritance mis-tagged e.g. `Nemotron-CC-Math-v1` as general_web.
 - **tree-sitter removal is harmless** — no references anywhere in the repo.
 
-Known issue (upstream, not ours):
-
-- **`workers > 1` hangs.** Reproduced with a bare DataTrove pipeline and no
-  Dapper code involved. Keep `workers: 1` and scale with `tasks`. This is
-  almost certainly also the cause of the >300s `tests/` hang.
+Multi-node execution is implemented in
+`plans/active-plans/ray-dedup-execution.md`; it does not depend on the local
+executor's multiprocessing behavior.
 
 Still open:
 

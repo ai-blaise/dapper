@@ -122,7 +122,7 @@ Found by inspection this session; all block the vertical.
 ```bash
 dapper dedup --ingest --limit 1000        # test slice first
 dapper dedup --ingest                     # full; resumable, days
-dapper dedup --gcs                        # MinHash + tokenize + tag + manifest
+dapper dedup --gcs --ray                  # distributed MinHash + count + tag + manifest
 dapper manifest show                      # capacities per tag
 ```
 
@@ -157,7 +157,7 @@ dapper dedup --dry-run | --normalize | --exact | --plan-gcs
 
 ## Known issues carried forward
 
-- **`workers > 1` hangs.** Reproduces on a bare DataTrove pipeline with no
-  Dapper code. Use `tasks`.
+- **Ray dedup now uses native DataTrove `RayPipelineExecutor`.** Local executor
+  behavior is not used as evidence for multi-node throughput.
 - **GCS is still untested** — no credentials in the dev environment. Every
   `gs://` path is unexercised.

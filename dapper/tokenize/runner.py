@@ -13,6 +13,7 @@ what a run actually did.
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -55,6 +56,7 @@ def run_tokenize(
     source_name: str | None = None,
     *,
     deduped: bool = False,
+    dedup_run_id: str | None = None,
     config_path: str | None = None,
     force: bool = False,
     dry_run: bool = False,
@@ -67,6 +69,8 @@ def run_tokenize(
             "corpus is partitioned by domain, not by source, so there is no "
             f"{source_name!r} prefix within it to address."
         )
+    if dedup_run_id and not deduped:
+        raise ValueError("--dedup-run-id requires --deduped.")
     if not deduped and not source_name:
         raise ValueError(
             "Name a source to tokenize, or pass --deduped for the deduplicated "
@@ -75,12 +79,23 @@ def run_tokenize(
 
     config = parse_dedup_config(load_config(config_path))
     source = None if deduped else _resolve_one(source_name or "", config)
-    label = "deduped" if deduped else source.name
+    resolved_dedup_run_id: str | None = None
 
     # A dry run still verifies credentials: printing a confident plan and then
     # failing on auth would defeat the point.
     context = init_gcs(config)
-    input_uri = context.output_uri if deduped else context.source_uri(source.staged_name)
+    if deduped:
+        input_uri, resolved_dedup_run_id = _resolve_dedup_output(
+            context.output_uri, dedup_run_id
+        )
+        label = (
+            f"deduped-{resolved_dedup_run_id}"
+            if resolved_dedup_run_id
+            else "deduped"
+        )
+    else:
+        input_uri = context.source_uri(source.staged_name)
+        label = source.name
     tokens_uri = context.tokens_uri
     run_uri = io.join(tokens_uri, RUNS_DIRNAME, label)
 
@@ -152,12 +167,66 @@ def run_tokenize(
             "len_bins": list(config.len_bins),
             "shuffle_seed": config.shuffle_seed if config.shuffle else None,
             "input_uri": input_uri,
+            "dedup_run_id": resolved_dedup_run_id,
             "record_identifier_version": RECORD_IDENTIFIER_VERSION,
         },
     )
 
     return format_tokenize_report(
         replace(report, records=records, tokens=tokens, shards=shards)
+    )
+
+
+def _resolve_dedup_output(
+    output_root: str,
+    requested_run_id: str | None,
+) -> tuple[str, str | None]:
+    """Resolve one completed immutable dedup run, with legacy fallback."""
+
+    if requested_run_id:
+        if not re.fullmatch(r"[0-9a-f]{20}", requested_run_id):
+            raise TokenizeRunError(
+                "--dedup-run-id must be the 20-character hexadecimal ID emitted by dedup."
+            )
+        run_uri = io.join(output_root, "runs", requested_run_id)
+        marker_uri = io.join(run_uri, SUCCESS_MARKER)
+        if not io.exists(marker_uri):
+            raise TokenizeRunError(
+                f"Dedup run {requested_run_id} is not complete: missing {marker_uri}."
+            )
+        marker = io.read_json(marker_uri)
+        if marker.get("complete") is not True or marker.get("run_id") != requested_run_id:
+            raise TokenizeRunError(
+                f"Dedup run completion marker is invalid: {marker_uri}."
+            )
+        return run_uri, requested_run_id
+
+    candidates: list[tuple[str, str]] = []
+    for marker_uri in io.glob(io.join(output_root, "runs"), "*/_SUCCESS"):
+        try:
+            marker = io.read_json(marker_uri)
+        except (OSError, ValueError):
+            continue
+        run_id = str(marker.get("run_id") or "")
+        if marker.get("complete") is True and re.fullmatch(r"[0-9a-f]{20}", run_id):
+            candidates.append((marker_uri.rsplit("/", 1)[0], run_id))
+    candidates.sort(key=lambda item: item[1])
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        run_ids = ", ".join(run_id for _, run_id in candidates)
+        raise TokenizeRunError(
+            "Multiple completed dedup runs exist; select one with "
+            f"--dedup-run-id. Available: {run_ids}"
+        )
+
+    # Outputs produced before immutable dedup runs lived directly under the
+    # output root. Preserve that path until those corpora are migrated.
+    if io.glob(output_root, "domain=*/*.parquet") or io.glob(output_root, "*.parquet"):
+        return output_root, None
+    raise TokenizeRunError(
+        f"No completed dedup run exists under {io.join(output_root, 'runs')}. "
+        "Run `dapper dedup --gcs --ray` first."
     )
 
 

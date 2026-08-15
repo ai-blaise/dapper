@@ -119,12 +119,14 @@ class PipelineDashboard:
         self.cluster_run_id: str | None = None
         self.pack_run_id: str | None = None
         self.archive_run_id: str | None = None
+        self.dedup_run_id: str | None = None
         self.dataset_config: str | None = None
         self._lock = threading.RLock()
         self._stages: list[_StageState] = []
         self._stage_by_key: dict[str, _StageState] = {}
         self._topology: RunTopology | None = None
         self._ray_module: Any | None = None
+        self._ray_available_cpu: float | None = None
         self._telemetry: dict[str, dict[str, Any]] = {}
         self._stop = threading.Event()
         self._monitor: threading.Thread | None = None
@@ -167,6 +169,8 @@ class PipelineDashboard:
                 self.pack_run_id = value
             elif kind == "archive":
                 self.archive_run_id = value
+            elif kind == "dedup":
+                self.dedup_run_id = value
             else:
                 raise ValueError(f"Unknown run kind: {kind!r}")
 
@@ -294,6 +298,8 @@ class PipelineDashboard:
         runs = []
         if self.archive_run_id:
             runs.append(f"archive {self.archive_run_id}")
+        if self.dedup_run_id:
+            runs.append(f"dedup {self.dedup_run_id}")
         if self.cluster_run_id:
             runs.append(f"cluster {self.cluster_run_id}")
         if self.pack_run_id:
@@ -312,8 +318,18 @@ class PipelineDashboard:
         return Panel(line, subtitle=subtitle, border_style=PANEL_BORDER)
 
     def _render_nodes(self) -> Table:
+        resource_title = "Cluster resources"
+        if self.archive_run_id:
+            resource_title = "Ray archive resources"
+        elif self.dedup_run_id:
+            resource_title = "Ray dedup resources"
+        if self._topology is not None and self._ray_available_cpu is not None:
+            reserved = max(0.0, self._topology.total_cpu - self._ray_available_cpu)
+            resource_title += (
+                f" · {reserved:g}/{self._topology.total_cpu:g} logical CPU reserved"
+            )
         table = Table(
-            title=("Ray archive resources" if self.archive_run_id else "Cluster resources"),
+            title=resource_title,
             title_style="bold",
             header_style="bold",
             border_style=BORDER,
@@ -419,6 +435,9 @@ class PipelineDashboard:
             if stage.status == "running":
                 if stage.active_tasks:
                     task_text += f" · {stage.active_tasks:,} active"
+                    queued = max(0, stage.total - stage.completed - stage.active_tasks)
+                    if queued:
+                        task_text += f" · {queued:,} queued"
                 else:
                     task_text += f" · {stage.workers}w"
             rate = _rate_summary(
@@ -453,6 +472,10 @@ class PipelineDashboard:
     def _monitor_loop(self) -> None:
         while not self._stop.is_set():
             try:
+                if self._ray_module is not None:
+                    available = self._ray_module.available_resources()
+                    with self._lock:
+                        self._ray_available_cpu = float(available.get("CPU", 0.0))
                 readings = self._sample_nodes()
                 with self._lock:
                     for reading in readings:
@@ -512,6 +535,13 @@ def _duration(seconds: float) -> str:
 
 def _metric_summary(metrics: dict[str, float]) -> str:
     fields = (
+        ("records_examined", "examined"),
+        ("records_kept", "kept"),
+        ("records_removed", "removed"),
+        ("input_shards", "input shards"),
+        ("selected_sources", "sources"),
+        ("skipped_sources", "skipped"),
+        ("ray_nodes", "nodes"),
         ("documents", "docs"),
         ("documents_tokenized", "docs"),
         ("documents_assigned", "docs"),
@@ -556,6 +586,9 @@ def _metric_summary(metrics: dict[str, float]) -> str:
             rendered.append(f"{value:.2%} {label}")
         elif key.startswith("distance_"):
             rendered.append(f"{value:.3f} {label}")
+        elif key == "records_removed" and metrics.get("records_examined"):
+            ratio = value / metrics["records_examined"]
+            rendered.append(f"{int(value):,} {label} ({ratio:.2%})")
         else:
             rendered.append(f"{int(value):,} {label}")
         if len(rendered) == 3:
@@ -567,6 +600,8 @@ def _rate_summary(stage: _StageState, elapsed: float, outstanding: int) -> str:
     if elapsed <= 0:
         return "—"
     rate_fields = (
+        ("records_examined", "doc/s"),
+        ("records_kept", "doc/s"),
         ("source_tokens", "tok/s"),
         ("documents_tokenized", "doc/s"),
         ("documents_assigned", "doc/s"),

@@ -381,6 +381,37 @@ def test_one_of_source_or_deduped_is_required():
         run_tokenize()
 
 
+def test_completed_immutable_dedup_run_resolves(tmp_path):
+    from dapper.corpus import io
+    from dapper.tokenize.runner import _resolve_dedup_output
+
+    run_id = "a" * 20
+    run_uri = tmp_path / "runs" / run_id
+    run_uri.mkdir(parents=True)
+    io.write_json(
+        str(run_uri / "_SUCCESS"),
+        {"complete": True, "run_id": run_id},
+    )
+    assert _resolve_dedup_output(str(tmp_path), None) == (str(run_uri), run_id)
+    assert _resolve_dedup_output(str(tmp_path), run_id) == (str(run_uri), run_id)
+
+
+def test_multiple_dedup_runs_require_explicit_identity(tmp_path):
+    from dapper.corpus import io
+    from dapper.tokenize.runner import _resolve_dedup_output
+
+    for character in ("a", "b"):
+        run_id = character * 20
+        run_uri = tmp_path / "runs" / run_id
+        run_uri.mkdir(parents=True)
+        io.write_json(
+            str(run_uri / "_SUCCESS"),
+            {"complete": True, "run_id": run_id},
+        )
+    with pytest.raises(RuntimeError, match="--dedup-run-id"):
+        _resolve_dedup_output(str(tmp_path), None)
+
+
 # --- the tokenizing step --------------------------------------------------
 
 

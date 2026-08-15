@@ -176,8 +176,9 @@ dedup:
   remote:
     runner: null
   datatrove:
-    # 'local' is single-node and is the ceiling on total throughput.
-    # 'slurm' runs the stages across a cluster for a full-scale corpus.
+    # Bare `dapper dedup` remains local. `dapper dedup --gcs --ray` overrides
+    # this with DataTrove's native RayPipelineExecutor and connects to the
+    # already-running Dapper Ray cluster; it does not open another port.
     executor: local
     work_dir: .dapper/dedup/datatrove
     n_grams: 5
@@ -193,6 +194,30 @@ dedup:
     # measured for GLM-5.2), and this host has ~9GB free against 20 cores.
     # These runs are GCS-read-bound, so this is mostly I/O concurrency.
     workers: 8
+    ray:
+      # Auto-sized CPU stages reserve every registered core when the cluster is
+      # otherwise idle. Ray queues them safely behind an archive already using
+      # those logical resources, and newly-added nodes become usable capacity.
+      task_oversubscription: 4
+      workers_per_bucket: 32
+      signatures:
+        workers: auto
+        cpus_per_task: 1
+        memory_gb_per_task: 2
+      buckets:
+        workers: auto
+        cpus_per_task: 1
+        memory_gb_per_task: 2
+      # DataTrove's global union/find stage has one owner by design. Extra CPU
+      # helps its native code without pretending the state is distributed.
+      clusters:
+        workers: 1
+        cpus_per_task: 8
+        memory_gb_per_task: 48
+      filter:
+        workers: auto
+        cpus_per_task: 1
+        memory_gb_per_task: 4
 
 # The corpus. Sources are grouped by the loader that reads them, so the block
 # key supplies the type -- no `type:` field on every entry.

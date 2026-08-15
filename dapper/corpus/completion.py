@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from dapper.corpus import io
+
+if TYPE_CHECKING:
+    from dapper.corpus.gcs import GcsContext
+    from dapper.dedup.config import SourceConfig
 
 
 class ArchiveCompletionError(RuntimeError):
@@ -34,6 +39,10 @@ class ArchiveInventory:
     def total_bytes(self) -> int:
         return sum(item.size for item in self.objects)
 
+    @property
+    def source_uri(self) -> str:
+        return self.marker_uri.rsplit("/", 1)[0]
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "source": self.source,
@@ -44,6 +53,45 @@ class ArchiveInventory:
             "objects": [item.to_dict() for item in self.objects],
             "marker_uri": self.marker_uri,
         }
+
+
+@dataclass(frozen=True)
+class ArchiveDiscovery:
+    """Structured archive-check result shared by check and dedup."""
+
+    completed: dict[str, ArchiveInventory]
+    incomplete: dict[str, str]
+
+
+def discover_completed_archives(
+    context: GcsContext,
+    sources: Iterable[SourceConfig],
+) -> ArchiveDiscovery:
+    """Return strictly valid exhaustive archives keyed by configured name.
+
+    This is deliberately the single source of truth for both ``archive check``
+    and distributed dedup input selection. A marker that merely exists is not
+    enough: its identity, counts, object inventory, and generations must all
+    still match the staged prefix.
+    """
+
+    completed: dict[str, ArchiveInventory] = {}
+    incomplete: dict[str, str] = {}
+    for source in sources:
+        source_uri = context.source_uri(source.staged_name)
+        try:
+            completed[source.name] = validate_archive_completion(
+                source_uri,
+                expected_source=source.name,
+                expected_repo=source.repo,
+                expected_dataset_config=source.dataset_config,
+                expected_split=source.split,
+                expected_archive_name=source.staged_name,
+                require_frozen_inventory=True,
+            )
+        except ArchiveCompletionError as exc:
+            incomplete[source.name] = str(exc)
+    return ArchiveDiscovery(completed=completed, incomplete=incomplete)
 
 
 def snapshot_jsonl(source_uri: str) -> tuple[ArchiveObject, ...]:
@@ -63,6 +111,7 @@ def validate_archive_completion(
     expected_dataset_config: str | None = None,
     expected_split: str | None = None,
     expected_archive_name: str | None = None,
+    require_frozen_inventory: bool = False,
 ) -> ArchiveInventory:
     """Validate the marker payload and its exact staged-object inventory.
 
@@ -124,6 +173,16 @@ def validate_archive_completion(
         raise ArchiveCompletionError("Archive inventory contains an empty JSONL shard.")
 
     frozen = marker.get("inventory")
+    if require_frozen_inventory and frozen is None:
+        raise ArchiveCompletionError(
+            "Archive completion marker lacks the immutable JSONL inventory "
+            "required by distributed dedup. Re-run the archive to refresh it."
+        )
+    if require_frozen_inventory and any(item.generation is None for item in objects):
+        raise ArchiveCompletionError(
+            "Archive inventory lacks immutable object generations required by "
+            "distributed dedup."
+        )
     if frozen is not None:
         expected = [item.to_dict() for item in objects]
         if frozen != expected:

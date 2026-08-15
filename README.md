@@ -303,14 +303,17 @@ dapper archive check                  # count _SUCCESS markers by source
 dapper archive --limit 1000           # small slice to prove the path works
 dapper archive --sources fineweb --ray # full FineWeb across the Ray cluster
 
-# 2. Deduplicate. Corpus-wide by necessity: cross-source duplicates cannot be
-#    found one source at a time. Writes Parquet partitioned by domain=.
-dapper dedup --gcs
+# 2. Deduplicate every currently complete archive with native DataTrove Ray.
+#    This connects to the existing cluster; it does not start another service.
+dapper dedup --gcs --ray
+# Or freeze an explicit completed subset:
+dapper dedup --gcs --ray --sources c4,cosmopedia
 
 # 3. Tokenize into bin-partitioned WebDataset shards, in one pass.
 dapper tokenize fineweb --dry-run     # resolve corpus + tokenizer, write nothing
 dapper tokenize fineweb               # -> tokens/<bin>/shard-fineweb-*.tar
-dapper tokenize --deduped             # -> tokens/<bin>/shard-deduped-*.tar
+dapper tokenize --deduped             # one completed dedup run
+dapper tokenize --deduped --dedup-run-id <id>  # required when several exist
 
 # 4. Check a target mixture against what the corpus actually holds.
 dapper mixture check                  # exits 3 if any cell is unsatisfiable
@@ -336,6 +339,15 @@ domain from the manifest rather than reading and discarding samples.
 deduplicated corpus is partitioned by domain rather than by source, so there is
 no per-source prefix inside it to address.
 
+For FineWeb, the default `dapper tokenize fineweb` workflow clusters staged raw
+text before tokenization and packing. It hashes word 1–2 grams and `char_wb`
+3–5 grams into sparse features, L2-normalizes their weighted combination, fits
+128 broad lexical/topic groups with scikit-learn `MiniBatchKMeans` on a
+deterministic 1,000,000-document sample, then assigns the full corpus in
+distributed Ray tasks. Document length is not a clustering feature. This is
+topic-local packing, not duplicate detection; corpus dedup uses DataTrove
+MinHash instead.
+
 Run the whole pipeline in one sweep:
 
 ```bash
@@ -355,9 +367,11 @@ SIGHUP the process group:
 nohup dapper tokenize fineweb > tokenize.log 2>&1 &
 ```
 
-Interrupted runs resume. Archive skips sources with a `_SUCCESS` marker, and
-DataTrove records per-task completion markers under the output prefix, so a
-re-run picks up at the first incomplete task rather than restarting.
+Interrupted runs resume only when the immutable run identity is unchanged.
+Dedup strictly validates each exhaustive `_SUCCESS` marker against its JSONL
+inventory and object generations, freezes that source set, then checks every
+DataTrove rank marker before advancing. An archive that completes after dedup
+starts belongs to the next run.
 
 Full FineWeb uses its commit-pinned native Parquet files as Ray work units:
 
@@ -408,14 +422,23 @@ huggingface:
 
 dedup:
   datatrove:
-    executor: local   # 'slurm' fans the same tasks across a cluster
-    tasks: 1          # a floor; raised automatically to the input file count
-    workers: 8        # NOT auto-scaled -- caps how many tasks run at once
+    executor: local   # bare local command; --ray selects RayPipelineExecutor
+    tasks: 1
+    workers: 8
+    ray:
+      task_oversubscription: 4
+      workers_per_bucket: 32
+      signatures: {workers: auto, cpus_per_task: 1, memory_gb_per_task: 2}
+      buckets: {workers: auto, cpus_per_task: 1, memory_gb_per_task: 2}
+      clusters: {workers: 1, cpus_per_task: 8, memory_gb_per_task: 48}
+      filter: {workers: auto, cpus_per_task: 1, memory_gb_per_task: 4}
 ```
 
-Leaving `workers: 1` serializes the entire run no matter how many tasks exist.
-Bound it by RAM rather than cores: each worker loads its own tokenizer (~231 MB
-for GLM-5.2).
+On two 224-vCPU nodes, the document stages resolve to as many as 448 workers
+and 1,792 tasks; buckets resolve to `14 × 32 = 448` tasks. The global MinHash
+union/find stage remains one high-memory owner because stock DataTrove requires
+it. Ray queues dedup safely when an archive already reserves the cluster, and
+uses capacity from newly registered nodes without opening a second Ray port.
 
 Before adding workers, find out what you are actually waiting on. These jobs
 are often network-bound rather than CPU-bound — tokenizing ~10B tokens is
@@ -455,8 +478,8 @@ Pretraining corpus pipeline (GCS-backed, driven by `dapper.yaml`):
 | `dapper catalog list` | List configured corpus sources |
 | `dapper catalog show <source>` | Show one source in full |
 | `dapper archive` | Stream the HuggingFace catalog into GCS |
-| `dapper archive check` | Count archived sources from `_SUCCESS` markers |
-| `dapper dedup --gcs` | MinHash-deduplicate the archived corpus |
+| `dapper archive check` | Quickly count archive `_SUCCESS` markers |
+| `dapper dedup --gcs --ray` | Strictly freeze and MinHash-deduplicate completed archives on Ray |
 | `dapper tokenize <source>` | Tokenize one staged source into binned shards |
 | `dapper tokenize --deduped` | Tokenize the deduplicated corpus |
 | `dapper mixture check` | Check a target mixture against the token manifest |

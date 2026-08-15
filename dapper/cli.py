@@ -137,6 +137,22 @@ def _run_dedup(argv: Sequence[str] | None) -> None:
             "curriculum manifest."
         ),
     )
+    parser.add_argument(
+        "--ray",
+        action="store_true",
+        help=(
+            "Use DataTrove's native Ray executors on the existing cluster. "
+            "Requires --gcs."
+        ),
+    )
+    parser.add_argument(
+        "--sources",
+        default=None,
+        help=(
+            "Comma-separated completed archive names. The default freezes all "
+            "currently valid exhaustive archives."
+        ),
+    )
     from dapper.progress import add_progress_argument
 
     add_progress_argument(parser)
@@ -155,6 +171,8 @@ def _run_dedup(argv: Sequence[str] | None) -> None:
             stage_to=args.stage_to,
             plan_gcs=args.plan_gcs,
             gcs=args.gcs,
+            ray=args.ray,
+            sources=args.sources,
             progress=not args.no_progress,
         )
     except (ConfigError, RuntimeError, ValueError) as exc:

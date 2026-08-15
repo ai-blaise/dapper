@@ -36,7 +36,7 @@ The public `dapper` CLI currently exposes the core Dapper workflows:
 | `dapper parse` | Parse records under a selected schema |
 | `dapper mix` | Mix supported dataset directories into unified Parquet output |
 | `dapper archive` | Stream the HuggingFace source catalog into GCS |
-| `dapper archive check` | Count archived sources from `_SUCCESS` markers |
+| `dapper archive check` | Quickly count archived sources from `_SUCCESS` markers |
 | `dapper catalog` | Inspect the HuggingFace source catalog |
 | `dapper dedup` | Inspect, normalize, and deduplicate configured datasets |
 | `dapper run` | Archive then dedup in one sweep |
@@ -424,6 +424,8 @@ Options:
 | `--plan-gcs` | Print a local-to-GCS staging plan without normalizing or running dedup |
 | `--stage-to GS_URI` | Normalize locally, then print a GCS handoff plan for cloud-side dedup |
 | `--gcs` | Run the full DataTrove dedup against GCS in place, then write the curriculum manifest |
+| `--ray` | Use DataTrove `RayPipelineExecutor` on the existing Ray cluster; requires `--gcs` |
+| `--sources a,b` | Freeze an explicit set of completed archives; default is every currently valid completed archive |
 
 > Archiving moved to its own command. `--ingest`, `--limit`, `--force-ingest`,
 > and `--ingest-workers` are now [`dapper archive`](#dapper-archive). Passing
@@ -466,13 +468,52 @@ with `gcloud auth application-default login`, then:
 #    Nothing touches local disk. Use --limit for a cheap test slice first.
 dapper archive --limit 1000
 
-# 2. Run all four MinHash stages against the bucket in place.
-dapper dedup --gcs
+# 2. Run all four MinHash stages on the existing Ray cluster.
+dapper ray init
+dapper dedup --gcs --ray
 ```
 
-The two halves are fully decoupled: they communicate only through the
-staged-input prefix, so an archive can finish and sit for days before you
-dedup it.
+The two halves are fully decoupled. Ray dedup selects only exhaustive archives
+whose `_SUCCESS` identity, counts, JSONL inventory, and generations still
+match. It reads the first canonical record and skips a dataset when `text` is
+missing, JSON null, or the literal string `"null"`. The selected inventory is
+then immutable; later archive completions enter a later run.
+
+`--ray` connects with `ray.init(address="auto")`. It does not run `dapper ray
+init`, start another cluster, or choose a second port. Archive and dedup may be
+separate drivers on the same cluster; Ray queues logical reservations when the
+cluster is full. When `.env` defines the numbered private topology, every
+configured node must be registered and any unconfigured registered node aborts
+the run before DataTrove scheduling.
+
+The native DataTrove stages are:
+
+1. distributed MinHash signatures over the frozen JSONL path file;
+2. distributed MinHash bucket matching;
+3. one high-memory global duplicate-cluster owner (stock DataTrove union/find);
+4. distributed duplicate filtering, token counting, length tagging, and
+   domain-partitioned Parquet output using the exact same path file and rank
+   count as stage 1.
+
+Every stage must have all expected `logs/<stage>/completions/<rank>` markers.
+The final checks require `examined = kept + removed` and manifest documents to
+equal kept documents before output `_SUCCESS` is written.
+
+Run artifacts are isolated by immutable identity:
+
+```text
+<work-prefix>/runs/<run-id>/
+  run.json  inventory.json  selected-paths.txt
+  signatures/  buckets/  remove_ids/  removed/  manifest_parts/
+  logs/{signatures,buckets,clusters,filter}/
+<output-prefix>/runs/<run-id>/
+  domain=*/...  _manifest/manifest.json  _SUCCESS
+```
+
+`dapper tokenize --deduped` resolves this immutable output. If exactly one
+completed run exists it is selected automatically; when several exist, pass
+`dapper tokenize --deduped --dedup-run-id <id>`. Dapper never combines Parquet
+from separate dedup runs.
 
 Archiving is resumable. Each source gets a `_SUCCESS` marker when it finishes,
 and a re-run skips finished sources — so a failure partway through a multi-day
@@ -589,9 +630,10 @@ documents it writes and emits a partial manifest, and the partials are merged
 at the end. The corpus is never re-read to build it. Task count is scaled
 automatically to the number of ingested shards.
 
-> **Known issue:** `dedup.datatrove.workers` greater than 1 hangs. This
-> reproduces with a bare DataTrove pipeline and no Dapper code involved, so it
-> is upstream. Keep `workers: 1` and scale with `tasks` instead.
+The persistent Rich view reports per-node CPU, memory, network, RAM spool and
+load, plus cluster-wide logical Ray CPU reservations. Each stage shows durable
+completions, active and queued work, elapsed time, rate, ETA, and available
+examined/kept/removed counters.
 
 The manifest is a small sidecar holding per-`(domain, len_bucket, source)`
 document and token totals. A curriculum planner reads only this file to check a
