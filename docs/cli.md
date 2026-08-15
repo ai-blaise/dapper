@@ -570,6 +570,11 @@ The region is derived from each worker's GCE zone, so `us-central1-a` and
 `dapper ray stop --region us-central1`. The archive command connects to the
 Ray cluster that `dapper ray init` started.
 
+To make the selection persistent for every Ray-backed command, set
+`DAPPER_RAY_REGION=us-central1` in `.env`. With that setting, `dapper ray init`
+and `dapper ray stop` select the regional workers automatically, and dedup
+uses the same regional worker inventory when validating the connected cluster.
+
 Run `hf auth login` as the Ray service OS user on the head and every worker
 before a full archive. Dapper explicitly requests the cached credential for
 manifest resolution and native-file downloads; it refuses to fall back to

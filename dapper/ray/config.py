@@ -70,6 +70,7 @@ def parse_ray_bootstrap_config(
 ) -> RayBootstrapConfig:
     """Parse non-secret bootstrap targets from the project config."""
     environment = os.environ if environ is None else environ
+    region = region or environment.get("DAPPER_RAY_REGION") or None
     ray = _mapping(raw.get("ray"), "ray")
     storage = _mapping(raw.get("storage"), "storage")
     bootstrap = _mapping(ray.get("bootstrap"), "ray.bootstrap")

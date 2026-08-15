@@ -399,6 +399,12 @@ The region filter applies to the configured GCE zones, so `us-central1-a` and
 `us-central1-b` are grouped together. Stop the selected group with
 `dapper ray stop --region us-central1`.
 
+For a persistent regional mode shared by all Ray-backed commands, put
+`DAPPER_RAY_REGION=us-central1` in the same `.env`. Then initialize the cluster
+with `dapper ray init`; archive, dedup, clustering, tokenization, and packing
+all use the connected regional Ray cluster. Remove the variable to return to
+the full configured worker set.
+
 The head resolves the Hugging Face manifest once. Each Ray task downloads one
 native file through Xet into a bounded RAM-disk spool, reads the Parquet file
 once in Arrow batches, and streams one deterministic JSONL object to GCS. The
