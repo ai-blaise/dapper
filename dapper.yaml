@@ -62,7 +62,9 @@ ray:
     use_internal_ip: true
     # Bound validation of an already-open control port before replacing stale Ray.
     control_plane_timeout_seconds: 15
-    startup_timeout_seconds: 120
+    # Workers may need several minutes to accept SSH and register their
+    # raylets, especially when starting a full multi-zone cluster.
+    startup_timeout_seconds: 300
     poll_seconds: 1
     # Numbered DAPPER_RAY_WORKER_<NN>_INSTANCE/ZONE pairs in .env define the
     # complete worker set. Dapper derives the required node count from them.
