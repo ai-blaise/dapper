@@ -7,6 +7,8 @@ import signal
 from collections.abc import Sequence
 from types import FrameType
 
+from rich.text import Text
+
 from dapper.config import ConfigError, load_config
 from dapper.ray.bootstrap import (
     RayBootstrapError,
@@ -92,7 +94,10 @@ def ray_main(argv: Sequence[str] | None = None) -> None:
                 err_console.print(f"[bold red]Cleanup error:[/] {stop_exc}")
         raise SystemExit(130) from exc
     except (ConfigError, RayBootstrapConfigError, RayBootstrapError) as exc:
-        err_console.print(f"[bold red]Error:[/] {exc}")
+        # Keep exception text as a Text renderable: SSH commands and other
+        # diagnostics may contain square brackets that Rich would parse as
+        # markup if interpolated into the format string.
+        err_console.print("[bold red]Error:[/]", Text(str(exc)))
         raise SystemExit(1) from exc
     if isinstance(result, str):
         console.print(result)
