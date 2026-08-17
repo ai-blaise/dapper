@@ -126,10 +126,11 @@ class RayBootstrapDashboard:
             node.updated_at = time.monotonic()
             plain = not self.enabled and (status in {"ready", "failed"} or phase is not None)
         if plain:
-            self.console.print(
+            message = (
                 f"{name}: {phase or node.phase} — {status or node.status}"
                 + (f" ({detail})" if detail else "")
             )
+            self.console.print(Text(message))
 
     def _render(self):
         with self._lock:
