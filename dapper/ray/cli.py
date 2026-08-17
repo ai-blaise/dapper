@@ -40,7 +40,7 @@ def ray_main(argv: Sequence[str] | None = None) -> None:
         default=None,
         help="Load DAPPER_RAY_* values from this file; defaults to .env when present.",
     )
-    init.add_argument("--zone", default=None, help="Use all configured workers in this GCE zone.")
+    init.add_argument("--zone", default=None, help="Use workers in this GCE zone, or 'all' for every configured worker.")
     init.add_argument(
         "--dry-run",
         action="store_true",
@@ -66,7 +66,7 @@ def ray_main(argv: Sequence[str] | None = None) -> None:
         default=None,
         help="Load DAPPER_RAY_* values from this file; defaults to .env when present.",
     )
-    stop.add_argument("--zone", default=None, help="Stop configured workers in this GCE zone.")
+    stop.add_argument("--zone", default=None, help="Stop workers in this GCE zone, or 'all' for every configured worker.")
     stop.add_argument(
         "--no-progress",
         action="store_true",

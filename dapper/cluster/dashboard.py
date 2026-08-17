@@ -546,6 +546,7 @@ def _metric_summary(metrics: dict[str, float]) -> str:
         ("documents_tokenized", "docs"),
         ("documents_assigned", "docs"),
         ("documents_read", "docs"),
+        ("expected_documents", "docs total"),
         ("documents_considered", "docs"),
         ("sample_documents", "sample"),
         ("sample_candidates", "candidates"),
@@ -630,6 +631,17 @@ def _rate_summary(stage: _StageState, elapsed: float, outstanding: int) -> str:
     warmup_completions = min(stage.total, max(4, stage.workers // 4))
     if stage.active_tasks and stage.completed < warmup_completions:
         return f"{rendered_rate} · warming up"
+    expected_documents = stage.metrics.get("expected_documents")
+    document_key = next(
+        (key for key, _ in rate_fields if key.startswith("documents_") and stage.metrics.get(key)),
+        None,
+    )
+    if expected_documents and document_key:
+        documents_done = float(stage.metrics[document_key])
+        document_rate = documents_done / elapsed
+        if document_rate > 0:
+            eta = _duration(max(0.0, expected_documents - documents_done) / document_rate)
+            return f"{rendered_rate} · ETA {eta}"
     task_rate = stage.completed / elapsed
     eta = _duration(outstanding / task_rate) if task_rate > 0 else "—"
     return f"{rendered_rate} · ETA {eta}"

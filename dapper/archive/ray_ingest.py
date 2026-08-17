@@ -6,6 +6,7 @@ import sys
 import re
 import tempfile
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -110,6 +111,23 @@ def resolve_hf_shard_plan(
         split=split,
         files=files,
     )
+
+
+def count_hf_shard_documents(
+    files: tuple[str, ...], *, workers: int = 32, progress=None
+) -> int:
+    """Sum exact Parquet footer row counts without downloading column data."""
+    if not files:
+        return 0
+    total = 0
+    with ThreadPoolExecutor(max_workers=min(max(1, workers), len(files))) as pool:
+        futures = [pool.submit(_parquet_metadata, uri) for uri in files]
+        for completed, future in enumerate(as_completed(futures), start=1):
+            rows, _ = future.result()
+            total += rows
+            if progress is not None:
+                progress(completed, len(files))
+    return total
 
 
 def archive_hf_file_task(
@@ -357,11 +375,23 @@ def ingest_hf_ray(
         io.glob(io.join(destination, "logs", RAY_ARCHIVE_STAGE), "*.complete.json")
     )
     with dashboard.stage(
+        "archive-count",
+        "Count native records",
+        total=len(plan.files),
+        workers=min(32, len(plan.files)),
+    ) as count_report:
+        expected_documents = count_hf_shard_documents(
+            plan.files,
+            workers=32,
+            progress=lambda completed, total: count_report(completed, total),
+        )
+    with dashboard.stage(
         "archive-download",
         "Download + stage native FineWeb shards",
         total=len(plan.files),
         workers=stage.workers,
     ) as report:
+        report(0, len(plan.files), {"expected_documents": expected_documents})
         metrics = run_ranked(
             (
                 (

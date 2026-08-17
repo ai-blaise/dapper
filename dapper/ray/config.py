@@ -46,6 +46,7 @@ class RayBootstrapConfig:
     gcs_bucket: str | None
     expected_nodes: int
     workers: tuple[GcloudWorker, ...]
+    head_cpus: float | None = None
 
     @property
     def cluster_address(self) -> str:
@@ -105,15 +106,16 @@ def parse_ray_bootstrap_config(
         selected_zone = zone.strip()
         if not selected_zone:
             raise RayBootstrapConfigError("Ray zone cannot be empty.")
-        workers = [
-            worker
-            for worker in workers
-            if worker.zone == selected_zone
-        ]
-        if not workers:
-            raise RayBootstrapConfigError(
-                f"No configured Ray workers belong to zone {selected_zone!r}."
-            )
+        if selected_zone.lower() != "all":
+            workers = [
+                worker
+                for worker in workers
+                if worker.zone == selected_zone
+            ]
+            if not workers:
+                raise RayBootstrapConfigError(
+                    f"No configured Ray workers belong to zone {selected_zone!r}."
+                )
     seen_names: set[str] = {head_name}
     for worker in workers:
         if worker.name in seen_names:
@@ -191,6 +193,15 @@ def parse_ray_bootstrap_config(
         gcs_bucket=(str(storage["bucket"]) if storage.get("bucket") else None),
         expected_nodes=expected_nodes,
         workers=tuple(workers),
+        head_cpus=(
+            None
+            if environment.get("DAPPER_RAY_HEAD_CPUS", bootstrap.get("head_cpus"))
+            in {None, ""}
+            else _positive_float(
+                environment.get("DAPPER_RAY_HEAD_CPUS", bootstrap.get("head_cpus")),
+                "ray.bootstrap.head_cpus",
+            )
+        ),
     )
     _validate_port_contract(config)
     return config

@@ -141,6 +141,26 @@ def test_bootstrap_uses_persistent_zone_when_no_cli_zone_is_given():
     assert [worker.instance for worker in config.workers] == ["archive-a", "archive-b"]
 
 
+def test_bootstrap_zone_all_keeps_workers_across_zones():
+    raw = _raw()
+    raw["ray"]["bootstrap"].pop("workers")
+    raw["ray"]["bootstrap"]["worker_env_prefix"] = "DAPPER_RAY_WORKER"
+
+    config = parse_ray_bootstrap_config(
+        raw,
+        environ={
+            "DAPPER_RAY_PORT": "26379",
+            "DAPPER_RAY_WORKER_01_INSTANCE": "worker-a",
+            "DAPPER_RAY_WORKER_01_ZONE": "us-central1-a",
+            "DAPPER_RAY_WORKER_02_INSTANCE": "worker-b",
+            "DAPPER_RAY_WORKER_02_ZONE": "us-east4-a",
+        },
+        zone="all",
+    )
+
+    assert [worker.instance for worker in config.workers] == ["worker-a", "worker-b"]
+
+
 def test_bootstrap_numbered_worker_requires_matching_zone():
     raw = _raw()
     raw["ray"]["bootstrap"].pop("workers")

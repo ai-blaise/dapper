@@ -82,6 +82,7 @@ def build_head_command(config: RayBootstrapConfig) -> list[str]:
         config.dashboard_host,
         "--dashboard-port",
         str(config.dashboard_port),
+        *(["--num-cpus", str(config.head_cpus)] if config.head_cpus is not None else []),
         "--resources",
         json.dumps({_resource_key(config.head_name): 1}, separators=(",", ":")),
         *_ray_node_port_args(config),
