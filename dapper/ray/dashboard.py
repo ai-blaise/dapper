@@ -10,6 +10,7 @@ from typing import Self
 
 from rich.console import Console, Group
 from rich.live import Live
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -175,15 +176,26 @@ class RayBootstrapDashboard:
                 )
             status = f"[{style}]{icon} {node.status}[/]"
             if narrow:
-                operation = node.phase
+                operation = escape(node.phase)
                 diagnostics = " · ".join(
-                    value for value in (resources if resources != "—" else "", node.detail) if value
+                    value
+                    for value in (
+                        resources if resources != "—" else "",
+                        escape(node.detail),
+                    )
+                    if value
                 )
                 if diagnostics:
                     operation += f"\n[dim]{diagnostics}[/dim]"
                 table.add_row(name, status, operation)
             else:
-                table.add_row(name, status, node.phase, resources, node.detail)
+                table.add_row(
+                    name,
+                    status,
+                    escape(node.phase),
+                    resources,
+                    escape(node.detail),
+                )
         return table
 
 
