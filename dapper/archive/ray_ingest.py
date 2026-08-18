@@ -370,13 +370,10 @@ def ingest_hf_ray(
         topology.nodes,
         len(plan.files),
     )
-    _discard_invalid_completions(destination, plan)
-    completed_before = len(
-        io.glob(io.join(destination, "logs", RAY_ARCHIVE_STAGE), "*.complete.json")
-    )
+    completed_before, documents_before = _discard_invalid_completions(destination, plan)
     with dashboard.stage(
         "archive-count",
-        "Count native records",
+        "Count input Parquet documents",
         total=len(plan.files),
         workers=min(32, len(plan.files)),
     ) as count_report:
@@ -387,11 +384,19 @@ def ingest_hf_ray(
         )
     with dashboard.stage(
         "archive-download",
-        f"Download + stage native {source.name} shards",
+        f"Parquet → JSONL: {source.name}",
         total=len(plan.files),
         workers=stage.workers,
     ) as report:
-        report(0, len(plan.files), {"total_documents": expected_documents})
+        report(
+            0,
+            len(plan.files),
+            {
+                "total_documents": expected_documents,
+                "previous_shards": completed_before,
+                "previous_documents": documents_before,
+            },
+        )
 
         def on_progress(
             completed: int,
@@ -404,6 +409,8 @@ def ingest_hf_ray(
             display_metrics = dict(metrics or {})
             display_metrics.pop("expected_documents", None)
             display_metrics["total_documents"] = expected_documents
+            display_metrics["previous_shards"] = completed_before
+            display_metrics["previous_documents"] = documents_before
             report(completed, total, display_metrics)
 
         metrics = run_ranked(
@@ -490,10 +497,14 @@ def _guard_source_plan(destination: str, plan: HfShardPlan) -> None:
     io.write_json(target, frozen, indent=2)
 
 
-def _discard_invalid_completions(destination: str, plan: HfShardPlan) -> None:
+def _discard_invalid_completions(
+    destination: str, plan: HfShardPlan
+) -> tuple[int, int]:
     """Reject missing, partial, or wrong-input outputs before resuming."""
     outputs = set(io.glob(destination, "part-*.jsonl"))
     marker_prefix = io.join(destination, "logs", RAY_ARCHIVE_STAGE)
+    completed_shards = 0
+    completed_documents = 0
     for target in io.glob(marker_prefix, "*.complete.json"):
         try:
             payload = io.read_json(target)
@@ -518,3 +529,7 @@ def _discard_invalid_completions(destination: str, plan: HfShardPlan) -> None:
             valid = False
         if not valid:
             io.delete(target, recursive=False)
+            continue
+        completed_shards += 1
+        completed_documents += int(metrics.get("documents_read", 0))
+    return completed_shards, completed_documents

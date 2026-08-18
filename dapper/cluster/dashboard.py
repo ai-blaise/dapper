@@ -289,6 +289,8 @@ class PipelineDashboard:
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 if key == "total_documents":
                     stage.metrics[key] = max(stage.metrics.get(key, 0.0), float(value))
+                elif key in {"previous_shards", "previous_documents"}:
+                    stage.metrics[key] = max(stage.metrics.get(key, 0.0), float(value))
                 else:
                     stage.metrics[key] += float(value)
 
@@ -435,12 +437,25 @@ class PipelineDashboard:
             )
             outstanding = max(0, stage.total - stage.completed)
             task_text = f"{stage.completed:,}/{stage.total:,}"
+            if stage.key == "archive-count":
+                task_text = (
+                    f"{stage.completed:,}/{stage.total:,} input Parquet shards"
+                )
+            if stage.key == "archive-download":
+                previous_shards = int(stage.metrics.get("previous_shards", 0))
+                current_shards = max(0, stage.completed - previous_shards)
+                task_text = (
+                    f"{stage.completed:,}/{stage.total:,} output JSONL shards complete "
+                    f"({previous_shards:,} before run + {current_shards:,} this run)"
+                )
             if stage.status == "running":
                 if stage.active_tasks:
                     task_text += f" · {stage.active_tasks:,} active"
                     queued = max(0, stage.total - stage.completed - stage.active_tasks)
                     if queued:
                         task_text += f" · {queued:,} queued"
+                    if stage.key == "archive-download" and outstanding:
+                        task_text += f" · {outstanding:,} remaining"
                 else:
                     task_text += f" · {stage.workers}w"
             rate = _rate_summary(
@@ -544,9 +559,13 @@ def _metric_summary(metrics: dict[str, float]) -> str:
     completed_documents = metrics.get("documents_read")
     total_documents = metrics.get("total_documents")
     if completed_documents is not None and total_documents is not None:
+        previous_documents = metrics.get("previous_documents", 0.0)
+        current_documents = max(0.0, completed_documents - previous_documents)
         remaining_documents = max(0.0, total_documents - completed_documents)
         return (
-            f"{int(completed_documents):,} docs complete · "
+            f"{int(completed_documents):,} docs complete "
+            f"({int(previous_documents):,} before run + "
+            f"{int(current_documents):,} this run) · "
             f"{int(total_documents):,} docs total · "
             f"{int(remaining_documents):,} docs remaining"
         )
