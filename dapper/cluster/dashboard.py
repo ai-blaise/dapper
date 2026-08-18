@@ -442,9 +442,13 @@ class PipelineDashboard:
                     f"{stage.completed:,}/{stage.total:,} input Parquet shards"
                 )
             if stage.key == "archive-resume":
-                task_text = (
-                    f"{stage.completed:,}/{stage.total:,} existing JSONL shards validated"
-                )
+                if stage.status == "running" and stage.completed == 0:
+                    task_text = "scanning existing GCS JSONL outputs"
+                else:
+                    task_text = (
+                        f"{stage.completed:,}/{stage.total:,} existing GCS JSONL "
+                        "outputs validated"
+                    )
             if stage.key == "archive-download":
                 previous_shards = int(stage.metrics.get("previous_shards", 0))
                 current_shards = max(0, stage.completed - previous_shards)

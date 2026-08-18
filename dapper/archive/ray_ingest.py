@@ -372,18 +372,18 @@ def ingest_hf_ray(
     )
     with dashboard.stage(
         "archive-resume",
-        "Validate existing JSONL shards",
+        "Validate existing GCS JSONL outputs",
         total=1,
         workers=32,
     ) as resume_report:
-        completed_before, documents_before = _discard_invalid_completions(
+        completed_before, documents_before, existing_outputs = _discard_invalid_completions(
             destination,
             plan,
             progress=lambda completed, total: resume_report(completed, total),
         )
         resume_report(
             completed_before,
-            len(plan.files),
+            max(1, existing_outputs),
             {
                 "previous_shards": completed_before,
                 "previous_documents": documents_before,
@@ -519,7 +519,7 @@ def _discard_invalid_completions(
     destination: str,
     plan: HfShardPlan,
     progress: Any | None = None,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     """Reject missing, partial, or wrong-input outputs before resuming."""
     outputs = set(io.glob(destination, "part-*.jsonl"))
     marker_prefix = io.join(destination, "logs", RAY_ARCHIVE_STAGE)
@@ -557,4 +557,4 @@ def _discard_invalid_completions(
             continue
         completed_shards += 1
         completed_documents += int(metrics.get("documents_read", 0))
-    return completed_shards, completed_documents
+    return completed_shards, completed_documents, len(targets)
