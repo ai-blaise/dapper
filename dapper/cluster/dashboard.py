@@ -441,6 +441,10 @@ class PipelineDashboard:
                 task_text = (
                     f"{stage.completed:,}/{stage.total:,} input Parquet shards"
                 )
+            if stage.key == "archive-resume":
+                task_text = (
+                    f"{stage.completed:,}/{stage.total:,} existing JSONL shards validated"
+                )
             if stage.key == "archive-download":
                 previous_shards = int(stage.metrics.get("previous_shards", 0))
                 current_shards = max(0, stage.completed - previous_shards)
@@ -568,6 +572,11 @@ def _metric_summary(metrics: dict[str, float]) -> str:
             f"{int(current_documents):,} this run) · "
             f"{int(total_documents):,} docs total · "
             f"{int(remaining_documents):,} docs remaining"
+        )
+    if "previous_shards" in metrics or "previous_documents" in metrics:
+        return (
+            f"{int(metrics.get('previous_shards', 0)):,} JSONL shards reused · "
+            f"{int(metrics.get('previous_documents', 0)):,} docs reused"
         )
     fields = (
         ("records_examined", "examined"),

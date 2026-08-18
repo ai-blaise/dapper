@@ -370,7 +370,25 @@ def ingest_hf_ray(
         topology.nodes,
         len(plan.files),
     )
-    completed_before, documents_before = _discard_invalid_completions(destination, plan)
+    with dashboard.stage(
+        "archive-resume",
+        "Validate existing JSONL shards",
+        total=1,
+        workers=32,
+    ) as resume_report:
+        completed_before, documents_before = _discard_invalid_completions(
+            destination,
+            plan,
+            progress=lambda completed, total: resume_report(completed, total),
+        )
+        resume_report(
+            completed_before,
+            len(plan.files),
+            {
+                "previous_shards": completed_before,
+                "previous_documents": documents_before,
+            },
+        )
     with dashboard.stage(
         "archive-count",
         "Count input Parquet documents",
@@ -498,14 +516,21 @@ def _guard_source_plan(destination: str, plan: HfShardPlan) -> None:
 
 
 def _discard_invalid_completions(
-    destination: str, plan: HfShardPlan
+    destination: str,
+    plan: HfShardPlan,
+    progress: Any | None = None,
 ) -> tuple[int, int]:
     """Reject missing, partial, or wrong-input outputs before resuming."""
     outputs = set(io.glob(destination, "part-*.jsonl"))
     marker_prefix = io.join(destination, "logs", RAY_ARCHIVE_STAGE)
     completed_shards = 0
     completed_documents = 0
-    for target in io.glob(marker_prefix, "*.complete.json"):
+    targets = io.glob(marker_prefix, "*.complete.json")
+    if progress is not None:
+        progress(0, max(1, len(targets)))
+    for index, target in enumerate(targets, start=1):
+        if progress is not None:
+            progress(index, max(1, len(targets)))
         try:
             payload = io.read_json(target)
             rank = int(payload["rank"])
