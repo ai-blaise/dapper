@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import signal
+import subprocess
 from collections.abc import Sequence
 from types import FrameType
 
@@ -74,6 +75,21 @@ def ray_main(argv: Sequence[str] | None = None) -> None:
         action="store_true",
         help="Disable the live dashboard and print node transitions as plain lines.",
     )
+    status = commands.add_parser(
+        "status",
+        help="Show the connected Ray cluster status without changing it.",
+    )
+    status.add_argument("--config", default=None, help="Config file override.")
+    status.add_argument(
+        "--env-file",
+        default=None,
+        help="Load DAPPER_RAY_* values from this file; defaults to .env when present.",
+    )
+    status.add_argument(
+        "--zone",
+        default=None,
+        help="Validate against workers in this GCE zone, or 'all'.",
+    )
     args = parser.parse_args(list(argv or []))
 
     config = None
@@ -83,6 +99,8 @@ def ray_main(argv: Sequence[str] | None = None) -> None:
         config = parse_ray_bootstrap_config(raw, zone=args.zone)
         if args.ray_command == "stop":
             result = stop_ray_cluster(config, progress=not args.no_progress)
+        elif args.ray_command == "status":
+            result = _ray_status(config)
         else:
             result = _start_with_termination_cleanup(config, args)
     except KeyboardInterrupt as exc:
@@ -121,6 +139,20 @@ def _start_with_termination_cleanup(
         )
     finally:
         signal.signal(signal.SIGTERM, previous)
+
+
+def _ray_status(config: RayBootstrapConfig) -> str:
+    """Return the read-only status of the configured Ray control plane."""
+    completed = subprocess.run(
+        [config.ray_executable, "status", "--address", config.cluster_address],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip()
+        raise RayBootstrapError(detail or "Ray status failed.")
+    return completed.stdout.rstrip()
 
 
 def _interrupt_for_shutdown(signum: int, frame: FrameType | None) -> None:
