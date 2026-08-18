@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import signal
-import subprocess
 from collections.abc import Sequence
 from types import FrameType
 
@@ -143,16 +142,35 @@ def _start_with_termination_cleanup(
 
 def _ray_status(config: RayBootstrapConfig) -> str:
     """Return the read-only status of the configured Ray control plane."""
-    completed = subprocess.run(
-        [config.ray_executable, "status", "--address", config.cluster_address],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout).strip()
-        raise RayBootstrapError(detail or "Ray status failed.")
-    return completed.stdout.rstrip()
+    try:
+        import ray
+    except ImportError as exc:  # pragma: no cover - dependency validation
+        raise RayBootstrapError("Ray is not installed in the Dapper environment.") from exc
+
+    try:
+        ray.init(address=config.cluster_address, ignore_reinit_error=True)
+        nodes = ray.nodes()
+        resources = ray.cluster_resources()
+    except Exception as exc:  # noqa: BLE001
+        raise RayBootstrapError(f"Could not query Ray status: {exc}") from exc
+
+    alive = [node for node in nodes if node.get("Alive")]
+    dead = [node for node in nodes if not node.get("Alive")]
+    lines = [
+        f"Ray cluster: {config.cluster_address}",
+        f"Nodes: {len(alive)} alive, {len(dead)} dead",
+        f"CPU: {resources.get('CPU', 0):g}",
+        f"GPU: {resources.get('GPU', 0):g}",
+        f"Memory: {resources.get('memory', 0) / (1024**4):.2f} TiB",
+    ]
+    for node in alive:
+        lines.append(
+            f"  ALIVE {node.get('NodeManagerAddress', 'unknown')} "
+            f"{node.get('Resources', {})}"
+        )
+    for node in dead:
+        lines.append(f"  DEAD  {node.get('NodeManagerAddress', 'unknown')}")
+    return "\n".join(lines)
 
 
 def _interrupt_for_shutdown(signum: int, frame: FrameType | None) -> None:
