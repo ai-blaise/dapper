@@ -287,7 +287,10 @@ class PipelineDashboard:
             return
         for key, value in metrics.items():
             if isinstance(value, (int, float)) and not isinstance(value, bool):
-                stage.metrics[key] += float(value)
+                if key == "total_documents":
+                    stage.metrics[key] = max(stage.metrics.get(key, 0.0), float(value))
+                else:
+                    stage.metrics[key] += float(value)
 
     def _render(self) -> Group:
         with self._lock:
@@ -534,6 +537,19 @@ def _duration(seconds: float) -> str:
 
 
 def _metric_summary(metrics: dict[str, float]) -> str:
+    # Archive progress is exact: completed documents come from validated
+    # shard metrics, while expected documents come from Parquet footer counts.
+    # Keep the three values together so the display cannot be mistaken for an
+    # approximate throughput estimate.
+    completed_documents = metrics.get("documents_read")
+    total_documents = metrics.get("total_documents")
+    if completed_documents is not None and total_documents is not None:
+        remaining_documents = max(0.0, total_documents - completed_documents)
+        return (
+            f"{int(completed_documents):,} docs complete · "
+            f"{int(total_documents):,} docs total · "
+            f"{int(remaining_documents):,} docs remaining"
+        )
     fields = (
         ("records_examined", "examined"),
         ("records_kept", "kept"),
@@ -631,16 +647,16 @@ def _rate_summary(stage: _StageState, elapsed: float, outstanding: int) -> str:
     warmup_completions = min(stage.total, max(4, stage.workers // 4))
     if stage.active_tasks and stage.completed < warmup_completions:
         return f"{rendered_rate} · warming up"
-    expected_documents = stage.metrics.get("expected_documents")
+    total_documents = stage.metrics.get("total_documents")
     document_key = next(
         (key for key, _ in rate_fields if key.startswith("documents_") and stage.metrics.get(key)),
         None,
     )
-    if expected_documents and document_key:
+    if total_documents and document_key:
         documents_done = float(stage.metrics[document_key])
         document_rate = documents_done / elapsed
         if document_rate > 0:
-            eta = _duration(max(0.0, expected_documents - documents_done) / document_rate)
+            eta = _duration(max(0.0, total_documents - documents_done) / document_rate)
             return f"{rendered_rate} · ETA {eta}"
     task_rate = stage.completed / elapsed
     eta = _duration(outstanding / task_rate) if task_rate > 0 else "—"

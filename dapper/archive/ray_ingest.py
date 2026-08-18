@@ -387,11 +387,25 @@ def ingest_hf_ray(
         )
     with dashboard.stage(
         "archive-download",
-        "Download + stage native FineWeb shards",
+        f"Download + stage native {source.name} shards",
         total=len(plan.files),
         workers=stage.workers,
     ) as report:
-        report(0, len(plan.files), {"expected_documents": expected_documents})
+        report(0, len(plan.files), {"total_documents": expected_documents})
+
+        def on_progress(
+            completed: int,
+            total: int,
+            metrics: dict[str, Any] | None,
+        ) -> None:
+            # ``expected_documents`` is per native shard in task metrics. Do
+            # not sum it into the dashboard repeatedly; the count stage gives
+            # us one authoritative dataset total.
+            display_metrics = dict(metrics or {})
+            display_metrics.pop("expected_documents", None)
+            display_metrics["total_documents"] = expected_documents
+            report(completed, total, display_metrics)
+
         metrics = run_ranked(
             (
                 (
@@ -407,7 +421,7 @@ def ingest_hf_ray(
             ray_module=ray_module,
             cpus_per_task=stage.cpus_per_task,
             memory_bytes_per_task=stage.memory_bytes_per_task,
-            on_progress=report,
+            on_progress=on_progress,
             on_activity=report.activity,
         )
 
